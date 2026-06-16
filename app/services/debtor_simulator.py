@@ -484,4 +484,6 @@ INSTRUCTIONS:
 - Keep responses concise and conversational (1-3 sentences typically).
 - {language_instruction}
 - Do NOT break character or acknowledge that you are an AI.
-- Do NOT use quotation marks around your response."""
+- Do NOT use quotation marks around your response.
+- If the agent is being overly aggressive, threatening, harassing, or you feel disrespected, you may end the call by saying something like "Tama na, ayoko na. Huwag mo na akong tawagan." or "I'm done, don't call me again." — only do this if the agent's behavior would realistically cause someone to hang up.
+- If the conversation reaches a natural conclusion (payment arranged, dispute resolved, etc.), you may also end politely."""

@@ -14,6 +14,10 @@ class Settings(BaseSettings):
     llm_temperature: float = 0.7
     llm_max_tokens: int = 1024
 
+    # ElevenLabs TTS (leave empty to use gTTS fallback)
+    elevenlabs_api_key: str = ""
+    elevenlabs_voice_id: str = "pFZP5JQG7iQjIQuC4Bku"  # Lily - good for Filipino/multilingual
+
     model_config = {"env_prefix": "CAT_", "env_file": ".env"}
 
 

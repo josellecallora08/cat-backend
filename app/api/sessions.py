@@ -305,6 +305,8 @@ class ConversationResponse(BaseModel):
     text: str
     emotional_state: str
     language: str
+    call_ended: bool = False
+    call_ended_reason: str | None = None
 
 
 # In-memory persona store for active conversations (keyed by session_id)
@@ -392,8 +394,32 @@ async def send_message(
     # Persist transcript entries
     await transcript_manager.persist(session_id)
 
+    # Detect if debtor wants to end the call
+    hang_up_signals = [
+        "hang up", "hangs up", "ends the call", "slams the phone",
+        "puts down the phone", "disconnects", "click",
+        "huwag mo na akong tawagan", "bye", "wag na",
+        "i'm done", "don't call me", "leave me alone",
+        "tigil mo na", "ayoko na", "tama na",
+    ]
+    response_lower = response.text.lower()
+    call_ended = any(signal in response_lower for signal in hang_up_signals)
+    # Also end if debtor is at HOSTILE state for too long
+    call_ended = call_ended or (
+        response.emotional_state.value == 1 and
+        len(persona.conversation_history) > 6
+    )
+
+    call_ended_reason = None
+    if call_ended:
+        call_ended_reason = "Debtor ended the call"
+        # Clean up persona from memory
+        _active_personas.pop(session_id, None)
+
     return ConversationResponse(
         text=response.text,
         emotional_state=response.emotional_state.name.lower(),
         language=response.language,
+        call_ended=call_ended,
+        call_ended_reason=call_ended_reason,
     )
