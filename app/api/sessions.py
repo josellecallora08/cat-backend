@@ -307,6 +307,7 @@ class ConversationResponse(BaseModel):
     language: str
     call_ended: bool = False
     call_ended_reason: str | None = None
+    interrupt: bool = False  # If true, debtor is interrupting the agent
 
 
 # In-memory persona store for active conversations (keyed by session_id)
@@ -410,10 +411,19 @@ async def send_message(
         len(persona.conversation_history) > 6
     )
 
+    # Detect if debtor is interrupting (short, sharp interjection)
+    interrupt_signals = [
+        "wait", "teka", "sandali", "ano", "ha?", "huy",
+        "excuse me", "hold on", "saglit", "wait lang",
+    ]
+    interrupt = (
+        len(response.text.split()) <= 8 and
+        any(signal in response_lower for signal in interrupt_signals)
+    )
+
     call_ended_reason = None
     if call_ended:
         call_ended_reason = "Debtor ended the call"
-        # Clean up persona from memory
         _active_personas.pop(session_id, None)
 
     return ConversationResponse(
@@ -422,4 +432,5 @@ async def send_message(
         language=response.language,
         call_ended=call_ended,
         call_ended_reason=call_ended_reason,
+        interrupt=interrupt,
     )
