@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import scenarios, sessions, voice, tts
+from app.api import scenarios, sessions, voice, tts, dashboard
 
 
 def create_app() -> FastAPI:
@@ -23,6 +23,7 @@ def create_app() -> FastAPI:
     app.include_router(sessions.router, prefix="/api/sessions", tags=["sessions"])
     app.include_router(voice.router, tags=["voice"])
     app.include_router(tts.router, prefix="/api", tags=["tts"])
+    app.include_router(dashboard.router, prefix="/api", tags=["dashboard"])
 
     @app.get("/health")
     async def health_check():
