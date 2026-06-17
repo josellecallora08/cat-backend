@@ -6,6 +6,10 @@ class Settings(BaseSettings):
     debug: bool = False
     cors_origins: list[str] = ["*"]
 
+    # JWT Authentication
+    jwt_secret: str = "change-this-to-a-random-secret-in-production"
+    jwt_expiry_hours: int = 24
+
     # LLM configuration (Ollama/vLLM/Groq OpenAI-compatible API)
     llm_base_url: str = "http://localhost:11434/v1"
     llm_model: str = "qwen3:32b"
@@ -17,6 +21,8 @@ class Settings(BaseSettings):
     # ElevenLabs TTS (leave empty to use gTTS fallback)
     elevenlabs_api_key: str = ""
     elevenlabs_voice_id: str = "pFZP5JQG7iQjIQuC4Bku"  # Lily - good for Filipino/multilingual
+    # TTS provider: "elevenlabs", "gtts", or "auto" (tries elevenlabs first)
+    tts_provider: str = "auto"
 
     model_config = {"env_prefix": "CAT_", "env_file": ".env"}
 

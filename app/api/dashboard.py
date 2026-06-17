@@ -310,3 +310,95 @@ async def get_scenario_performance(db: AsyncSession = Depends(get_session)):
         ))
 
     return sorted(performances, key=lambda p: p.average_score, reverse=True)
+
+
+class AgentRanking(BaseModel):
+    """Agent ranking entry for the leaderboard."""
+    rank: int
+    agent_id: str
+    agent_name: str
+    sessions_completed: int
+    average_score: float
+    best_score: float
+    improvement: Optional[float] = None  # Score change over last sessions
+
+
+# In-memory agent name registry (for MVP demo without auth)
+_agent_names: dict[str, str] = {}
+
+
+@router.post("/agents/register")
+async def register_agent_name(
+    body: dict,
+    db: AsyncSession = Depends(get_session),
+):
+    """Register a display name for an agent_id (MVP demo, no auth)."""
+    agent_id = body.get("agent_id", "")
+    name = body.get("name", "")
+    if agent_id and name:
+        _agent_names[agent_id] = name
+    return {"status": "ok"}
+
+
+@router.get("/dashboard/leaderboard", response_model=list[AgentRanking])
+async def get_leaderboard(db: AsyncSession = Depends(get_session)):
+    """Get agent rankings sorted by average score.
+
+    Aggregates evaluation scores per agent_id across all completed sessions.
+    Returns top performers with session count, average/best scores, and trend.
+    """
+    # Get all evaluations joined with sessions for agent_id
+    stmt = (
+        select(Session.agent_id, Evaluation.overall_score)
+        .join(Evaluation, Evaluation.session_id == Session.id)
+        .where(Evaluation.is_too_short == False)
+        .order_by(Session.agent_id, Evaluation.created_at.asc())
+    )
+    result = await db.execute(stmt)
+    rows = result.all()
+
+    if not rows:
+        return []
+
+    # Group by agent_id
+    agent_data: dict[str, list[float]] = {}
+    for agent_id, score in rows:
+        aid = str(agent_id)
+        if aid not in agent_data:
+            agent_data[aid] = []
+        agent_data[aid].append(score)
+
+    # Build rankings
+    rankings = []
+    for agent_id, scores in agent_data.items():
+        avg = sum(scores) / len(scores)
+        best = max(scores)
+
+        # Calculate improvement (last 3 vs first 3)
+        improvement = None
+        if len(scores) >= 4:
+            recent = scores[-3:]
+            earlier = scores[:3]
+            improvement = round(sum(recent) / len(recent) - sum(earlier) / len(earlier), 1)
+
+        # Get display name
+        name = _agent_names.get(agent_id, f"Agent {agent_id[:8]}")
+
+        rankings.append(AgentRanking(
+            rank=0,  # Will be set after sorting
+            agent_id=agent_id,
+            agent_name=name,
+            sessions_completed=len(scores),
+            average_score=round(avg, 1),
+            best_score=round(best, 1),
+            improvement=improvement,
+        ))
+
+    # Sort by average score descending
+    rankings.sort(key=lambda r: r.average_score, reverse=True)
+
+    # Assign ranks
+    for i, r in enumerate(rankings):
+        r.rank = i + 1
+
+    return rankings[:20]  # Top 20

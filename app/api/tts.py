@@ -25,10 +25,7 @@ class TTSRequest(BaseModel):
 
 
 async def _synthesize_elevenlabs(text: str, voice_id: str) -> io.BytesIO:
-    """Synthesize speech using ElevenLabs API.
-
-    Returns MP3 audio buffer.
-    """
+    """Synthesize speech using ElevenLabs API."""
     from elevenlabs import ElevenLabs
 
     client = ElevenLabs(api_key=settings.elevenlabs_api_key)
@@ -36,7 +33,7 @@ async def _synthesize_elevenlabs(text: str, voice_id: str) -> io.BytesIO:
     audio_generator = client.text_to_speech.convert(
         voice_id=voice_id,
         text=text,
-        model_id="eleven_multilingual_v2",  # Best for Taglish
+        model_id="eleven_multilingual_v2",
         output_format="mp3_44100_128",
     )
 
@@ -48,7 +45,7 @@ async def _synthesize_elevenlabs(text: str, voice_id: str) -> io.BytesIO:
 
 
 def _synthesize_gtts(text: str, lang: str) -> io.BytesIO:
-    """Synthesize speech using gTTS (Google Translate TTS) as fallback."""
+    """Synthesize speech using gTTS (Google Translate TTS)."""
     from gtts import gTTS
 
     tts = gTTS(text=text, lang=lang, slow=False)
@@ -60,41 +57,44 @@ def _synthesize_gtts(text: str, lang: str) -> io.BytesIO:
 
 @router.post("/tts")
 async def synthesize_speech(body: TTSRequest):
-    """Convert text to speech.
+    """Convert text to speech. Returns MP3 audio stream.
 
-    Uses ElevenLabs if API key is configured (high-quality multilingual voices).
-    Falls back to gTTS (Google Translate) if ElevenLabs is not available.
-
-    Returns MP3 audio stream.
+    Tries ElevenLabs first, then gTTS, then returns 503 so frontend uses browser TTS.
     """
     if not body.text.strip():
         raise HTTPException(status_code=400, detail="Text cannot be empty")
 
-    try:
-        # Try ElevenLabs first (if configured)
-        if settings.elevenlabs_api_key:
+    # Try ElevenLabs
+    use_elevenlabs = (
+        settings.tts_provider == "elevenlabs" or
+        (settings.tts_provider == "auto" and settings.elevenlabs_api_key)
+    )
+
+    if use_elevenlabs and settings.elevenlabs_api_key:
+        try:
             voice_id = body.voice_id or settings.elevenlabs_voice_id
             audio_buffer = await _synthesize_elevenlabs(body.text, voice_id)
-            logger.debug("TTS via ElevenLabs: %d bytes", audio_buffer.getbuffer().nbytes)
-        else:
-            # Fallback to gTTS
-            audio_buffer = _synthesize_gtts(body.text, body.lang)
-            logger.debug("TTS via gTTS: %d bytes", audio_buffer.getbuffer().nbytes)
+            return StreamingResponse(
+                audio_buffer,
+                media_type="audio/mpeg",
+                headers={"Content-Disposition": "inline; filename=speech.mp3"},
+            )
+        except Exception as e:
+            logger.warning("ElevenLabs TTS failed: %s — trying gTTS fallback", e)
 
+    # Try gTTS fallback
+    try:
+        audio_buffer = _synthesize_gtts(body.text, body.lang)
         return StreamingResponse(
             audio_buffer,
             media_type="audio/mpeg",
             headers={"Content-Disposition": "inline; filename=speech.mp3"},
         )
     except Exception as e:
-        logger.error("TTS synthesis failed: %s", e)
-        # If ElevenLabs fails, try gTTS as last resort
-        try:
-            audio_buffer = _synthesize_gtts(body.text, body.lang)
-            return StreamingResponse(
-                audio_buffer,
-                media_type="audio/mpeg",
-                headers={"Content-Disposition": "inline; filename=speech.mp3"},
-            )
-        except Exception as e2:
-            raise HTTPException(status_code=500, detail=f"TTS failed: {str(e2)}")
+        logger.warning("gTTS also failed: %s — frontend will use browser TTS", e)
+
+    # Both failed — return 503 so frontend falls back to browser TTS
+    raise HTTPException(
+        status_code=503,
+        detail="TTS temporarily unavailable",
+    )

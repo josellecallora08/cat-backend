@@ -62,6 +62,8 @@ from pydantic import BaseModel
 
 from app.models import Scenario
 from app.services.llm_service import LLMService, LLMMessage
+from app.services.auth import require_admin
+from app.models.user import User
 
 logger = logging.getLogger(__name__)
 
@@ -87,6 +89,14 @@ Based on the user's description, generate a complete training scenario with a re
 
 The scenario should be challenging and realistic. The debtor should have a believable backstory, personality, and reason for delinquency.
 
+The user may provide:
+- Debtor name and gender
+- Outstanding amount and days past due
+- A backstory/situation
+- Special behavioral instructions (e.g., "will hang up if...", "will agree to pay if...")
+
+Include any behavioral instructions in the personality_profile field so the debtor behaves accordingly during training.
+
 IMPORTANT: Respond ONLY with valid JSON in this exact format:
 {
     "name": "<short scenario name, 3-5 words>",
@@ -108,6 +118,7 @@ Make the scenario feel real and grounded in Filipino culture. The debtor should 
 async def generate_scenario(
     body: GenerateScenarioRequest,
     db: AsyncSession = Depends(get_session),
+    admin: User = Depends(require_admin),
 ):
     """Generate a new scenario from a natural language prompt using AI.
 
