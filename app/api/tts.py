@@ -71,13 +71,18 @@ async def synthesize_speech(body: TTSRequest):
         raise HTTPException(status_code=400, detail="Text cannot be empty")
 
     try:
-        # Try ElevenLabs first (if configured)
-        if settings.elevenlabs_api_key:
+        # Choose TTS provider
+        use_elevenlabs = (
+            settings.tts_provider == "elevenlabs" or
+            (settings.tts_provider == "auto" and settings.elevenlabs_api_key)
+        )
+
+        if use_elevenlabs and settings.elevenlabs_api_key:
             voice_id = body.voice_id or settings.elevenlabs_voice_id
             audio_buffer = await _synthesize_elevenlabs(body.text, voice_id)
             logger.debug("TTS via ElevenLabs: %d bytes", audio_buffer.getbuffer().nbytes)
         else:
-            # Fallback to gTTS
+            # gTTS — best for Taglish pronunciation
             audio_buffer = _synthesize_gtts(body.text, body.lang)
             logger.debug("TTS via gTTS: %d bytes", audio_buffer.getbuffer().nbytes)
 
