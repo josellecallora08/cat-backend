@@ -396,20 +396,15 @@ async def send_message(
     await transcript_manager.persist(session_id)
 
     # Detect if debtor wants to end the call
+    # Only trigger on very explicit hang-up phrases, not casual language
     hang_up_signals = [
-        "hang up", "hangs up", "ends the call", "slams the phone",
-        "puts down the phone", "disconnects", "click",
-        "huwag mo na akong tawagan", "bye", "wag na",
-        "i'm done", "don't call me", "leave me alone",
-        "tigil mo na", "ayoko na", "tama na",
+        "hangs up", "ends the call", "slams the phone",
+        "puts down the phone", "disconnects",
+        "*hangs up*", "*ends call*", "*click*",
+        "[end_call]",
     ]
     response_lower = response.text.lower()
     call_ended = any(signal in response_lower for signal in hang_up_signals)
-    # Also end if debtor is at HOSTILE state for too long
-    call_ended = call_ended or (
-        response.emotional_state.value == 1 and
-        len(persona.conversation_history) > 6
-    )
 
     # Detect if debtor is interrupting (short, sharp interjection)
     interrupt_signals = [
@@ -422,12 +417,37 @@ async def send_message(
     )
 
     call_ended_reason = None
+    display_text = response.text
     if call_ended:
         call_ended_reason = "Debtor ended the call"
         _active_personas.pop(session_id, None)
+        # Strip hang-up action markers from the displayed text
+        import re
+        display_text = re.sub(
+            r"\s*\*(?:hangs up|ends call|click|slams the phone|puts down the phone|disconnects)\*\s*",
+            "",
+            display_text,
+            flags=re.IGNORECASE,
+        ).strip()
+        # Remove [END_CALL] marker
+        display_text = re.sub(
+            r"\s*\[END_CALL\]\s*",
+            "",
+            display_text,
+            flags=re.IGNORECASE,
+        ).strip()
+        # Also remove non-asterisk variants at the end of the message
+        for signal in hang_up_signals:
+            if not signal.startswith("*") and not signal.startswith("["):
+                display_text = re.sub(
+                    rf",?\s*{re.escape(signal)}\.?\s*$",
+                    "",
+                    display_text,
+                    flags=re.IGNORECASE,
+                ).strip()
 
     return ConversationResponse(
-        text=response.text,
+        text=display_text,
         emotional_state=response.emotional_state.name.lower(),
         language=response.language,
         call_ended=call_ended,
