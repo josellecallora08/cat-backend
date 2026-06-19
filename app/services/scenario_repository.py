@@ -23,14 +23,16 @@ async def list_active_scenarios(db: AsyncSession) -> List[Scenario]:
     return list(result.scalars().all())
 
 
-async def get_scenario_by_id(db: AsyncSession, scenario_id: UUID) -> Optional[Scenario]:
+async def get_scenario_by_id(
+    db: AsyncSession, scenario_id: UUID, include_inactive: bool = False
+) -> Optional[Scenario]:
     """Get a scenario by ID.
 
-    Returns None if the scenario does not exist or is inactive.
+    Returns None if the scenario does not exist.
+    If include_inactive is False (default), also returns None for inactive scenarios.
     """
-    stmt = select(Scenario).where(
-        Scenario.id == scenario_id,
-        Scenario.is_active == True,  # noqa: E712
-    )
+    stmt = select(Scenario).where(Scenario.id == scenario_id)
+    if not include_inactive:
+        stmt = stmt.where(Scenario.is_active == True)  # noqa: E712
     result = await db.execute(stmt)
     return result.scalar_one_or_none()

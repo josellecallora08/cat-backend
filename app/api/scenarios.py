@@ -184,3 +184,80 @@ async def generate_scenario(
         description=scenario.description,
         debtor_profile=scenario.debtor_profile,
     )
+
+
+# --- CRUD Endpoints (Admin) ---
+
+
+class UpdateScenarioRequest(BaseModel):
+    """Request body for updating a scenario."""
+    name: str | None = None
+    scenario_type: str | None = None
+    description: str | None = None
+    debtor_profile: dict | None = None
+    is_active: bool | None = None
+
+
+class ScenarioDetailResponse(BaseModel):
+    """Full scenario detail for admin views."""
+    id: UUID
+    name: str
+    scenario_type: str
+    description: str
+    debtor_profile: dict
+    is_active: bool
+
+
+@router.put("/{scenario_id}", response_model=ScenarioDetailResponse)
+async def update_scenario(
+    scenario_id: UUID,
+    body: UpdateScenarioRequest,
+    db: AsyncSession = Depends(get_session),
+    admin: User = Depends(require_admin),
+):
+    """Update a scenario's fields (admin only)."""
+    from app.services.scenario_repository import get_scenario_by_id
+
+    scenario = await get_scenario_by_id(db, scenario_id, include_inactive=True)
+    if scenario is None:
+        raise HTTPException(status_code=404, detail="Scenario not found")
+
+    if body.name is not None:
+        scenario.name = body.name
+    if body.scenario_type is not None:
+        scenario.scenario_type = body.scenario_type
+    if body.description is not None:
+        scenario.description = body.description
+    if body.debtor_profile is not None:
+        scenario.debtor_profile = body.debtor_profile
+    if body.is_active is not None:
+        scenario.is_active = body.is_active
+
+    await db.commit()
+    await db.refresh(scenario)
+
+    return ScenarioDetailResponse(
+        id=scenario.id,
+        name=scenario.name,
+        scenario_type=scenario.scenario_type,
+        description=scenario.description or "",
+        debtor_profile=scenario.debtor_profile,
+        is_active=scenario.is_active,
+    )
+
+
+@router.delete("/{scenario_id}", status_code=204)
+async def delete_scenario(
+    scenario_id: UUID,
+    db: AsyncSession = Depends(get_session),
+    admin: User = Depends(require_admin),
+):
+    """Delete (deactivate) a scenario (admin only)."""
+    from app.services.scenario_repository import get_scenario_by_id
+
+    scenario = await get_scenario_by_id(db, scenario_id, include_inactive=True)
+    if scenario is None:
+        raise HTTPException(status_code=404, detail="Scenario not found")
+
+    scenario.is_active = False
+    await db.commit()
