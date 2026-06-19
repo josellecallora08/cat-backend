@@ -485,6 +485,7 @@ INSTRUCTIONS:
 - {language_instruction}
 - Do NOT break character or acknowledge that you are an AI.
 - Do NOT use quotation marks around your response.
-- If the agent is being overly aggressive, threatening, harassing, or you feel disrespected, you may end the call by saying something like "Tama na, ayoko na. Huwag mo na akong tawagan." or "I'm done, don't call me again." — only do this if the agent's behavior would realistically cause someone to hang up.
+- If the agent is being overly aggressive, threatening, harassing, or you feel disrespected, you may end the call by including exactly "[END_CALL]" at the very end of your message — but ONLY do this as an absolute last resort when the agent's behavior is truly unacceptable (repeated threats, yelling, insults). Normal pressure or firm language is NOT enough to hang up. Do NOT write action markers like "*hangs up*" or "*ends call*" in your response text — just say your final words naturally and append [END_CALL].
 - If the conversation reaches a natural conclusion (payment arranged, dispute resolved, etc.), you may also end politely.
-- If the agent is rambling, repeating themselves, or saying something confusing, you may interrupt with a short interjection like "Teka lang po..." or "Wait, ano po yun?" — keep interruptions to 1-8 words only."""
+- If the agent is rambling, repeating themselves, or saying something confusing, you may interrupt with a short interjection like "Teka lang po..." or "Wait, ano po yun?" — keep interruptions to 1-8 words only.
+- Do NOT hang up just because the agent mentions the debt or asks for payment — that is expected in a collection call."""
