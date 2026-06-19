@@ -1,7 +1,39 @@
+import logging
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import scenarios, sessions, voice, tts, dashboard, auth
+from app.database import Base, engine, async_session_factory
+
+logger = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Application lifespan: auto-create tables and seed default scenarios."""
+    # Import all models so Base.metadata knows about them
+    import app.models  # noqa: F401
+
+    # Create all tables (safe to call if they already exist)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    logger.info("Database tables verified/created")
+
+    # Seed default scenarios
+    from app.services.seed_scenarios import seed_default_scenarios
+
+    async with async_session_factory() as db:
+        await seed_default_scenarios(db)
+
+    # Seed default users
+    from app.services.seed_users import seed_default_users
+
+    async with async_session_factory() as db:
+        await seed_default_users(db)
+
+    yield
 
 
 def create_app() -> FastAPI:
@@ -9,6 +41,7 @@ def create_app() -> FastAPI:
         title="Collection Agent Trainer",
         description="AI-powered training platform for collection agents",
         version="0.1.0",
+        lifespan=lifespan,
     )
 
     app.add_middleware(
