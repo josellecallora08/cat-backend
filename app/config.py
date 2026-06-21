@@ -26,5 +26,18 @@ class Settings(BaseSettings):
 
     model_config = {"env_prefix": "CAT_", "env_file": ".env"}
 
+    @property
+    def async_database_url(self) -> str:
+        """Ensure the database URL uses the asyncpg driver."""
+        url = self.database_url
+        # Handle common non-async prefixes from hosting providers
+        if url.startswith("postgres://"):
+            url = url.replace("postgres://", "postgresql+asyncpg://", 1)
+        elif url.startswith("postgresql://"):
+            url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
+        elif url.startswith("postgresql+psycopg2://"):
+            url = url.replace("postgresql+psycopg2://", "postgresql+asyncpg://", 1)
+        return url
+
 
 settings = Settings()
