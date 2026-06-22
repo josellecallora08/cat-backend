@@ -4,7 +4,8 @@ from pydantic_settings import BaseSettings
 class Settings(BaseSettings):
     database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/cat_db"
     debug: bool = False
-    cors_origins: list[str] = ["*"]
+    # CORS
+    cors_origins: str = "*"
 
     # JWT Authentication
     jwt_secret: str = "change-this-to-a-random-secret-in-production"

@@ -5,6 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import scenarios, sessions, voice, tts, dashboard, auth
+from app.config import settings
 from app.database import Base, engine, async_session_factory
 
 logger = logging.getLogger(__name__)
@@ -48,10 +49,14 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
+    # Parse CORS origins from comma-separated string or "*"
+    origins = settings.cors_origins.split(",") if settings.cors_origins != "*" else ["*"]
+    origins = [o.strip() for o in origins if o.strip()]
+
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["http://localhost:3000", "http://localhost:3001", "*"],
-        allow_credentials=True,
+        allow_origins=origins,
+        allow_credentials=False,
         allow_methods=["*"],
         allow_headers=["*"],
     )
