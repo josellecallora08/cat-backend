@@ -34,8 +34,8 @@ DEFAULT_USERS = [
 async def seed_default_users(db: AsyncSession) -> None:
     """Seed the database with default user accounts.
 
-    Only inserts users whose emails don't already exist in the database,
-    making this safe to call on every startup.
+    Inserts users whose emails don't already exist. For existing users,
+    updates their password hash to ensure compatibility.
 
     Default accounts:
       - admin@cat.ph / admin123 (Administrator)
@@ -45,13 +45,19 @@ async def seed_default_users(db: AsyncSession) -> None:
         db: An async database session.
     """
     # Get existing user emails
-    stmt = select(User.email)
+    stmt = select(User)
     result = await db.execute(stmt)
-    existing_emails = set(result.scalars().all())
+    existing_users = {u.email: u for u in result.scalars().all()}
 
-    inserted = 0
+    changed = False
     for user_data in DEFAULT_USERS:
-        if user_data["email"] in existing_emails:
+        if user_data["email"] in existing_users:
+            # Update password hash to ensure it works with current bcrypt
+            existing = existing_users[user_data["email"]]
+            new_hash = hash_password(user_data["password"])
+            if existing.hashed_password != new_hash:
+                existing.hashed_password = new_hash
+                changed = True
             continue
 
         user = User(
@@ -62,10 +68,10 @@ async def seed_default_users(db: AsyncSession) -> None:
             role=user_data["role"],
         )
         db.add(user)
-        inserted += 1
+        changed = True
 
-    if inserted > 0:
+    if changed:
         await db.commit()
-        logger.info("Seeded %d default users", inserted)
+        logger.info("Seeded/updated default users")
     else:
         logger.info("All default users already exist, skipping seed")

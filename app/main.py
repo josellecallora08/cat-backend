@@ -5,6 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import scenarios, sessions, voice, tts, dashboard, auth
+from app.config import settings
 from app.database import Base, engine, async_session_factory
 
 logger = logging.getLogger(__name__)
@@ -48,20 +49,16 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
-    from app.config import settings as app_settings
-
-    # CORS: allow only the configured frontend origin (no wildcard in production)
-    allowed_origins = [app_settings.frontend_url]
-    # In development, also allow common dev ports
-    if app_settings.debug:
-        allowed_origins.extend(["http://localhost:3000", "http://localhost:3001"])
+    # Parse CORS origins from comma-separated string or "*"
+    origins = settings.cors_origins.split(",") if settings.cors_origins != "*" else ["*"]
+    origins = [o.strip() for o in origins if o.strip()]
 
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=allowed_origins,
-        allow_credentials=True,
-        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-        allow_headers=["Authorization", "Content-Type"],
+        allow_origins=origins,
+        allow_credentials=False,
+        allow_methods=["*"],
+        allow_headers=["*"],
     )
 
     app.include_router(scenarios.router, prefix="/api/scenarios", tags=["scenarios"])
