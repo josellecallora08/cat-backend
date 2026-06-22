@@ -16,22 +16,26 @@ async def lifespan(app: FastAPI):
     # Import all models so Base.metadata knows about them
     import app.models  # noqa: F401
 
-    # Create all tables (safe to call if they already exist)
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    logger.info("Database tables verified/created")
+    try:
+        # Create all tables (safe to call if they already exist)
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        logger.info("Database tables verified/created")
 
-    # Seed default scenarios
-    from app.services.seed_scenarios import seed_default_scenarios
+        # Seed default scenarios
+        from app.services.seed_scenarios import seed_default_scenarios
 
-    async with async_session_factory() as db:
-        await seed_default_scenarios(db)
+        async with async_session_factory() as db:
+            await seed_default_scenarios(db)
 
-    # Seed default users
-    from app.services.seed_users import seed_default_users
+        # Seed default users
+        from app.services.seed_users import seed_default_users
 
-    async with async_session_factory() as db:
-        await seed_default_users(db)
+        async with async_session_factory() as db:
+            await seed_default_users(db)
+
+    except Exception as e:
+        logger.error("Startup error during DB init/seed: %s", e, exc_info=True)
 
     yield
 
