@@ -23,6 +23,7 @@ async def list_scenarios(db: AsyncSession = Depends(get_session)):
             id=s.id,
             name=s.name,
             scenario_type=ScenarioType(s.scenario_type),
+            description=s.description or "",
         )
         for s in scenarios
     ]

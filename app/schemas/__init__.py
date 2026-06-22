@@ -69,6 +69,7 @@ class ScenarioListItem(BaseModel):
     id: UUID
     name: str
     scenario_type: ScenarioType
+    description: str = ""
 
 
 class ScenarioResponse(BaseModel):
