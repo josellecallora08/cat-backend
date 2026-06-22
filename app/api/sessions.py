@@ -31,6 +31,8 @@ from app.schemas import (
 from app.services.debtor_simulator import DebtorSimulatorService
 from app.services.evaluation_pipeline import EvaluationPipeline
 from app.services.llm_service import LLMService
+from app.services.auth import get_current_user
+from app.models.user import User
 from app.services.session_service import (
     create_session as create_session_service,
     get_session as get_session_service,
@@ -69,16 +71,18 @@ def _session_to_response(session: Session) -> SessionResponse:
 async def create_session(
     body: SessionCreate,
     db: AsyncSession = Depends(get_db_session),
+    current_user: User | None = Depends(get_current_user),
 ):
     """Create a new training session.
 
     Accepts a scenario_id, generates a debtor persona, and returns the new session.
+    Uses the authenticated user's ID as the agent.
     """
     llm_service = LLMService()
     debtor_simulator = DebtorSimulatorService(llm_service)
 
-    # Use a default agent_id for now (will be replaced with auth later)
-    agent_id = uuid4()
+    # Use the authenticated user's ID, or fallback to random UUID
+    agent_id = current_user.id if current_user else uuid4()
 
     try:
         session = await create_session_service(

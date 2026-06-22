@@ -110,27 +110,8 @@ class EvaluationEngine:
         Raises:
             ValueError: If no LLM service is configured.
         """
-        # Check if session is too short
-        if self.is_session_too_short(transcript):
-            result = EvaluationResult(
-                session_id=session_id,
-                category_scores=[],
-                overall_score=0.0,
-                strengths=[StrengthItem(
-                    description="Session too short for evaluation",
-                    category=EvaluationCategory.CALL_OPENING,
-                    transcript_excerpt="N/A",
-                )],
-                weaknesses=[WeaknessItem(
-                    description="Session too short for evaluation",
-                    category=EvaluationCategory.CALL_OPENING,
-                    transcript_excerpt="N/A",
-                )],
-                is_too_short=True,
-            )
-            if db is not None:
-                await self._persist_evaluation(session_id, result, db)
-            return result
+        # Check if session is too short (flag it, but still evaluate)
+        too_short = self.is_session_too_short(transcript)
 
         if self._llm_service is None:
             raise ValueError("LLM service is required for evaluation")
@@ -234,7 +215,7 @@ class EvaluationEngine:
             overall_score=overall_score,
             strengths=all_strengths,
             weaknesses=all_weaknesses,
-            is_too_short=False,
+            is_too_short=too_short,
         )
 
         # Persist with retry
