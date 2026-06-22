@@ -44,12 +44,20 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
+    from app.config import settings as app_settings
+
+    # CORS: allow only the configured frontend origin (no wildcard in production)
+    allowed_origins = [app_settings.frontend_url]
+    # In development, also allow common dev ports
+    if app_settings.debug:
+        allowed_origins.extend(["http://localhost:3000", "http://localhost:3001"])
+
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["http://localhost:3000", "http://localhost:3001", "*"],
+        allow_origins=allowed_origins,
         allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+        allow_headers=["Authorization", "Content-Type"],
     )
 
     app.include_router(scenarios.router, prefix="/api/scenarios", tags=["scenarios"])
