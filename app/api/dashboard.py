@@ -2,6 +2,7 @@
 
 import logging
 from typing import Optional
+from uuid import UUID as PyUUID
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
@@ -65,7 +66,7 @@ async def get_dashboard(
     # Build base session filter
     session_filter = []
     if agent_id:
-        session_filter.append(Session.agent_id == agent_id)
+        session_filter.append(Session.agent_id == PyUUID(agent_id))
 
     # Total sessions by status
     count_q = select(func.count()).select_from(Session)
@@ -95,7 +96,7 @@ async def get_dashboard(
     # Average overall score (filtered by agent if provided)
     avg_q = select(func.avg(Evaluation.overall_score)).where(Evaluation.is_too_short == False)
     if agent_id:
-        avg_q = avg_q.join(Session, Session.id == Evaluation.session_id).where(Session.agent_id == agent_id)
+        avg_q = avg_q.join(Session, Session.id == Evaluation.session_id).where(Session.agent_id == PyUUID(agent_id))
     avg_score_result = await db.execute(avg_q)
     average_overall_score = avg_score_result.scalar_one()
     if average_overall_score is not None:
@@ -105,7 +106,7 @@ async def get_dashboard(
     category_averages = []
     eval_q = select(Evaluation.category_scores).where(Evaluation.is_too_short == False)
     if agent_id:
-        eval_q = eval_q.join(Session, Session.id == Evaluation.session_id).where(Session.agent_id == agent_id)
+        eval_q = eval_q.join(Session, Session.id == Evaluation.session_id).where(Session.agent_id == PyUUID(agent_id))
     eval_result = await db.execute(eval_q)
     all_category_scores = eval_result.scalars().all()
 
@@ -140,7 +141,7 @@ async def get_dashboard(
             select(func.count())
             .select_from(Transcript)
             .join(Session, Session.id == Transcript.session_id)
-            .where(Session.agent_id == agent_id)
+            .where(Session.agent_id == PyUUID(agent_id))
         )
     else:
         transcript_q = select(func.count()).select_from(Transcript)
@@ -155,7 +156,7 @@ async def get_dashboard(
         .outerjoin(Scenario, Scenario.id == Session.scenario_id)
     )
     if agent_id:
-        recent_stmt = recent_stmt.where(Session.agent_id == agent_id)
+        recent_stmt = recent_stmt.where(Session.agent_id == PyUUID(agent_id))
     recent_stmt = recent_stmt.order_by(desc(Session.created_at)).limit(10)
     result = await db.execute(recent_stmt)
     rows = result.all()
@@ -178,7 +179,7 @@ async def get_dashboard(
         .where(Evaluation.is_too_short == False)
     )
     if agent_id:
-        trend_stmt = trend_stmt.join(Session, Session.id == Evaluation.session_id).where(Session.agent_id == agent_id)
+        trend_stmt = trend_stmt.join(Session, Session.id == Evaluation.session_id).where(Session.agent_id == PyUUID(agent_id))
     trend_stmt = trend_stmt.order_by(desc(Evaluation.created_at)).limit(10)
     scored_result = await db.execute(trend_stmt)
     scored_list = [row for row in scored_result.scalars().all()]
@@ -242,7 +243,7 @@ async def list_all_sessions(
     # Build filter conditions
     conditions = []
     if agent_id:
-        conditions.append(Session.agent_id == agent_id)
+        conditions.append(Session.agent_id == PyUUID(agent_id))
     if status:
         conditions.append(Session.status == status)
 
@@ -320,7 +321,7 @@ async def get_score_history(
         .where(Evaluation.is_too_short == False)
     )
     if agent_id:
-        stmt = stmt.join(Session, Session.id == Evaluation.session_id).where(Session.agent_id == agent_id)
+        stmt = stmt.join(Session, Session.id == Evaluation.session_id).where(Session.agent_id == PyUUID(agent_id))
     stmt = stmt.order_by(Evaluation.created_at.asc()).limit(50)
 
     result = await db.execute(stmt)

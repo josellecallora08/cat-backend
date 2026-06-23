@@ -4,11 +4,25 @@ from pydantic_settings import BaseSettings
 class Settings(BaseSettings):
     database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/cat_db"
     debug: bool = False
-    cors_origins: list[str] = ["*"]
+    # CORS
+    cors_origins: str = "*"
 
     # JWT Authentication
     jwt_secret: str = "change-this-to-a-random-secret-in-production"
     jwt_expiry_hours: int = 24
+    reset_token_expiry_minutes: int = 30
+
+    # Email (SMTP) for password reset
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_password: str = ""
+    smtp_from_email: str = ""
+    smtp_from_name: str = "CATS"
+    smtp_use_tls: bool = True
+
+    # Frontend URL for reset links
+    frontend_url: str = "http://localhost:3000"
 
     # LLM configuration (Ollama/vLLM/Groq OpenAI-compatible API)
     llm_base_url: str = "http://localhost:11434/v1"

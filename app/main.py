@@ -5,33 +5,34 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import scenarios, sessions, voice, tts, dashboard, auth
-from app.database import Base, engine, async_session_factory
+from app.config import settings
+from app.database import Base, async_session_factory
 
 logger = logging.getLogger(__name__)
 
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Application lifespan: auto-create tables and seed default scenarios."""
+    """Application lifespan: seed default data on startup."""
     # Import all models so Base.metadata knows about them
     import app.models  # noqa: F401
 
-    # Create all tables (safe to call if they already exist)
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    logger.info("Database tables verified/created")
+    try:
+        # Seed default scenarios
+        from app.services.seed_scenarios import seed_default_scenarios
 
-    # Seed default scenarios
-    from app.services.seed_scenarios import seed_default_scenarios
+        async with async_session_factory() as db:
+            await seed_default_scenarios(db)
 
-    async with async_session_factory() as db:
-        await seed_default_scenarios(db)
+        # Seed default users
+        from app.services.seed_users import seed_default_users
 
-    # Seed default users
-    from app.services.seed_users import seed_default_users
+        async with async_session_factory() as db:
+            await seed_default_users(db)
 
-    async with async_session_factory() as db:
-        await seed_default_users(db)
+        logger.info("Startup seeding complete")
+
+    except Exception as e:
+        logger.error("Startup error during seed: %s", e, exc_info=True)
 
     yield
 
@@ -44,10 +45,14 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
+    # Parse CORS origins from comma-separated string or "*"
+    origins = settings.cors_origins.split(",") if settings.cors_origins != "*" else ["*"]
+    origins = [o.strip() for o in origins if o.strip()]
+
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["http://localhost:3000", "http://localhost:3001", "*"],
-        allow_credentials=True,
+        allow_origins=origins,
+        allow_credentials=False,
         allow_methods=["*"],
         allow_headers=["*"],
     )

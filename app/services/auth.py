@@ -7,10 +7,10 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 from uuid import UUID
 
+import bcrypt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
-from passlib.context import CryptContext
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -18,30 +18,31 @@ from app.config import settings
 from app.database import get_session
 from app.models.user import User, UserRole
 
-# Password hashing
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
 # OAuth2 scheme
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
 
 
 def hash_password(password: str) -> str:
-    """Hash a plaintext password."""
-    return pwd_context.hash(password)
+    """Hash a plaintext password using bcrypt."""
+    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """Verify a password against its hash."""
-    return pwd_context.verify(plain_password, hashed_password)
+    """Verify a password against its bcrypt hash."""
+    try:
+        return bcrypt.checkpw(plain_password.encode("utf-8"), hashed_password.encode("utf-8"))
+    except Exception:
+        return False
 
 
 def create_access_token(user_id: UUID, role: str, expires_delta: Optional[timedelta] = None) -> str:
     """Create a JWT access token."""
-    expire = datetime.now(timezone.utc) + (expires_delta or timedelta(hours=24))
+    expire = datetime.now(timezone.utc) + (expires_delta or timedelta(hours=settings.jwt_expiry_hours))
     payload = {
         "sub": str(user_id),
         "role": role,
         "exp": expire,
+        "iat": datetime.now(timezone.utc),
     }
     return jwt.encode(payload, settings.jwt_secret, algorithm="HS256")
 
@@ -50,7 +51,7 @@ async def get_current_user(
     token: Optional[str] = Depends(oauth2_scheme),
     db: AsyncSession = Depends(get_session),
 ) -> Optional[User]:
-    """Extract current user from JWT token. Returns None if no token."""
+    """Extract current user from JWT token. Returns None if no token or invalid."""
     if not token:
         return None
 
@@ -59,12 +60,25 @@ async def get_current_user(
         user_id = payload.get("sub")
         if not user_id:
             return None
+        issued_at = payload.get("iat")
     except JWTError:
         return None
 
     stmt = select(User).where(User.id == user_id, User.is_active == True)
     result = await db.execute(stmt)
-    return result.scalar_one_or_none()
+    user = result.scalar_one_or_none()
+
+    if not user:
+        return None
+
+    # Invalidate tokens issued before password was changed
+    if user.password_changed_at and issued_at:
+        from datetime import datetime as dt
+        token_issued = dt.fromtimestamp(issued_at, tz=timezone.utc)
+        if token_issued < user.password_changed_at:
+            return None
+
+    return user
 
 
 async def require_auth(
