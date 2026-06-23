@@ -34,7 +34,13 @@ For each mistake:
 2. Quote the relevant excerpt from the transcript
 3. Assign a category from: call_opening, compliance, empathy_communication, negotiation_resolution
 4. Explain WHY this was ineffective in the context of debt collection best practices
-5. Provide a recommended alternative response the agent could have used
+5. Provide a recommended alternative response the agent could have used — written in TAGLISH (natural mix of Tagalog and English as spoken in Philippine call centers)
+
+IMPORTANT for recommended_alternative:
+- Write the alternative in Taglish, the way a professional Filipino collection agent would actually speak on a call.
+- Example: "Magandang araw po, ako po si [Agent Name] from [Company]. Tumatawag po ako regarding sa outstanding balance ninyo na 18,000 pesos. Pwede po ba natin pag-usapan kung paano natin ma-resolve ito?"
+- Do NOT write alternatives in pure formal English. Use the natural Taglish that agents use in real calls.
+- Keep the professional tone but use the natural Filipino-English code-switching.
 
 Focus on the weaknesses identified in the evaluation. Only identify genuine mistakes \
 where the agent's response failed to meet professional standards.
@@ -46,8 +52,8 @@ Respond ONLY with valid JSON in this exact format:
       "transcript_position": <int, 0-based index>,
       "transcript_excerpt": "<exact quote from transcript>",
       "category": "<call_opening|compliance|empathy_communication|negotiation_resolution>",
-      "explanation": "<why this was ineffective>",
-      "recommended_alternative": "<what the agent should have said>"
+      "explanation": "<why this was ineffective — write in English>",
+      "recommended_alternative": "<what the agent should have said — write in TAGLISH>"
     }
   ]
 }

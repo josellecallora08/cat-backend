@@ -132,3 +132,15 @@ class LearningPlan(Base):
 
     # Relationships
     session = relationship("Session", back_populates="learning_plan")
+
+
+class SystemConfig(Base):
+    """Key-value configuration store for admin-managed system settings."""
+
+    __tablename__ = "system_config"
+
+    key = Column(String(100), primary_key=True)
+    value = Column(Text, nullable=False, server_default="")
+    updated_at = Column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
