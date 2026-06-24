@@ -6,7 +6,7 @@ from uuid import UUID as PyUUID
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
-from sqlalchemy import func, select, desc
+from sqlalchemy import func, select, desc, asc
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_session
@@ -227,6 +227,8 @@ async def list_all_sessions(
     page_size: int = 20,
     agent_id: str | None = None,
     status: str | None = None,
+    sort_by: str = "created_at",
+    sort_dir: str = "desc",
     db: AsyncSession = Depends(get_session),
 ):
     """List all sessions with scenario, evaluation, and agent info (paginated).
@@ -234,6 +236,10 @@ async def list_all_sessions(
     Optional filters:
       - agent_id: Filter by specific agent UUID
       - status: Filter by session status (pending, active, completed)
+
+    Sorting:
+      - sort_by: one of "created_at", "score", "scenario", "status"
+      - sort_dir: "asc" or "desc"
     """
     # Clamp values
     page = max(1, page)
@@ -262,7 +268,21 @@ async def list_all_sessions(
     )
     for cond in conditions:
         stmt = stmt.where(cond)
-    stmt = stmt.order_by(desc(Session.created_at)).offset(offset).limit(page_size)
+
+    # Resolve sort column from a whitelist (prevents injection / invalid columns)
+    sort_columns = {
+        "created_at": Session.created_at,
+        "score": Evaluation.overall_score,
+        "scenario": Scenario.name,
+        "status": Session.status,
+    }
+    sort_col = sort_columns.get(sort_by, Session.created_at)
+    direction = asc if sort_dir == "asc" else desc
+    # NULLS LAST so unscored sessions don't dominate score sorts; stable tiebreak by created_at
+    stmt = stmt.order_by(
+        direction(sort_col).nulls_last(),
+        desc(Session.created_at),
+    ).offset(offset).limit(page_size)
 
     result = await db.execute(stmt)
     rows = result.all()
