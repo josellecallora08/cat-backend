@@ -60,25 +60,12 @@ async def get_current_user(
         user_id = payload.get("sub")
         if not user_id:
             return None
-        issued_at = payload.get("iat")
     except JWTError:
         return None
 
     stmt = select(User).where(User.id == user_id, User.is_active == True)
     result = await db.execute(stmt)
-    user = result.scalar_one_or_none()
-
-    if not user:
-        return None
-
-    # Invalidate tokens issued before password was changed
-    if user.password_changed_at and issued_at:
-        from datetime import datetime as dt
-        token_issued = dt.fromtimestamp(issued_at, tz=timezone.utc)
-        if token_issued < user.password_changed_at:
-            return None
-
-    return user
+    return result.scalar_one_or_none()
 
 
 async def require_auth(
