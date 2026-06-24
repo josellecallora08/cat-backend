@@ -77,6 +77,12 @@ async def lifespan(app: FastAPI):
         async with async_session_factory() as db:
             await seed_default_users(db)
 
+        # Seed demo dashboard data (agents, sessions, evaluations)
+        from app.services.seed_demo_data import seed_demo_data
+
+        async with async_session_factory() as db:
+            await seed_demo_data(db)
+
         # Fix orphaned sessions: assign sessions with unknown agent_ids to existing users
         await _fix_orphaned_sessions()
 
