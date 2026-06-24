@@ -497,3 +497,8 @@ INSTRUCTIONS:
 - If the conversation reaches a natural conclusion (payment arranged, dispute resolved, etc.), you may also end politely.
 - If the agent is rambling, repeating themselves, or saying something confusing, you may interrupt with a short interjection like "Teka lang po..." or "Wait, ano po yun?" — keep interruptions to 1-8 words only.
 - Do NOT hang up just because the agent mentions the debt or asks for payment — that is expected in a collection call."""
+
+        # Append global admin prompt if provided
+        if global_prompt:
+            return base_prompt + f"\n\nADMIN GLOBAL INSTRUCTIONS:\n{global_prompt}"
+        return base_prompt

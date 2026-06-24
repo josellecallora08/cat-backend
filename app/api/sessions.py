@@ -82,7 +82,12 @@ async def create_session(
     debtor_simulator = DebtorSimulatorService(llm_service)
 
     # Use the authenticated user's ID, or fallback to random UUID
-    agent_id = current_user.id if current_user else uuid4()
+    if current_user:
+        agent_id = current_user.id
+        logger.info("Creating session for authenticated user: %s (%s)", current_user.email, current_user.id)
+    else:
+        agent_id = uuid4()
+        logger.warning("Creating session without authenticated user — using random agent_id: %s", agent_id)
 
     try:
         session = await create_session_service(

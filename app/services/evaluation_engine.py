@@ -110,8 +110,8 @@ class EvaluationEngine:
         Raises:
             ValueError: If no LLM service is configured.
         """
-        # Check if session is too short (flag it, but still evaluate)
-        too_short = self.is_session_too_short(transcript)
+        # Always run full evaluation regardless of length
+        too_short = False
 
         if self._llm_service is None:
             raise ValueError("LLM service is required for evaluation")
