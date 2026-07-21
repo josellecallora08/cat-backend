@@ -1,14 +1,16 @@
-"""Authentication API endpoints — register, login, me, manage users."""
+"""Authentication API endpoints — register, login, me, manage users, Lark OAuth, Google OAuth."""
 
 import logging
+import secrets
 from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.database import get_session
 from app.models.user import User, UserRole
 from app.services.auth import (
@@ -17,6 +19,18 @@ from app.services.auth import (
     verify_password,
     require_auth,
     require_admin,
+)
+from app.services.google_oauth import (
+    exchange_code_for_tokens as google_exchange_code,
+    fetch_google_user_info,
+    get_authorize_url as google_get_authorize_url,
+    get_or_create_google_user,
+)
+from app.services.lark_oauth import (
+    exchange_code_for_user_token,
+    fetch_lark_user_info,
+    get_authorize_url,
+    get_or_create_lark_user,
 )
 
 logger = logging.getLogger(__name__)
@@ -75,7 +89,9 @@ async def register(body: RegisterRequest, db: AsyncSession = Depends(get_session
 
     # Validate role
     if body.role not in (UserRole.ADMIN.value, UserRole.AGENT.value):
-        raise HTTPException(status_code=400, detail="Invalid role. Must be 'admin' or 'agent'")
+        raise HTTPException(
+            status_code=400, detail="Invalid role. Must be 'admin' or 'agent'"
+        )
 
     # Create user
     user = User(
@@ -112,7 +128,11 @@ async def login(body: LoginRequest, db: AsyncSession = Depends(get_session)):
     result = await db.execute(stmt)
     user = result.scalar_one_or_none()
 
-    if not user or not verify_password(body.password, user.hashed_password):
+    if (
+        not user
+        or not user.hashed_password
+        or not verify_password(body.password, user.hashed_password)
+    ):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password",
@@ -202,4 +222,190 @@ async def update_user(
         full_name=target.full_name,
         role=target.role,
         is_active=target.is_active,
+    )
+
+
+# --- Lark OAuth Schemas ---
+
+
+class LarkAuthorizeResponse(BaseModel):
+    """Response containing the Lark OAuth authorization URL."""
+
+    authorize_url: str
+    state: str
+
+
+class LarkCallbackRequest(BaseModel):
+    """Request body for the Lark OAuth callback."""
+
+    code: str = Field(min_length=1, max_length=512)
+    state: str = Field(min_length=1, max_length=128)
+
+
+# --- Lark OAuth Endpoints ---
+
+
+@router.get("/lark/authorize", response_model=LarkAuthorizeResponse)
+async def lark_authorize():
+    """Generate the Lark OAuth authorization URL.
+
+    The frontend should redirect the user to the returned `authorize_url`.
+    The `state` parameter should be stored client-side and verified on callback.
+    """
+    if not settings.lark_app_id:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Lark OAuth is not configured",
+        )
+
+    state = secrets.token_urlsafe(32)
+    authorize_url = get_authorize_url(state)
+
+    return LarkAuthorizeResponse(authorize_url=authorize_url, state=state)
+
+
+@router.post("/lark/callback", response_model=TokenResponse, status_code=200)
+async def lark_callback(
+    body: LarkCallbackRequest,
+    db: AsyncSession = Depends(get_session),
+):
+    """Handle the Lark OAuth callback.
+
+    Exchanges the authorization code for user info, creates or links
+    the user account, and returns a CAT JWT access token.
+    """
+    if not settings.lark_app_id:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Lark OAuth is not configured",
+        )
+
+    try:
+        # Exchange code for Lark user_access_token
+        user_token = await exchange_code_for_user_token(body.code)
+
+        # Fetch user profile from Lark
+        lark_info = await fetch_lark_user_info(user_token)
+
+        # Create or link user in our database
+        user, access_token = await get_or_create_lark_user(lark_info, db)
+
+    except ValueError as e:
+        logger.warning("Lark OAuth failed: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=f"Lark authentication failed: {e}",
+        )
+    except Exception as e:
+        logger.error("Unexpected error during Lark OAuth: %s", e, exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Failed to communicate with Lark",
+        )
+
+    if not user.is_active:
+        raise HTTPException(status_code=403, detail="Account is deactivated")
+
+    return TokenResponse(
+        access_token=access_token,
+        user=UserResponse(
+            id=str(user.id),
+            email=user.email,
+            full_name=user.full_name,
+            role=user.role,
+            is_active=user.is_active,
+        ),
+    )
+
+
+# --- Google OAuth Schemas ---
+
+
+class GoogleAuthorizeResponse(BaseModel):
+    """Response containing the Google OAuth authorization URL."""
+
+    authorize_url: str
+    state: str
+
+
+class GoogleCallbackRequest(BaseModel):
+    """Request body for the Google OAuth callback."""
+
+    code: str = Field(min_length=1, max_length=2048)
+    state: str = Field(min_length=1, max_length=128)
+
+
+# --- Google OAuth Endpoints ---
+
+
+@router.get("/google/authorize", response_model=GoogleAuthorizeResponse)
+async def google_authorize():
+    """Generate the Google OAuth authorization URL.
+
+    The frontend should redirect the user to the returned `authorize_url`.
+    The `state` parameter should be stored client-side and verified on callback.
+    """
+    if not settings.google_client_id:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Google OAuth is not configured",
+        )
+
+    state = secrets.token_urlsafe(32)
+    authorize_url = google_get_authorize_url(state)
+
+    return GoogleAuthorizeResponse(authorize_url=authorize_url, state=state)
+
+
+@router.post("/google/callback", response_model=TokenResponse, status_code=200)
+async def google_callback(
+    body: GoogleCallbackRequest,
+    db: AsyncSession = Depends(get_session),
+):
+    """Handle the Google OAuth callback.
+
+    Exchanges the authorization code for user info, creates or links
+    the user account, and returns a CAT JWT access token.
+    """
+    if not settings.google_client_id:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Google OAuth is not configured",
+        )
+
+    try:
+        # Exchange code for Google access token
+        access_token = await google_exchange_code(body.code)
+
+        # Fetch user profile from Google
+        google_info = await fetch_google_user_info(access_token)
+
+        # Create or link user in our database
+        user, cat_token = await get_or_create_google_user(google_info, db)
+
+    except ValueError as e:
+        logger.warning("Google OAuth failed: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=f"Google authentication failed: {e}",
+        )
+    except Exception as e:
+        logger.error("Unexpected error during Google OAuth: %s", e, exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Failed to communicate with Google",
+        )
+
+    if not user.is_active:
+        raise HTTPException(status_code=403, detail="Account is deactivated")
+
+    return TokenResponse(
+        access_token=cat_token,
+        user=UserResponse(
+            id=str(user.id),
+            email=user.email,
+            full_name=user.full_name,
+            role=user.role,
+            is_active=user.is_active,
+        ),
     )

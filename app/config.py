@@ -32,9 +32,21 @@ class Settings(BaseSettings):
     llm_temperature: float = 0.7
     llm_max_tokens: int = 1024
 
+    # Lark (Feishu) OAuth
+    lark_app_id: str = ""
+    lark_app_secret: str = ""
+    lark_redirect_uri: str = "http://localhost:3000/auth/lark/callback"
+
+    # Google OAuth
+    google_client_id: str = ""
+    google_client_secret: str = ""
+    google_redirect_uri: str = "http://localhost:3000/auth/google/callback"
+
     # ElevenLabs TTS (leave empty to use gTTS fallback)
     elevenlabs_api_key: str = ""
-    elevenlabs_voice_id: str = "pFZP5JQG7iQjIQuC4Bku"  # Lily - good for Filipino/multilingual
+    elevenlabs_voice_id: str = (
+        "pFZP5JQG7iQjIQuC4Bku"  # Lily - good for Filipino/multilingual
+    )
     # TTS provider: "elevenlabs", "gtts", or "auto" (tries elevenlabs first)
     tts_provider: str = "auto"
 
