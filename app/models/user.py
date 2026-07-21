@@ -14,6 +14,12 @@ class UserRole(str, Enum):
     AGENT = "agent"
 
 
+class AuthProvider(str, Enum):
+    LOCAL = "local"
+    LARK = "lark"
+    GOOGLE = "google"
+
+
 class User(Base):
     """User account for agents and administrators."""
 
@@ -21,9 +27,21 @@ class User(Base):
 
     id = Column(Uuid, primary_key=True, default=uuid.uuid4)
     email = Column(String(255), unique=True, nullable=False, index=True)
-    hashed_password = Column(String(255), nullable=False)
+    hashed_password = Column(
+        String(255), nullable=True
+    )  # Nullable for OAuth-only users
     full_name = Column(String(255), nullable=False)
     role = Column(String(20), nullable=False, default=UserRole.AGENT.value)
     is_active = Column(Boolean, default=True, nullable=False)
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    created_at = Column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at = Column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    # OAuth fields
+    auth_provider = Column(String(20), nullable=False, default=AuthProvider.LOCAL.value)
+    lark_open_id = Column(String(255), unique=True, nullable=True, index=True)
+    lark_union_id = Column(String(255), unique=True, nullable=True, index=True)
+    google_sub = Column(String(255), unique=True, nullable=True, index=True)
