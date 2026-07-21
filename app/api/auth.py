@@ -5,7 +5,7 @@ import secrets
 from typing import Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -122,16 +122,39 @@ async def register(body: RegisterRequest, db: AsyncSession = Depends(get_session
 
 
 @router.post("/login", response_model=TokenResponse)
-async def login(body: LoginRequest, db: AsyncSession = Depends(get_session)):
-    """Authenticate and get an access token."""
-    stmt = select(User).where(User.email == body.email)
+async def login(
+    request: Request,
+    db: AsyncSession = Depends(get_session),
+):
+    """Authenticate and get an access token.
+
+    Accepts both JSON body ({"email": "...", "password": "..."}) and
+    OAuth2 form data (username=...&password=...) for Swagger compatibility.
+    """
+    content_type = request.headers.get("content-type", "")
+
+    if "application/json" in content_type:
+        body = await request.json()
+        email = body.get("email", "")
+        password = body.get("password", "")
+    else:
+        form = await request.form()
+        email = form.get("username", "")
+        password = form.get("password", "")
+        if not email or not password:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Provide JSON body or form data with username and password",
+            )
+
+    stmt = select(User).where(User.email == email)
     result = await db.execute(stmt)
     user = result.scalar_one_or_none()
 
     if (
         not user
         or not user.hashed_password
-        or not verify_password(body.password, user.hashed_password)
+        or not verify_password(password, user.hashed_password)
     ):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
