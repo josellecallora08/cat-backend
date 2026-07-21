@@ -2,7 +2,13 @@
 
 import uuid
 
-from app.models.user import User, UserRole  # noqa: F401
+from app.models.user import User as User, UserRole as UserRole
+from app.models.campaign import (
+    Campaign as Campaign,
+    CampaignStatus as CampaignStatus,
+    campaign_agents as campaign_agents,
+    campaign_scenarios as campaign_scenarios,
+)
 
 from sqlalchemy import (
     Boolean,
@@ -38,9 +44,14 @@ class Scenario(Base):
     description = Column(Text)
     debtor_profile = Column(JSONVariant, nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    created_at = Column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
     updated_at = Column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
     )
 
     # Relationships
@@ -57,15 +68,21 @@ class Session(Base):
     agent_id = Column(Uuid, nullable=False)
     status = Column(String(20), default="pending", nullable=False)
     persona_context = Column(JSONVariant)
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    created_at = Column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
     ended_at = Column(DateTime(timezone=True), nullable=True)
 
     # Relationships
     scenario = relationship("Scenario", back_populates="sessions")
     transcripts = relationship("Transcript", back_populates="session")
     evaluation = relationship("Evaluation", back_populates="session", uselist=False)
-    coaching_report = relationship("CoachingReport", back_populates="session", uselist=False)
-    learning_plan = relationship("LearningPlan", back_populates="session", uselist=False)
+    coaching_report = relationship(
+        "CoachingReport", back_populates="session", uselist=False
+    )
+    learning_plan = relationship(
+        "LearningPlan", back_populates="session", uselist=False
+    )
 
 
 class Transcript(Base):
@@ -96,7 +113,9 @@ class Evaluation(Base):
     strengths = Column(JSONVariant, nullable=False)
     weaknesses = Column(JSONVariant, nullable=False)
     is_too_short = Column(Boolean, default=False, nullable=False)
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    created_at = Column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
 
     # Relationships
     session = relationship("Session", back_populates="evaluation")
@@ -112,7 +131,9 @@ class CoachingReport(Base):
     mistakes_by_category = Column(JSONVariant, nullable=False)
     total_mistakes = Column(Integer, nullable=False)
     no_mistakes = Column(Boolean, default=False, nullable=False)
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    created_at = Column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
 
     # Relationships
     session = relationship("Session", back_populates="coaching_report")
@@ -128,7 +149,9 @@ class LearningPlan(Base):
     agent_id = Column(Uuid, nullable=False)
     weak_competencies = Column(JSONVariant, nullable=False)
     all_passing = Column(Boolean, default=False, nullable=False)
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    created_at = Column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
 
     # Relationships
     session = relationship("Session", back_populates="learning_plan")
@@ -142,5 +165,8 @@ class SystemConfig(Base):
     key = Column(String(100), primary_key=True)
     value = Column(Text, nullable=False, server_default="")
     updated_at = Column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
     )

@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import scenarios, sessions, voice, tts, dashboard, auth, config
+from app.api import campaigns, scenarios, sessions, voice, tts, dashboard, auth, config
 from app.config import settings
 from app.database import async_session_factory, get_session
 
@@ -162,6 +162,7 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
+    app.include_router(campaigns.router, prefix="/api/campaigns", tags=["campaigns"])
     app.include_router(scenarios.router, prefix="/api/scenarios", tags=["scenarios"])
     app.include_router(sessions.router, prefix="/api/sessions", tags=["sessions"])
     app.include_router(voice.router, tags=["voice"])
