@@ -6,9 +6,35 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import scenarios, sessions, voice, tts, dashboard, auth, config
 from app.config import settings
-from app.database import Base, async_session_factory, get_session
+from app.database import async_session_factory, get_session
 
 logger = logging.getLogger(__name__)
+
+
+def _run_migrations() -> None:
+    """Run Alembic migrations to ensure the database schema is up to date."""
+    import shutil
+    import subprocess
+    from pathlib import Path
+
+    project_root = Path(__file__).resolve().parent.parent
+
+    # Find the alembic executable (installed via pip)
+    alembic_bin = shutil.which("alembic")
+    if not alembic_bin:
+        logger.warning("Alembic CLI not found on PATH, skipping auto-migration")
+        return
+
+    result = subprocess.run(
+        [alembic_bin, "upgrade", "head"],
+        cwd=str(project_root),
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        logger.error("Alembic migration failed: %s", result.stderr)
+        raise RuntimeError(f"Database migration failed: {result.stderr}")
+    logger.info("Database migrations applied successfully")
 
 
 async def _fix_orphaned_sessions():
@@ -31,20 +57,26 @@ async def _fix_orphaned_sessions():
 
         # Find sessions with agent_ids that don't match any user
         session_result = await db.execute(select(Session.id, Session.agent_id))
-        orphaned = [(sid, aid) for sid, aid in session_result.all() if aid not in valid_user_ids]
+        orphaned = [
+            (sid, aid) for sid, aid in session_result.all() if aid not in valid_user_ids
+        ]
 
         if not orphaned:
             return
 
         # Get the first agent user (prefer agent role over admin)
         agent_user = await db.execute(
-            select(User.id).where(User.role == "agent", User.is_active == True).limit(1)
+            select(User.id)
+            .where(User.role == "agent", User.is_active.is_(True))
+            .limit(1)
         )
         default_agent = agent_user.scalar_one_or_none()
 
         if not default_agent:
             # Fallback to any user
-            any_user = await db.execute(select(User.id).where(User.is_active == True).limit(1))
+            any_user = await db.execute(
+                select(User.id).where(User.is_active.is_(True)).limit(1)
+            )
             default_agent = any_user.scalar_one_or_none()
 
         if not default_agent:
@@ -53,16 +85,30 @@ async def _fix_orphaned_sessions():
         # Reassign orphaned sessions
         orphaned_ids = [sid for sid, _ in orphaned]
         await db.execute(
-            update(Session).where(Session.id.in_(orphaned_ids)).values(agent_id=default_agent)
+            update(Session)
+            .where(Session.id.in_(orphaned_ids))
+            .values(agent_id=default_agent)
         )
         await db.commit()
-        logger.info("Reassigned %d orphaned sessions to user %s", len(orphaned_ids), default_agent)
+        logger.info(
+            "Reassigned %d orphaned sessions to user %s",
+            len(orphaned_ids),
+            default_agent,
+        )
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Application lifespan: seed default data on startup."""
+    """Application lifespan: run migrations and seed default data on startup."""
     # Import all models so Base.metadata knows about them
     import app.models  # noqa: F401
+
+    # Run database migrations before any DB operations
+    try:
+        _run_migrations()
+    except Exception as e:
+        logger.error("Failed to run database migrations: %s", e, exc_info=True)
+        raise
 
     try:
         # Seed default scenarios
@@ -103,7 +149,9 @@ def create_app() -> FastAPI:
     )
 
     # Parse CORS origins from comma-separated string or "*"
-    origins = settings.cors_origins.split(",") if settings.cors_origins != "*" else ["*"]
+    origins = (
+        settings.cors_origins.split(",") if settings.cors_origins != "*" else ["*"]
+    )
     origins = [o.strip() for o in origins if o.strip()]
 
     app.add_middleware(
@@ -138,7 +186,9 @@ def create_app() -> FastAPI:
         users = {str(u.id): u.email for u in users_result.scalars().all()}
 
         # Get all sessions
-        sessions_result = await db.execute(select(Session).order_by(Session.created_at.desc()).limit(20))
+        sessions_result = await db.execute(
+            select(Session).order_by(Session.created_at.desc()).limit(20)
+        )
         sessions_list = sessions_result.scalars().all()
 
         return {
@@ -147,7 +197,9 @@ def create_app() -> FastAPI:
                 {
                     "id": str(s.id),
                     "agent_id": str(s.agent_id),
-                    "agent_email": users.get(str(s.agent_id), "UNKNOWN - no matching user"),
+                    "agent_email": users.get(
+                        str(s.agent_id), "UNKNOWN - no matching user"
+                    ),
                     "status": s.status,
                     "created_at": s.created_at.isoformat() if s.created_at else None,
                 }
