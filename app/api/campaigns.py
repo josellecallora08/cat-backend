@@ -47,11 +47,12 @@ def _campaign_to_detail(campaign) -> CampaignDetail:
         ],
         agents=[
             CampaignAgentItem(
-                id=a.id,
-                full_name=a.full_name,
-                email=a.email,
+                id=assignment.agent.id,
+                full_name=assignment.agent.full_name,
+                email=assignment.agent.email,
+                role=assignment.role,
             )
-            for a in campaign.agents
+            for assignment in campaign.agent_assignments
         ],
         created_at=campaign.created_at,
         updated_at=campaign.updated_at,

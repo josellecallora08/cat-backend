@@ -5,10 +5,19 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field, model_validator
 
-from app.models.campaign import CampaignStatus
+from app.models.campaign import CampaignRole, CampaignStatus
 
 
 # --- Request Schemas ---
+
+
+class AgentAssignment(BaseModel):
+    """An agent-role pair for campaign assignment."""
+
+    model_config = {"extra": "forbid"}
+
+    agent_id: UUID
+    role: CampaignRole
 
 
 class CampaignCreate(BaseModel):
@@ -18,16 +27,17 @@ class CampaignCreate(BaseModel):
 
     name: str = Field(min_length=1, max_length=100)
     description: str | None = Field(default=None, max_length=500)
-    start_date: date
-    end_date: date
-    scenario_ids: list[UUID] = Field(min_length=1)
-    agent_ids: list[UUID] = Field(min_length=1)
+    start_date: date | None = None
+    end_date: date | None = None
+    scenario_ids: list[UUID] | None = None
+    agents: list[AgentAssignment] = Field(min_length=1)
 
     @model_validator(mode="after")
     def validate_dates(self) -> "CampaignCreate":
-        """Ensure end_date is strictly after start_date."""
-        if self.end_date <= self.start_date:
-            raise ValueError("end_date must be after start_date")
+        """Ensure end_date is strictly after start_date when both are provided."""
+        if self.start_date is not None and self.end_date is not None:
+            if self.end_date <= self.start_date:
+                raise ValueError("end_date must be after start_date")
         return self
 
 
@@ -41,8 +51,8 @@ class CampaignUpdate(BaseModel):
     status: CampaignStatus | None = None
     start_date: date | None = None
     end_date: date | None = None
-    scenario_ids: list[UUID] | None = Field(default=None, min_length=1)
-    agent_ids: list[UUID] | None = Field(default=None, min_length=1)
+    scenario_ids: list[UUID] | None = None
+    agents: list[AgentAssignment] | None = None
 
     @model_validator(mode="after")
     def validate_dates(self) -> "CampaignUpdate":
@@ -74,6 +84,7 @@ class CampaignAgentItem(BaseModel):
     id: UUID
     full_name: str
     email: str
+    role: str
 
 
 class CampaignListItem(BaseModel):
@@ -86,9 +97,10 @@ class CampaignListItem(BaseModel):
     status: str
     scenarios_count: int
     agents_count: int
-    start_date: date
-    end_date: date
+    start_date: date | None
+    end_date: date | None
     created_at: datetime
+    updated_at: datetime
 
 
 class CampaignDetail(BaseModel):
@@ -100,8 +112,8 @@ class CampaignDetail(BaseModel):
     name: str
     description: str | None
     status: str
-    start_date: date
-    end_date: date
+    start_date: date | None
+    end_date: date | None
     scenarios: list[CampaignScenarioItem]
     agents: list[CampaignAgentItem]
     created_at: datetime

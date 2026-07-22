@@ -8,6 +8,7 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 from app.main import app
+from app.models.campaign import CampaignRole
 from app.schemas.campaign import CampaignListItem, PaginatedCampaigns
 from app.services.auth import require_admin
 
@@ -29,7 +30,7 @@ def _make_campaign(
     start_date: date | None = None,
     end_date: date | None = None,
     scenarios: list | None = None,
-    agents: list | None = None,
+    agent_assignments: list | None = None,
 ) -> MagicMock:
     """Create a mock Campaign ORM object with required attributes."""
     campaign = MagicMock()
@@ -50,13 +51,15 @@ def _make_campaign(
         scenarios = [scenario]
     campaign.scenarios = scenarios
 
-    if agents is None:
-        agent = MagicMock()
-        agent.id = uuid.uuid4()
-        agent.full_name = "Agent Smith"
-        agent.email = "agent@test.com"
-        agents = [agent]
-    campaign.agents = agents
+    if agent_assignments is None:
+        assignment = MagicMock()
+        assignment.agent = MagicMock()
+        assignment.agent.id = uuid.uuid4()
+        assignment.agent.full_name = "Agent Smith"
+        assignment.agent.email = "agent@test.com"
+        assignment.role = CampaignRole.PARTICIPANT.value
+        agent_assignments = [assignment]
+    campaign.agent_assignments = agent_assignments
 
     return campaign
 
@@ -96,6 +99,7 @@ class TestCreateCampaign:
             new_callable=AsyncMock,
             return_value=campaign,
         ):
+            agent_id = str(uuid.uuid4())
             response = await client.post(
                 "/api/campaigns",
                 json={
@@ -104,7 +108,7 @@ class TestCreateCampaign:
                     "start_date": "2025-01-01",
                     "end_date": "2025-06-30",
                     "scenario_ids": [str(uuid.uuid4())],
-                    "agent_ids": [str(uuid.uuid4())],
+                    "agents": [{"agent_id": agent_id, "role": "participant"}],
                 },
             )
             assert response.status_code == 201
@@ -113,6 +117,7 @@ class TestCreateCampaign:
             assert data["status"] == "draft"
             assert len(data["scenarios"]) == 1
             assert len(data["agents"]) == 1
+            assert data["agents"][0]["role"] == "participant"
 
     async def test_rejects_duplicate_name(self, client):
         with patch(
@@ -124,10 +129,7 @@ class TestCreateCampaign:
                 "/api/campaigns",
                 json={
                     "name": "Existing Campaign",
-                    "start_date": "2025-01-01",
-                    "end_date": "2025-06-30",
-                    "scenario_ids": [str(uuid.uuid4())],
-                    "agent_ids": [str(uuid.uuid4())],
+                    "agents": [{"agent_id": str(uuid.uuid4()), "role": "participant"}],
                 },
             )
             assert response.status_code == 409
@@ -140,34 +142,34 @@ class TestCreateCampaign:
                 "name": "Bad Dates",
                 "start_date": "2025-06-30",
                 "end_date": "2025-01-01",
-                "scenario_ids": [str(uuid.uuid4())],
-                "agent_ids": [str(uuid.uuid4())],
+                "agents": [{"agent_id": str(uuid.uuid4()), "role": "participant"}],
             },
         )
         assert response.status_code == 422
 
-    async def test_rejects_empty_scenario_ids(self, client):
-        response = await client.post(
-            "/api/campaigns",
-            json={
-                "name": "No Scenarios",
-                "start_date": "2025-01-01",
-                "end_date": "2025-06-30",
-                "scenario_ids": [],
-                "agent_ids": [str(uuid.uuid4())],
-            },
-        )
-        assert response.status_code == 422
+    async def test_accepts_empty_scenario_ids(self, client):
+        campaign = _make_campaign(name="No Scenarios", scenarios=[])
+        with patch(
+            "app.api.campaigns.create_campaign",
+            new_callable=AsyncMock,
+            return_value=campaign,
+        ):
+            response = await client.post(
+                "/api/campaigns",
+                json={
+                    "name": "No Scenarios",
+                    "scenario_ids": [],
+                    "agents": [{"agent_id": str(uuid.uuid4()), "role": "participant"}],
+                },
+            )
+            assert response.status_code == 201
 
-    async def test_rejects_empty_agent_ids(self, client):
+    async def test_rejects_empty_agents(self, client):
         response = await client.post(
             "/api/campaigns",
             json={
                 "name": "No Agents",
-                "start_date": "2025-01-01",
-                "end_date": "2025-06-30",
-                "scenario_ids": [str(uuid.uuid4())],
-                "agent_ids": [],
+                "agents": [],
             },
         )
         assert response.status_code == 422
@@ -182,10 +184,8 @@ class TestCreateCampaign:
                 "/api/campaigns",
                 json={
                     "name": "Bad Scenarios",
-                    "start_date": "2025-01-01",
-                    "end_date": "2025-06-30",
                     "scenario_ids": [str(uuid.uuid4())],
-                    "agent_ids": [str(uuid.uuid4())],
+                    "agents": [{"agent_id": str(uuid.uuid4()), "role": "participant"}],
                 },
             )
             assert response.status_code == 422
@@ -196,10 +196,7 @@ class TestCreateCampaign:
             "/api/campaigns",
             json={
                 "name": "Unauthorized",
-                "start_date": "2025-01-01",
-                "end_date": "2025-06-30",
-                "scenario_ids": [str(uuid.uuid4())],
-                "agent_ids": [str(uuid.uuid4())],
+                "agents": [{"agent_id": str(uuid.uuid4()), "role": "participant"}],
             },
         )
         assert response.status_code in (401, 403)
@@ -220,6 +217,7 @@ class TestListCampaigns:
                     start_date=date(2025, 1, 1),
                     end_date=date(2025, 6, 30),
                     created_at=datetime(2025, 1, 1, tzinfo=timezone.utc),
+                    updated_at=datetime(2025, 1, 1, tzinfo=timezone.utc),
                 ),
             ],
             total=1,
@@ -253,6 +251,7 @@ class TestListCampaigns:
                     start_date=date(2025, 1, 1),
                     end_date=date(2025, 6, 30),
                     created_at=datetime(2025, 1, 1, tzinfo=timezone.utc),
+                    updated_at=datetime(2025, 1, 1, tzinfo=timezone.utc),
                 ),
             ],
             total=1,
@@ -311,6 +310,7 @@ class TestGetCampaign:
             assert data["scenarios"][0]["name"] == "Scenario A"
             assert len(data["agents"]) == 1
             assert data["agents"][0]["full_name"] == "Agent Smith"
+            assert data["agents"][0]["role"] == "participant"
 
     async def test_returns_404_for_non_existent_id(self, client):
         with patch(
@@ -351,15 +351,17 @@ class TestUpdateCampaign:
         new_scenario.name = "Scenario B"
         new_scenario.scenario_type = "ANGRY_CUSTOMER"
 
-        new_agent = MagicMock()
-        new_agent.id = uuid.uuid4()
-        new_agent.full_name = "Agent Neo"
-        new_agent.email = "neo@test.com"
+        new_assignment = MagicMock()
+        new_assignment.agent = MagicMock()
+        new_assignment.agent.id = uuid.uuid4()
+        new_assignment.agent.full_name = "Agent Neo"
+        new_assignment.agent.email = "neo@test.com"
+        new_assignment.role = CampaignRole.TEAM_LEAD.value
 
         campaign = _make_campaign(
             name="Reassigned",
             scenarios=[new_scenario],
-            agents=[new_agent],
+            agent_assignments=[new_assignment],
         )
         with patch(
             "app.api.campaigns.update_campaign",
@@ -370,13 +372,19 @@ class TestUpdateCampaign:
                 f"/api/campaigns/{campaign.id}",
                 json={
                     "scenario_ids": [str(new_scenario.id)],
-                    "agent_ids": [str(new_agent.id)],
+                    "agents": [
+                        {
+                            "agent_id": str(new_assignment.agent.id),
+                            "role": "team_lead",
+                        },
+                    ],
                 },
             )
             assert response.status_code == 200
             data = response.json()
             assert data["scenarios"][0]["name"] == "Scenario B"
             assert data["agents"][0]["full_name"] == "Agent Neo"
+            assert data["agents"][0]["role"] == "team_lead"
 
     async def test_validates_updated_dates(self, client):
         """Pydantic schema rejects end_date <= start_date when both are provided."""
