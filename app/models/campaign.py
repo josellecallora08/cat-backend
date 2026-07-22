@@ -19,6 +19,14 @@ class CampaignStatus(str, Enum):
     ARCHIVED = "archived"
 
 
+class CampaignRole(str, Enum):
+    """Valid roles for agents assigned to a campaign."""
+
+    TEAM_LEAD = "team_lead"
+    PARTICIPANT = "participant"
+    OBSERVER = "observer"
+
+
 # Association tables
 campaign_scenarios = Table(
     "campaign_scenarios",
@@ -37,22 +45,30 @@ campaign_scenarios = Table(
     ),
 )
 
-campaign_agents = Table(
-    "campaign_agents",
-    Base.metadata,
-    Column(
-        "campaign_id",
+
+class CampaignAgent(Base):
+    """Association model linking agents to campaigns with a role."""
+
+    __tablename__ = "campaign_agents"
+
+    campaign_id = Column(
         Uuid,
         ForeignKey("campaigns.id", ondelete="CASCADE"),
         primary_key=True,
-    ),
-    Column(
-        "agent_id",
+    )
+    agent_id = Column(
         Uuid,
         ForeignKey("users.id", ondelete="CASCADE"),
         primary_key=True,
-    ),
-)
+    )
+    role = Column(
+        String(20),
+        nullable=False,
+        default=CampaignRole.PARTICIPANT.value,
+    )
+
+    # Relationships
+    agent = relationship("User", lazy="selectin")
 
 
 class Campaign(Base):
@@ -64,8 +80,8 @@ class Campaign(Base):
     name = Column(String(100), nullable=False, unique=True)
     description = Column(Text, nullable=True)
     status = Column(String(20), nullable=False, default=CampaignStatus.DRAFT.value)
-    start_date = Column(Date, nullable=False)
-    end_date = Column(Date, nullable=False)
+    start_date = Column(Date, nullable=True)
+    end_date = Column(Date, nullable=True)
     created_at = Column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -78,4 +94,6 @@ class Campaign(Base):
 
     # Relationships
     scenarios = relationship("Scenario", secondary=campaign_scenarios, lazy="selectin")
-    agents = relationship("User", secondary=campaign_agents, lazy="selectin")
+    agent_assignments = relationship(
+        "CampaignAgent", lazy="selectin", cascade="all, delete-orphan"
+    )
