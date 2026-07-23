@@ -5,8 +5,9 @@ import uuid
 from app.models.user import User as User, UserRole as UserRole
 from app.models.campaign import (
     Campaign as Campaign,
+    CampaignAgent as CampaignAgent,
+    CampaignRole as CampaignRole,
     CampaignStatus as CampaignStatus,
-    campaign_agents as campaign_agents,
     campaign_scenarios as campaign_scenarios,
 )
 from app.models.script import (

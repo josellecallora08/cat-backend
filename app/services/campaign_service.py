@@ -8,13 +8,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.campaign import (
     Campaign,
+    CampaignAgent,
     CampaignStatus,
-    campaign_agents,
     campaign_scenarios,
 )
 from app.models.user import User, UserRole
 from app.models import Scenario
 from app.schemas.campaign import (
+    AgentAssignment,
     CampaignCreate,
     CampaignListItem,
     CampaignUpdate,
@@ -68,8 +69,11 @@ async def create_campaign(db: AsyncSession, data: CampaignCreate) -> Campaign:
         ValueError: If name already exists, or scenario/agent IDs are invalid.
     """
     await _check_name_uniqueness(db, data.name)
-    await _validate_scenario_ids(db, data.scenario_ids)
-    await _validate_agent_ids(db, data.agent_ids)
+
+    scenario_ids = data.scenario_ids or []
+    if scenario_ids:
+        await _validate_scenario_ids(db, scenario_ids)
+    await _validate_agent_ids(db, data.agents)
 
     campaign = Campaign(
         name=data.name,
@@ -81,8 +85,9 @@ async def create_campaign(db: AsyncSession, data: CampaignCreate) -> Campaign:
     db.add(campaign)
     await db.flush()
 
-    await _insert_scenario_associations(db, campaign.id, data.scenario_ids)
-    await _insert_agent_associations(db, campaign.id, data.agent_ids)
+    if scenario_ids:
+        await _insert_scenario_associations(db, campaign.id, scenario_ids)
+    await _insert_agent_associations(db, campaign.id, data.agents)
     await db.commit()
     await db.refresh(campaign)
     return campaign
@@ -118,9 +123,9 @@ async def update_campaign(
         await _validate_scenario_ids(db, data.scenario_ids)
         await _replace_scenario_associations(db, campaign_id, data.scenario_ids)
 
-    if data.agent_ids is not None:
-        await _validate_agent_ids(db, data.agent_ids)
-        await _replace_agent_associations(db, campaign_id, data.agent_ids)
+    if data.agents is not None:
+        await _validate_agent_ids(db, data.agents)
+        await _replace_agent_associations(db, campaign_id, data.agents)
 
     await db.commit()
     await db.refresh(campaign)
@@ -155,10 +160,11 @@ def _to_list_item(campaign: Campaign) -> CampaignListItem:
         name=campaign.name,
         status=campaign.status,
         scenarios_count=len(campaign.scenarios),
-        agents_count=len(campaign.agents),
+        agents_count=len(campaign.agent_assignments),
         start_date=campaign.start_date,
         end_date=campaign.end_date,
         created_at=campaign.created_at,
+        updated_at=campaign.updated_at,
     )
 
 
@@ -188,8 +194,12 @@ async def _validate_scenario_ids(db: AsyncSession, scenario_ids: list[UUID]) -> 
         raise ValueError("One or more scenario_ids are invalid or inactive")
 
 
-async def _validate_agent_ids(db: AsyncSession, agent_ids: list[UUID]) -> None:
+async def _validate_agent_ids(
+    db: AsyncSession,
+    agents: list[AgentAssignment],
+) -> None:
     """Raise ValueError if any agent ID is invalid or inactive."""
+    agent_ids = [a.agent_id for a in agents]
     stmt = select(func.count()).where(
         User.id.in_(agent_ids),
         User.is_active == True,  # noqa: E712
@@ -214,11 +224,16 @@ async def _insert_scenario_associations(
 async def _insert_agent_associations(
     db: AsyncSession,
     campaign_id: UUID,
-    agent_ids: list[UUID],
+    agents: list[AgentAssignment],
 ) -> None:
-    """Insert campaign-agent association rows."""
-    values = [{"campaign_id": campaign_id, "agent_id": aid} for aid in agent_ids]
-    await db.execute(campaign_agents.insert().values(values))
+    """Insert campaign-agent association rows with role."""
+    for agent in agents:
+        assignment = CampaignAgent(
+            campaign_id=campaign_id,
+            agent_id=agent.agent_id,
+            role=agent.role.value,
+        )
+        db.add(assignment)
 
 
 async def _replace_scenario_associations(
@@ -238,13 +253,13 @@ async def _replace_scenario_associations(
 async def _replace_agent_associations(
     db: AsyncSession,
     campaign_id: UUID,
-    agent_ids: list[UUID],
+    agents: list[AgentAssignment],
 ) -> None:
     """Delete existing agent associations and insert new ones."""
     await db.execute(
-        delete(campaign_agents).where(campaign_agents.c.campaign_id == campaign_id)
+        delete(CampaignAgent).where(CampaignAgent.campaign_id == campaign_id)
     )
-    await _insert_agent_associations(db, campaign_id, agent_ids)
+    await _insert_agent_associations(db, campaign_id, agents)
 
 
 async def _get_campaign_or_raise(db: AsyncSession, campaign_id: UUID) -> Campaign:
@@ -284,7 +299,7 @@ def _apply_date_updates(campaign: Campaign, data: CampaignUpdate) -> None:
     start = data.start_date if data.start_date is not None else campaign.start_date
     end = data.end_date if data.end_date is not None else campaign.end_date
 
-    if end <= start:
+    if start is not None and end is not None and end <= start:
         raise ValueError("end_date must be after start_date")
 
     if data.start_date is not None:
