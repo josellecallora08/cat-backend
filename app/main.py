@@ -5,6 +5,7 @@ from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import (
+    admin_users,
     agent_me,
     campaign_dashboard,
     campaign_scenarios,
@@ -189,6 +190,9 @@ def create_app() -> FastAPI:
     app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
     app.include_router(config.router, prefix="/api", tags=["config"])
     app.include_router(agent_me.router, prefix="/api/me", tags=["agent-me"])
+    app.include_router(
+        admin_users.router, prefix="/api/admin/users", tags=["admin-users"]
+    )
 
     @app.get("/health")
     async def health_check():

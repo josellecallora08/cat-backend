@@ -11,6 +11,11 @@ from app.database import Base
 
 class UserRole(str, Enum):
     ADMIN = "admin"
+    USER = "user"
+
+
+class UserType(str, Enum):
+    TRAINER = "trainer"
     AGENT = "agent"
 
 
@@ -21,7 +26,7 @@ class AuthProvider(str, Enum):
 
 
 class User(Base):
-    """User account for agents and administrators."""
+    """User account for trainers, agents, and administrators."""
 
     __tablename__ = "users"
 
@@ -31,7 +36,8 @@ class User(Base):
         String(255), nullable=True
     )  # Nullable for OAuth-only users
     full_name = Column(String(255), nullable=False)
-    role = Column(String(20), nullable=False, default=UserRole.AGENT.value)
+    role = Column(String(20), nullable=False, default=UserRole.USER.value)
+    user_type = Column(String(20), nullable=True)
     is_active = Column(Boolean, default=True, nullable=False)
     created_at = Column(
         DateTime(timezone=True), server_default=func.now(), nullable=False

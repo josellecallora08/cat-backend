@@ -2,7 +2,6 @@
 
 import logging
 import secrets
-from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -12,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.database import get_session
-from app.models.user import User, UserRole
+from app.models.user import User, UserRole, UserType
 from app.services.auth import (
     create_access_token,
     hash_password,
@@ -43,10 +42,12 @@ router = APIRouter()
 
 
 class RegisterRequest(BaseModel):
+    """Request payload for user registration."""
+
     email: str
     password: str
     full_name: str
-    role: str = "agent"  # "admin" or "agent"
+    role: str = "user"  # "admin" or "user"
 
 
 class LoginRequest(BaseModel):
@@ -65,13 +66,16 @@ class UserResponse(BaseModel):
     email: str
     full_name: str
     role: str
+    user_type: str | None = None
     is_active: bool
 
 
 class UpdateUserRequest(BaseModel):
-    full_name: Optional[str] = None
-    role: Optional[str] = None
-    is_active: Optional[bool] = None
+    """Request payload for updating a user."""
+
+    full_name: str | None = None
+    role: str | None = None
+    is_active: bool | None = None
 
 
 # --- Endpoints ---
@@ -89,10 +93,13 @@ async def register(body: RegisterRequest, db: AsyncSession = Depends(get_session
         raise HTTPException(status_code=400, detail="Email already registered")
 
     # Validate role
-    if body.role not in (UserRole.ADMIN.value, UserRole.AGENT.value):
+    if body.role not in (UserRole.ADMIN.value, UserRole.USER.value):
         raise HTTPException(
-            status_code=400, detail="Invalid role. Must be 'admin' or 'agent'"
+            status_code=400, detail="Invalid role. Must be 'admin' or 'user'"
         )
+
+    # Determine user_type for non-admin registrations
+    user_type = UserType.AGENT.value if body.role == UserRole.USER.value else None
 
     # Create user
     user = User(
@@ -100,13 +107,14 @@ async def register(body: RegisterRequest, db: AsyncSession = Depends(get_session
         hashed_password=hash_password(body.password),
         full_name=body.full_name,
         role=body.role,
+        user_type=user_type,
     )
     db.add(user)
     await db.commit()
     await db.refresh(user)
 
     # Generate token
-    token = create_access_token(user.id, user.role)
+    token = create_access_token(user.id, user.role, user_type=user.user_type)
 
     logger.info("New user registered: %s (%s)", user.email, user.role)
 
@@ -117,6 +125,7 @@ async def register(body: RegisterRequest, db: AsyncSession = Depends(get_session
             email=user.email,
             full_name=user.full_name,
             role=user.role,
+            user_type=user.user_type,
             is_active=user.is_active,
         ),
     )
@@ -165,7 +174,7 @@ async def login(
     if not user.is_active:
         raise HTTPException(status_code=403, detail="Account is deactivated")
 
-    token = create_access_token(user.id, user.role)
+    token = create_access_token(user.id, user.role, user_type=user.user_type)
 
     return TokenResponse(
         access_token=token,
@@ -174,6 +183,7 @@ async def login(
             email=user.email,
             full_name=user.full_name,
             role=user.role,
+            user_type=user.user_type,
             is_active=user.is_active,
         ),
     )
@@ -187,6 +197,7 @@ async def get_me(user: User = Depends(require_auth)):
         email=user.email,
         full_name=user.full_name,
         role=user.role,
+        user_type=user.user_type,
         is_active=user.is_active,
     )
 
@@ -207,6 +218,7 @@ async def list_users(
             email=u.email,
             full_name=u.full_name,
             role=u.role,
+            user_type=u.user_type,
             is_active=u.is_active,
         )
         for u in users
@@ -231,7 +243,7 @@ async def update_user(
     if body.full_name is not None:
         target.full_name = body.full_name
     if body.role is not None:
-        if body.role not in (UserRole.ADMIN.value, UserRole.AGENT.value):
+        if body.role not in (UserRole.ADMIN.value, UserRole.USER.value):
             raise HTTPException(status_code=400, detail="Invalid role")
         target.role = body.role
     if body.is_active is not None:
@@ -245,6 +257,7 @@ async def update_user(
         email=target.email,
         full_name=target.full_name,
         role=target.role,
+        user_type=target.user_type,
         is_active=target.is_active,
     )
 
@@ -346,6 +359,7 @@ async def lark_callback(
             email=user.email,
             full_name=user.full_name,
             role=user.role,
+            user_type=user.user_type,
             is_active=user.is_active,
         ),
     )
@@ -439,6 +453,7 @@ async def google_callback(
             email=user.email,
             full_name=user.full_name,
             role=user.role,
+            user_type=user.user_type,
             is_active=user.is_active,
         ),
     )

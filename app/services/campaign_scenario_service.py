@@ -147,6 +147,49 @@ async def get_agent_campaign_scenarios(
     ]
 
 
+async def get_agent_scenario_ids(
+    db: AsyncSession,
+    agent_id: UUID,
+) -> set[UUID]:
+    """Return deduplicated scenario IDs from an agent's active campaigns.
+
+    Args:
+        db: Async database session.
+        agent_id: The agent's user ID.
+
+    Returns:
+        Set of scenario UUIDs visible to this agent.
+    """
+    agent_campaign_stmt = (
+        select(CampaignAgent.campaign_id)
+        .join(Campaign, Campaign.id == CampaignAgent.campaign_id)
+        .where(
+            CampaignAgent.agent_id == agent_id,
+            Campaign.status == CampaignStatus.ACTIVE.value,
+        )
+    )
+    result = await db.execute(agent_campaign_stmt)
+    active_campaign_ids = [row[0] for row in result.all()]
+
+    if not active_campaign_ids:
+        return set()
+
+    scenarios_stmt = (
+        select(Scenario.id)
+        .join(
+            campaign_scenarios,
+            campaign_scenarios.c.scenario_id == Scenario.id,
+        )
+        .where(
+            campaign_scenarios.c.campaign_id.in_(active_campaign_ids),
+            Scenario.is_active == True,  # noqa: E712
+        )
+        .distinct()
+    )
+    result = await db.execute(scenarios_stmt)
+    return {row[0] for row in result.all()}
+
+
 # --- Private helpers ---
 
 

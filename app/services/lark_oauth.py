@@ -15,7 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.models.user import AuthProvider, User, UserRole
+from app.models.user import AuthProvider, User, UserRole, UserType
 from app.services.auth import create_access_token
 
 logger = logging.getLogger(__name__)
@@ -239,7 +239,7 @@ async def get_or_create_lark_user(
             user.employee_id = lark_info.employee_id
         await db.commit()
         await db.refresh(user)
-        token = create_access_token(user.id, user.role)
+        token = create_access_token(user.id, user.role, user_type=user.user_type)
         return user, token
 
     # Try to find by email and link accounts
@@ -258,7 +258,7 @@ async def get_or_create_lark_user(
                 user.employee_id = lark_info.employee_id
             await db.commit()
             await db.refresh(user)
-            token = create_access_token(user.id, user.role)
+            token = create_access_token(user.id, user.role, user_type=user.user_type)
             logger.info("Linked Lark account to existing user: %s", user.email)
             return user, token
 
@@ -268,7 +268,8 @@ async def get_or_create_lark_user(
         email=email,
         hashed_password=None,
         full_name=lark_info.name,
-        role=UserRole.AGENT.value,
+        role=UserRole.USER.value,
+        user_type=UserType.AGENT.value,
         auth_provider=AuthProvider.LARK.value,
         lark_open_id=lark_info.open_id,
         lark_union_id=lark_info.union_id or None,
@@ -279,6 +280,6 @@ async def get_or_create_lark_user(
     await db.commit()
     await db.refresh(user)
 
-    token = create_access_token(user.id, user.role)
+    token = create_access_token(user.id, user.role, user_type=user.user_type)
     logger.info("Created new Lark user: %s (%s)", user.email, lark_info.open_id)
     return user, token

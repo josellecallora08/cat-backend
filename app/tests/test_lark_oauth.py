@@ -263,6 +263,7 @@ class TestLarkCallbackEndpoint:
         mock_user.email = "lark@company.com"
         mock_user.full_name = "Test Lark User"
         mock_user.role = "agent"
+        mock_user.user_type = None
         mock_user.is_active = True
 
         mock_get_or_create.return_value = (mock_user, "cat-jwt-token")
