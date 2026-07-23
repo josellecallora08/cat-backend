@@ -52,15 +52,18 @@ class Settings(BaseSettings):
 
     # Upload Security Configuration
     upload_max_file_size: int = 10_485_760  # 10 MB in bytes
-    upload_accepted_extensions: str = ".pdf,.docx,.xlsx,.csv,.txt,.mp3,.wav,.zip"
+    upload_accepted_extensions: str = ".pdf,.docx,.txt,.csv,.md"
     upload_quarantine_path: str = "./quarantine"
     upload_quarantine_retention_hours: int = 24
-    upload_max_archive_files: int = 50
-    upload_max_archive_extracted_size: int = 104_857_600  # 100 MB in bytes
-    upload_max_archive_depth: int = 2
+    upload_max_docx_entries: int = 500
+    upload_max_docx_uncompressed_size: int = 52_428_800  # 50 MB
+    upload_max_docx_depth: int = 2
     upload_rejection_max_attempts: int = 10
     upload_rejection_window_minutes: int = 60
     upload_rejection_cooldown_minutes: int = 30
+    upload_scanner_enabled: bool = True
+    upload_scanner_socket: str = "/var/run/clamav/clamd.ctl"
+    upload_quarantine_cleanup_interval_minutes: int = 60
 
     # Script Registry Configuration
     script_max_definition_size_bytes: int = 262_144  # 256 KB in bytes

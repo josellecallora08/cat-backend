@@ -1,6 +1,8 @@
 """Upload validation response schemas."""
 
+from datetime import datetime
 from typing import Any, Optional
+from uuid import UUID
 
 from pydantic import BaseModel
 
@@ -20,3 +22,14 @@ class UploadValidationResult(BaseModel):
     valid: bool
     reason_code: Optional[str] = None
     message: Optional[str] = None
+
+
+class UploadSuccessResponse(BaseModel):
+    """Response returned when a file upload succeeds."""
+
+    id: UUID
+    filename_original: str
+    content_hash: str
+    extracted_size_bytes: int
+    scan_result: str  # "clean"
+    quarantine_expires_at: datetime
