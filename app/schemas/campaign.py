@@ -130,3 +130,33 @@ class PaginatedCampaigns(BaseModel):
     page: int
     page_size: int
     total_pages: int
+
+
+# --- Campaign Scenarios Schemas ---
+
+
+class AddScenariosRequest(BaseModel):
+    """Request to add scenarios to a campaign."""
+
+    model_config = {"extra": "forbid"}
+
+    scenario_ids: list[UUID] = Field(min_length=1, max_length=50)
+
+
+class CampaignScenariosResponse(BaseModel):
+    """Updated scenario list after add/remove."""
+
+    model_config = {"extra": "forbid"}
+
+    scenarios: list[CampaignScenarioItem]
+
+
+class AgentCampaignScenarioItem(BaseModel):
+    """A scenario available to an agent via their campaign assignments."""
+
+    model_config = {"extra": "forbid"}
+
+    id: UUID
+    name: str
+    scenario_type: str
+    description: str

@@ -5,6 +5,9 @@ from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import (
+    agent_me,
+    campaign_dashboard,
+    campaign_scenarios,
     campaigns,
     scenarios,
     sessions,
@@ -13,7 +16,6 @@ from app.api import (
     dashboard,
     auth,
     config,
-    campaign_dashboard,
 )
 from app.config import settings
 from app.database import async_session_factory, get_session
@@ -176,6 +178,9 @@ def create_app() -> FastAPI:
     app.include_router(
         campaign_dashboard.router, prefix="/api/campaigns", tags=["campaign-dashboard"]
     )
+    app.include_router(
+        campaign_scenarios.router, prefix="/api/campaigns", tags=["campaign-scenarios"]
+    )
     app.include_router(scenarios.router, prefix="/api/scenarios", tags=["scenarios"])
     app.include_router(sessions.router, prefix="/api/sessions", tags=["sessions"])
     app.include_router(voice.router, tags=["voice"])
@@ -183,6 +188,7 @@ def create_app() -> FastAPI:
     app.include_router(dashboard.router, prefix="/api", tags=["dashboard"])
     app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
     app.include_router(config.router, prefix="/api", tags=["config"])
+    app.include_router(agent_me.router, prefix="/api/me", tags=["agent-me"])
 
     @app.get("/health")
     async def health_check():

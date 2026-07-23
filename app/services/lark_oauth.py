@@ -38,6 +38,7 @@ class LarkUserInfo:
     name: str
     email: str
     avatar_url: str
+    employee_id: str
 
 
 def get_authorize_url(state: str) -> str:
@@ -154,7 +155,59 @@ async def fetch_lark_user_info(user_access_token: str) -> LarkUserInfo:
         name=info.get("name", "Lark User"),
         email=info.get("email", ""),
         avatar_url=info.get("avatar_url", ""),
+        employee_id=info.get("employee_no", ""),
     )
+
+
+async def fetch_lark_user_department(user_access_token: str) -> str:
+    """Fetch the user's department name from Lark Contact API.
+
+    This requires the contact:user.department:readonly scope.
+    Returns empty string if the scope is not granted or the API call fails.
+
+    Args:
+        user_access_token: Token from the code exchange step.
+
+    Returns:
+        Department name string, or empty string on failure.
+    """
+    try:
+        app_token = await _get_app_access_token()
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(
+                "https://open.larksuite.com/open-apis/contact/v3/users/me",
+                headers={"Authorization": f"Bearer {user_access_token}"},
+                params={"user_id_type": "open_id"},
+            )
+            if resp.status_code != 200:
+                return ""
+            data = resp.json()
+
+        if data.get("code") != 0:
+            return ""
+
+        dept_ids = data.get("data", {}).get("user", {}).get("department_ids", [])
+        if not dept_ids:
+            return ""
+
+        # Fetch the first department's name
+        dept_resp_data = None
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            dept_resp = await client.get(
+                f"https://open.larksuite.com/open-apis/contact/v3/departments/{dept_ids[0]}",
+                headers={"Authorization": f"Bearer {app_token}"},
+                params={"department_id_type": "department_id"},
+            )
+            if dept_resp.status_code == 200:
+                dept_resp_data = dept_resp.json()
+
+        if dept_resp_data and dept_resp_data.get("code") == 0:
+            return dept_resp_data.get("data", {}).get("department", {}).get("name", "")
+
+        return ""
+    except Exception as e:
+        logger.warning("Failed to fetch department from Lark: %s", e)
+        return ""
 
 
 async def get_or_create_lark_user(
@@ -179,7 +232,13 @@ async def get_or_create_lark_user(
     user = result.scalar_one_or_none()
 
     if user:
-        # Existing Lark user — issue token
+        # Update profile data from Lark (in case it changed)
+        user.avatar_url = lark_info.avatar_url or user.avatar_url
+        user.full_name = lark_info.name or user.full_name
+        if lark_info.employee_id:
+            user.employee_id = lark_info.employee_id
+        await db.commit()
+        await db.refresh(user)
         token = create_access_token(user.id, user.role)
         return user, token
 
@@ -194,6 +253,9 @@ async def get_or_create_lark_user(
             user.lark_open_id = lark_info.open_id
             user.lark_union_id = lark_info.union_id or None
             user.auth_provider = AuthProvider.LARK.value
+            user.avatar_url = lark_info.avatar_url or user.avatar_url
+            if lark_info.employee_id:
+                user.employee_id = lark_info.employee_id
             await db.commit()
             await db.refresh(user)
             token = create_access_token(user.id, user.role)
@@ -210,6 +272,8 @@ async def get_or_create_lark_user(
         auth_provider=AuthProvider.LARK.value,
         lark_open_id=lark_info.open_id,
         lark_union_id=lark_info.union_id or None,
+        avatar_url=lark_info.avatar_url or None,
+        employee_id=lark_info.employee_id or None,
     )
     db.add(user)
     await db.commit()

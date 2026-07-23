@@ -45,3 +45,8 @@ class User(Base):
     lark_open_id = Column(String(255), unique=True, nullable=True, index=True)
     lark_union_id = Column(String(255), unique=True, nullable=True, index=True)
     google_sub = Column(String(255), unique=True, nullable=True, index=True)
+
+    # Lark profile data
+    avatar_url = Column(String(512), nullable=True)
+    employee_id = Column(String(100), nullable=True)
+    department = Column(String(255), nullable=True)

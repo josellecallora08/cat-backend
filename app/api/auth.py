@@ -29,6 +29,7 @@ from app.services.google_oauth import (
 from app.services.lark_oauth import (
     exchange_code_for_user_token,
     fetch_lark_user_info,
+    fetch_lark_user_department,
     get_authorize_url,
     get_or_create_lark_user,
 )
@@ -310,8 +311,17 @@ async def lark_callback(
         # Fetch user profile from Lark
         lark_info = await fetch_lark_user_info(user_token)
 
+        # Fetch department (best-effort, requires scope)
+        department = await fetch_lark_user_department(user_token)
+
         # Create or link user in our database
         user, access_token = await get_or_create_lark_user(lark_info, db)
+
+        # Save department if fetched (separate from get_or_create to keep it simple)
+        if department and user.department != department:
+            user.department = department
+            await db.commit()
+            await db.refresh(user)
 
     except ValueError as e:
         logger.warning("Lark OAuth failed: %s", e)
