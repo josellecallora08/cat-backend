@@ -1,12 +1,19 @@
 """Unit tests for SQLAlchemy models."""
 
+import os
+import shutil
+import subprocess
+import sys
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 
+import asyncpg
 import pytest
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine, inspect, select
 from sqlalchemy.orm import Session as DBSession
 
+from app.config import settings
 from app.database import Base
 from app.models import (
     CoachingReport,
@@ -222,3 +229,87 @@ def test_learning_plan_model(db_session):
     assert result.all_passing is False
     assert len(result.weak_competencies) == 1
     assert result.weak_competencies[0]["category"] == "compliance"
+
+
+def _admin_dsn(database: str = "postgres") -> str:
+    """Build a plain (non-asyncpg) DSN against the same Postgres server used by settings, but a specific DB."""
+    async_url = settings.async_database_url
+    # postgresql+asyncpg://user:pass@host:port/dbname -> postgresql://user:pass@host:port/dbname
+    plain = async_url.replace("postgresql+asyncpg://", "postgresql://", 1)
+    base, _, _ = plain.rpartition("/")
+    return f"{base}/{database}"
+
+
+async def _create_scratch_database(db_name: str) -> None:
+    conn = await asyncpg.connect(_admin_dsn())
+    try:
+        await conn.execute(f'DROP DATABASE IF EXISTS "{db_name}"')
+        await conn.execute(f'CREATE DATABASE "{db_name}"')
+    finally:
+        await conn.close()
+
+
+async def _drop_scratch_database(db_name: str) -> None:
+    conn = await asyncpg.connect(_admin_dsn())
+    try:
+        await conn.execute(f'DROP DATABASE IF EXISTS "{db_name}"')
+    finally:
+        await conn.close()
+
+
+def _run_alembic(project_root: Path, database_url: str, *args: str) -> subprocess.CompletedProcess:
+    alembic_bin = shutil.which("alembic") or str(Path(sys.executable).parent / "alembic.exe")
+    env = os.environ.copy()
+    env["CAT_DATABASE_URL"] = database_url
+    result = subprocess.run(
+        [alembic_bin, *args],
+        cwd=str(project_root),
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    return result
+
+
+@pytest.mark.asyncio
+async def test_migration_upgrade_downgrade_upgrade_smoke():
+    """Migration smoke test: upgrade -> downgrade -1 -> upgrade against a scratch DB.
+
+    Runs the full Alembic migration chain against a disposable PostgreSQL
+    database (created on the same server configured for tests), then
+    downgrades one revision and upgrades back to head, asserting the
+    script registry schema (scripts/script_versions tables and
+    sessions.script_version_id) is present at the end.
+
+    Validates: Requirements 3.6, 3.7
+    """
+    project_root = Path(__file__).resolve().parent.parent.parent
+    db_name = f"cat_db_migration_test_{uuid.uuid4().hex[:8]}"
+    scratch_asyncpg_url = _admin_dsn(db_name).replace("postgresql://", "postgresql+asyncpg://", 1)
+    scratch_psycopg_url = _admin_dsn(db_name).replace("postgresql://", "postgresql+psycopg2://", 1)
+
+    await _create_scratch_database(db_name)
+    try:
+        result = _run_alembic(project_root, scratch_asyncpg_url, "upgrade", "head")
+        assert result.returncode == 0, result.stderr
+
+        result = _run_alembic(project_root, scratch_asyncpg_url, "downgrade", "-1")
+        assert result.returncode == 0, result.stderr
+
+        result = _run_alembic(project_root, scratch_asyncpg_url, "upgrade", "head")
+        assert result.returncode == 0, result.stderr
+
+        # Inspect the resulting schema with a sync driver (psycopg2 is on requirements.txt).
+        engine = create_engine(scratch_psycopg_url)
+        try:
+            inspector = inspect(engine)
+            table_names = set(inspector.get_table_names())
+            assert "scripts" in table_names
+            assert "script_versions" in table_names
+
+            session_columns = {col["name"] for col in inspector.get_columns("sessions")}
+            assert "script_version_id" in session_columns
+        finally:
+            engine.dispose()
+    finally:
+        await _drop_scratch_database(db_name)

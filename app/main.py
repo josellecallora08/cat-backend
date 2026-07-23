@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import campaigns, scenarios, sessions, voice, tts, dashboard, auth, config
+from app.api import campaigns, scenarios, scripts, sessions, voice, tts, dashboard, auth, config
 from app.config import settings
 from app.database import async_session_factory, get_session
 
@@ -170,6 +170,7 @@ def create_app() -> FastAPI:
     app.include_router(dashboard.router, prefix="/api", tags=["dashboard"])
     app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
     app.include_router(config.router, prefix="/api", tags=["config"])
+    app.include_router(scripts.router, prefix="/api/scripts", tags=["scripts"])
 
     @app.get("/health")
     async def health_check():
