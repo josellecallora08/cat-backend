@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Session, Scenario
 from app.services.scenario_repository import get_scenario_by_id
+from app.services.script_registry import get_active_published_version
 from app.services.debtor_simulator import DebtorSimulatorService, PersonaContext, EmotionalState
 
 logger = logging.getLogger(__name__)
@@ -44,10 +45,18 @@ async def create_session(
 
     Raises:
         ValueError: If the scenario does not exist or is inactive.
+        ValueError: If the scenario has no active Published_Script.
     """
     scenario = await get_scenario_by_id(db, scenario_id)
     if scenario is None:
         raise ValueError(f"Scenario with id {scenario_id} not found or inactive")
+
+    script_version = await get_active_published_version(db, scenario_id)
+    if script_version is None:
+        raise ValueError(
+            f"No Published_Script found for scenario {scenario_id}; "
+            f"cannot start Training_Call"
+        )
 
     # Build scenario dict for persona generation
     scenario_data = {
@@ -75,6 +84,7 @@ async def create_session(
         agent_id=agent_id,
         status="pending",
         persona_context=persona_dict,
+        script_version_id=script_version.id,
     )
 
     db.add(session)
