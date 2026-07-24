@@ -23,7 +23,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Scenario, Session, Transcript, Evaluation
-from app.models.user import User, UserRole
+from app.models.user import User, UserRole, UserType
 from app.services.auth import hash_password
 
 logger = logging.getLogger(__name__)
@@ -58,22 +58,40 @@ DEMO_PASSWORD = "agent123"
 
 # A short, believable transcript template (agent/debtor turns)
 SAMPLE_TURNS = [
-    ("agent", "Good afternoon po, this is {agent} calling from CATS Collections regarding your account."),
+    (
+        "agent",
+        "Good afternoon po, this is {agent} calling from CATS Collections regarding your account.",
+    ),
     ("debtor", "Sino po ito? Anong account?"),
     ("agent", "I understand your concern po. May I verify I'm speaking with {debtor}?"),
     ("debtor", "Oo, ako nga. Pero wala akong pera ngayon."),
-    ("agent", "I hear you po, and I appreciate your honesty. Pwede po nating pag-usapan ang options."),
+    (
+        "agent",
+        "I hear you po, and I appreciate your honesty. Pwede po nating pag-usapan ang options.",
+    ),
     ("debtor", "Anong options? Hindi ko talaga kaya yung buong amount."),
-    ("agent", "We can set up an installment plan that fits your budget po. Would PHP 2,000 monthly work?"),
+    (
+        "agent",
+        "We can set up an installment plan that fits your budget po. Would PHP 2,000 monthly work?",
+    ),
     ("debtor", "Siguro kaya ko yun... pero next week pa ako sweldo."),
-    ("agent", "That's perfectly fine po. Let's schedule the first payment after your payday."),
+    (
+        "agent",
+        "That's perfectly fine po. Let's schedule the first payment after your payday.",
+    ),
     ("debtor", "Sige po, salamat sa pag-intindi."),
-    ("agent", "Thank you po for working with me today. I'll send the confirmation details."),
+    (
+        "agent",
+        "Thank you po for working with me today. I'll send the confirmation details.",
+    ),
 ]
 
 STRENGTHS_POOL = [
     ("Strong empathetic opening that built rapport", "empathy_communication"),
-    ("Properly verified the debtor's identity before discussing the account", "compliance"),
+    (
+        "Properly verified the debtor's identity before discussing the account",
+        "compliance",
+    ),
     ("Offered a concrete, affordable installment plan", "negotiation_resolution"),
     ("Maintained a calm, professional tone throughout", "empathy_communication"),
     ("Clearly stated the purpose of the call upfront", "call_opening"),
@@ -81,9 +99,15 @@ STRENGTHS_POOL = [
 
 WEAKNESSES_POOL = [
     ("Did not deliver the Mini-Miranda compliance disclosure", "compliance"),
-    ("Missed an opportunity to confirm the payment date in writing", "negotiation_resolution"),
+    (
+        "Missed an opportunity to confirm the payment date in writing",
+        "negotiation_resolution",
+    ),
     ("Opening was slightly rushed before verifying identity", "call_opening"),
-    ("Could have acknowledged the debtor's stress more directly", "empathy_communication"),
+    (
+        "Could have acknowledged the debtor's stress more directly",
+        "empathy_communication",
+    ),
 ]
 
 
@@ -106,9 +130,7 @@ def _build_category_scores(skill: float, drift: float) -> tuple[list[dict], floa
         {"category": cat, "score": scores[cat], "strengths": [], "weaknesses": []}
         for cat in CATEGORIES
     ]
-    overall = round(
-        sum(scores[cat] * CATEGORY_WEIGHTS[cat] for cat in CATEGORIES), 1
-    )
+    overall = round(sum(scores[cat] * CATEGORY_WEIGHTS[cat] for cat in CATEGORIES), 1)
     return category_scores, overall
 
 
@@ -116,7 +138,11 @@ def _pick_strengths_weaknesses() -> tuple[list[dict], list[dict]]:
     s = random.sample(STRENGTHS_POOL, k=random.randint(1, 3))
     w = random.sample(WEAKNESSES_POOL, k=random.randint(1, 3))
     strengths = [
-        {"description": desc, "category": cat, "transcript_excerpt": "I understand your concern po..."}
+        {
+            "description": desc,
+            "category": cat,
+            "transcript_excerpt": "I understand your concern po...",
+        }
         for desc, cat in s
     ]
     weaknesses = [
@@ -136,7 +162,8 @@ async def _get_or_create_agent(db: AsyncSession, email: str, full_name: str) -> 
         email=email,
         hashed_password=hash_password(DEMO_PASSWORD),
         full_name=full_name,
-        role=UserRole.AGENT.value,
+        role=UserRole.USER.value,
+        user_type=UserType.AGENT.value,
     )
     db.add(user)
     await db.flush()
@@ -230,7 +257,9 @@ async def seed_demo_data(db: AsyncSession, force: bool = False) -> None:
     ).scalar_one_or_none()
     if sentinel and not force:
         has_sessions = (
-            await db.execute(select(Session.id).where(Session.agent_id == sentinel.id).limit(1))
+            await db.execute(
+                select(Session.id).where(Session.agent_id == sentinel.id).limit(1)
+            )
         ).first()
         if has_sessions:
             logger.info("Demo data already present, skipping seed")
@@ -264,7 +293,11 @@ async def seed_demo_data(db: AsyncSession, force: bool = False) -> None:
         )
 
     await db.commit()
-    logger.info("Seeded %d demo sessions across %d agents", total, len(DEMO_AGENTS) + (1 if default_agent else 0))
+    logger.info(
+        "Seeded %d demo sessions across %d agents",
+        total,
+        len(DEMO_AGENTS) + (1 if default_agent else 0),
+    )
 
 
 async def _main() -> None:

@@ -5,6 +5,10 @@ from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import (
+    admin_users,
+    agent_me,
+    campaign_dashboard,
+    campaign_scenarios,
     campaigns,
     scenarios,
     sessions,
@@ -13,7 +17,6 @@ from app.api import (
     dashboard,
     auth,
     config,
-    campaign_dashboard,
     scripts,
     uploads,
 )
@@ -182,6 +185,9 @@ def create_app() -> FastAPI:
     app.include_router(
         campaign_dashboard.router, prefix="/api/campaigns", tags=["campaign-dashboard"]
     )
+    app.include_router(
+        campaign_scenarios.router, prefix="/api/campaigns", tags=["campaign-scenarios"]
+    )
     app.include_router(scenarios.router, prefix="/api/scenarios", tags=["scenarios"])
     app.include_router(sessions.router, prefix="/api/sessions", tags=["sessions"])
     app.include_router(voice.router, tags=["voice"])
@@ -189,6 +195,10 @@ def create_app() -> FastAPI:
     app.include_router(dashboard.router, prefix="/api", tags=["dashboard"])
     app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
     app.include_router(config.router, prefix="/api", tags=["config"])
+    app.include_router(agent_me.router, prefix="/api/me", tags=["agent-me"])
+    app.include_router(
+        admin_users.router, prefix="/api/admin/users", tags=["admin-users"]
+    )
     app.include_router(scripts.router, prefix="/api/scripts", tags=["scripts"])
     app.include_router(uploads.router, prefix="/api/scripts", tags=["uploads"])
 

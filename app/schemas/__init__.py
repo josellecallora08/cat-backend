@@ -6,7 +6,7 @@ from enum import Enum
 from typing import Dict, List, Literal, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 # --- Enums ---
@@ -80,6 +80,35 @@ class ScenarioResponse(BaseModel):
     scenario_type: ScenarioType
     description: str
     debtor_profile: DebtorProfileSchema
+
+
+class CreateDebtorProfilePayload(BaseModel):
+    """Debtor profile payload for manual scenario creation."""
+
+    name: str = Field(min_length=1, max_length=255)
+    outstanding_balance: Decimal = Field(gt=0)
+    days_past_due: int = Field(ge=1)
+    personality_profile: str = Field(default="", max_length=2000)
+    conversation_goal: str = Field(default="", max_length=2000)
+    prompt_blocks: list[str] = Field(min_length=1)
+
+    @field_validator("prompt_blocks")
+    @classmethod
+    def validate_prompt_blocks_non_empty(cls, v: list[str]) -> list[str]:
+        """Filter empty blocks and ensure at least one non-empty remains."""
+        filtered = [block for block in v if block.strip()]
+        if not filtered:
+            raise ValueError("At least one non-empty prompt block is required")
+        return filtered
+
+
+class CreateScenarioRequest(BaseModel):
+    """Request body for manual scenario creation."""
+
+    name: str = Field(min_length=1, max_length=255)
+    scenario_type: ScenarioType
+    description: str = Field(default="", max_length=2000)
+    debtor_profile: CreateDebtorProfilePayload
 
 
 # --- Session Schemas ---
