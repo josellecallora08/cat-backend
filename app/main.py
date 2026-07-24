@@ -14,6 +14,8 @@ from app.api import (
     auth,
     config,
     campaign_dashboard,
+    scripts,
+    uploads,
 )
 from app.config import settings
 from app.database import async_session_factory, get_session
@@ -147,6 +149,10 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error("Startup error during seed: %s", e, exc_info=True)
 
+    # Start quarantine cleanup scheduler
+    from app.services.upload_quarantine import start_cleanup_scheduler
+    await start_cleanup_scheduler(app)
+
     yield
 
 
@@ -183,6 +189,8 @@ def create_app() -> FastAPI:
     app.include_router(dashboard.router, prefix="/api", tags=["dashboard"])
     app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
     app.include_router(config.router, prefix="/api", tags=["config"])
+    app.include_router(scripts.router, prefix="/api/scripts", tags=["scripts"])
+    app.include_router(uploads.router, prefix="/api/scripts", tags=["uploads"])
 
     @app.get("/health")
     async def health_check():

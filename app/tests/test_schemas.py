@@ -26,6 +26,17 @@ from app.schemas import (
     TranscriptEntry,
     WeaknessItem,
 )
+from app.schemas.script import (
+    ConversationGoal,
+    DebtorPersona,
+    EmotionalStateRule,
+    EscalationConditionEntry,
+    ExpectedReplyEntry,
+    FinancialSituation,
+    PaymentConditionEntry,
+    ScriptContract,
+    TriggerPhraseEntry,
+)
 
 
 # --- DebtorProfileSchema Tests ---
@@ -501,3 +512,101 @@ class TestEvaluationCategory:
 
     def test_enum_has_four_members(self):
         assert len(EvaluationCategory) == 4
+
+
+# --- ScriptContract Tests ---
+
+
+def _valid_script_contract_kwargs() -> dict:
+    """Build a complete, valid set of ScriptContract constructor kwargs."""
+    return dict(
+        debtor_persona=DebtorPersona(
+            name="Maria Alvarez",
+            communication_style="polite but evasive",
+            background="Lost her job three months ago and has been juggling bills.",
+        ),
+        financial_situation=FinancialSituation(
+            outstanding_balance=Decimal("3200.50"),
+            days_past_due=60,
+            reason_for_delinquency="Job loss",
+        ),
+        opening_response="Hello, who is this calling?",
+        expected_replies=[
+            ExpectedReplyEntry(
+                agent_statement="I'm calling about your overdue account.",
+                debtor_reply="I know, I've just been really short on cash lately.",
+            ),
+        ],
+        trigger_phrases=[
+            TriggerPhraseEntry(
+                phrase="legal action",
+                behavior="Debtor becomes anxious and asks for more time.",
+            ),
+        ],
+        emotional_state_rules=[
+            EmotionalStateRule(
+                trigger="aggressive_tone",
+                state_change="increase_defensiveness",
+            ),
+        ],
+        payment_conditions=[
+            PaymentConditionEntry(
+                condition="offered payment plan under $200/month",
+                term="$150/month for 12 months",
+                accepted=True,
+            ),
+        ],
+        escalation_conditions=[
+            EscalationConditionEntry(
+                condition="agent threatens debtor",
+                behavior="Debtor hangs up.",
+                ends_call=True,
+            ),
+        ],
+        prohibited_responses=["I will never pay this debt."],
+        conversation_goal=ConversationGoal(
+            target_outcome="Debtor agrees to a payment plan.",
+            completion_condition="Debtor verbally commits to a payment amount and date.",
+        ),
+    )
+
+
+class TestScriptContract:
+    """Unit tests for the ScriptContract schema (Requirements 1.1, 1.9)."""
+
+    def test_fully_valid_contract(self):
+        """A contract with all required fields correctly populated should pass validation."""
+        contract = ScriptContract(**_valid_script_contract_kwargs())
+
+        assert contract.debtor_persona.name == "Maria Alvarez"
+        assert contract.opening_response == "Hello, who is this calling?"
+        assert contract.expected_replies[0].debtor_reply.startswith("I know")
+        assert contract.conversation_goal.target_outcome == "Debtor agrees to a payment plan."
+
+    def test_missing_required_field_rejected(self):
+        """Omitting a required top-level field (conversation_goal) should be rejected."""
+        kwargs = _valid_script_contract_kwargs()
+        del kwargs["conversation_goal"]
+
+        with pytest.raises(Exception):
+            ScriptContract(**kwargs)
+
+    def test_prohibited_expected_conflict_rejected(self):
+        """A prohibited_responses entry duplicating an expected_replies debtor_reply is rejected."""
+        kwargs = _valid_script_contract_kwargs()
+        # Duplicate (trimmed, case-insensitive) the existing expected reply into
+        # prohibited_responses to trigger the conflict validator.
+        kwargs["prohibited_responses"] = [
+            "  I KNOW, I'VE JUST BEEN REALLY SHORT ON CASH LATELY.  "
+        ]
+
+        with pytest.raises(Exception):
+            ScriptContract(**kwargs)
+
+    def test_unknown_extra_field_rejected(self):
+        """An unrecognized extra field at the top level should be rejected (extra='forbid')."""
+        kwargs = _valid_script_contract_kwargs()
+        kwargs["unexpected_field"] = "should not be allowed"
+
+        with pytest.raises(Exception):
+            ScriptContract(**kwargs)

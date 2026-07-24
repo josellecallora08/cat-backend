@@ -1,25 +1,105 @@
 """Tests for session service layer."""
 
+import json
 import uuid
 from unittest.mock import AsyncMock
 
 import pytest
-from sqlalchemy import event
+from sqlalchemy import event, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.database import Base
-from app.models import Scenario, Session
+from app.models import Scenario, Session, User
+from app.models.user import UserRole
 from app.services.debtor_simulator import (
     DebtorSimulatorService,
     EmotionalState,
     PersonaContext,
 )
+from app.services.script_registry import ScriptVersion, create_draft, publish, unpublish
 from app.services.session_service import (
     activate_session,
     create_session,
     end_session,
     get_session,
 )
+
+# A minimal Script_Contract satisfying every required field/sub-field, used
+# to publish a Published_Script for a scenario before create_session tests
+# that expect success (create_session now requires an active Published_Script
+# per Requirements 4.1-4.3).
+VALID_SCRIPT_CONTRACT = {
+    "debtor_persona": {
+        "name": "Maria Santos",
+        "communication_style": "anxious and apologetic",
+        "background": "single parent, recently lost a second job",
+    },
+    "financial_situation": {
+        "outstanding_balance": 5000.00,
+        "days_past_due": 45,
+        "reason_for_delinquency": "temporary job loss",
+    },
+    "opening_response": "Hello, I'm calling about my account.",
+    "expected_replies": [
+        {
+            "agent_statement": "Can you make a payment today?",
+            "debtor_reply": "I can try to pay something small.",
+        }
+    ],
+    "trigger_phrases": [
+        {"phrase": "legal action", "behavior": "become distressed"}
+    ],
+    "emotional_state_rules": [
+        {"trigger": "threat", "state_change": "increase anxiety"}
+    ],
+    "payment_conditions": [
+        {"condition": "partial payment", "term": "50 dollars now", "accepted": True}
+    ],
+    "escalation_conditions": [
+        {"condition": "hostile language", "behavior": "end call", "ends_call": True}
+    ],
+    "prohibited_responses": ["I refuse to ever pay"],
+    "conversation_goal": {
+        "target_outcome": "payment plan agreed",
+        "completion_condition": "debtor agrees to a plan",
+    },
+}
+
+
+def _make_admin_user() -> User:
+    """Create a valid Administrator `User` instance for script `created_by`/
+    `published_by` FKs."""
+    return User(
+        id=uuid.uuid4(),
+        email=f"{uuid.uuid4()}@example.com",
+        hashed_password="not-a-real-hash",
+        full_name="Test Admin",
+        role=UserRole.ADMIN.value,
+        is_active=True,
+    )
+
+
+async def _publish_script_for_scenario(
+    db: AsyncSession, scenario_id: uuid.UUID
+) -> ScriptVersion:
+    """Create and publish a minimal valid Script for `scenario_id`, so
+    `create_session` (which now requires an active Published_Script) can
+    succeed in tests exercising the happy path.
+
+    Returns the `ScriptVersion` created by `publish`."""
+    admin = _make_admin_user()
+    db.add(admin)
+    await db.commit()
+
+    script = await create_draft(
+        db,
+        admin_id=admin.id,
+        name="Test Script",
+        scenario_id=scenario_id,
+        format="json",
+        raw_definition=json.dumps(VALID_SCRIPT_CONTRACT),
+    )
+    return await publish(db, script.id, admin.id)
 
 
 @pytest.fixture
@@ -41,7 +121,12 @@ async def async_db():
     async with session_factory() as session:
         yield session
 
+    # Disable FK enforcement before dropping tables: Script.current_version_id
+    # and ScriptVersion.script_id form a circular FK relationship, and once
+    # rows populate both sides (a Published_Script), SQLite's per-statement
+    # FK checking can otherwise reject DROP TABLE regardless of drop order.
     async with engine.begin() as conn:
+        await conn.execute(text("PRAGMA foreign_keys=OFF"))
         await conn.run_sync(Base.metadata.drop_all)
 
     await engine.dispose()
@@ -98,6 +183,7 @@ class TestCreateSession:
         scenario = _make_scenario()
         async_db.add(scenario)
         await async_db.commit()
+        await _publish_script_for_scenario(async_db, scenario.id)
 
         simulator = _make_mock_debtor_simulator()
         agent_id = uuid.uuid4()
@@ -112,6 +198,7 @@ class TestCreateSession:
         scenario = _make_scenario()
         async_db.add(scenario)
         await async_db.commit()
+        await _publish_script_for_scenario(async_db, scenario.id)
 
         simulator = _make_mock_debtor_simulator()
         agent_id = uuid.uuid4()
@@ -128,6 +215,7 @@ class TestCreateSession:
         scenario = _make_scenario()
         async_db.add(scenario)
         await async_db.commit()
+        await _publish_script_for_scenario(async_db, scenario.id)
 
         simulator = _make_mock_debtor_simulator()
         agent_id = uuid.uuid4()
@@ -162,6 +250,7 @@ class TestCreateSession:
         scenario = _make_scenario()
         async_db.add(scenario)
         await async_db.commit()
+        await _publish_script_for_scenario(async_db, scenario.id)
 
         simulator = _make_mock_debtor_simulator()
         agent_id = uuid.uuid4()
@@ -173,6 +262,88 @@ class TestCreateSession:
         assert fetched is not None
         assert fetched.id == session.id
         assert fetched.status == "pending"
+
+    async def test_pins_script_version_id_when_published_script_exists(
+        self, async_db: AsyncSession
+    ):
+        scenario = _make_scenario()
+        async_db.add(scenario)
+        await async_db.commit()
+        script_version = await _publish_script_for_scenario(async_db, scenario.id)
+
+        simulator = _make_mock_debtor_simulator()
+        agent_id = uuid.uuid4()
+
+        session = await create_session(async_db, scenario.id, agent_id, simulator)
+
+        assert session.script_version_id == script_version.id
+
+    async def test_raises_descriptive_error_when_script_is_draft_only(
+        self, async_db: AsyncSession
+    ):
+        scenario = _make_scenario()
+        async_db.add(scenario)
+        await async_db.commit()
+
+        admin = _make_admin_user()
+        async_db.add(admin)
+        await async_db.commit()
+
+        await create_draft(
+            async_db,
+            admin_id=admin.id,
+            name="Draft-Only Script",
+            scenario_id=scenario.id,
+            format="json",
+            raw_definition=json.dumps(VALID_SCRIPT_CONTRACT),
+        )
+
+        simulator = _make_mock_debtor_simulator()
+        agent_id = uuid.uuid4()
+
+        with pytest.raises(ValueError, match="Published_Script"):
+            await create_session(async_db, scenario.id, agent_id, simulator)
+
+    async def test_raises_descriptive_error_when_script_is_unpublished(
+        self, async_db: AsyncSession
+    ):
+        scenario = _make_scenario()
+        async_db.add(scenario)
+        await async_db.commit()
+
+        admin = _make_admin_user()
+        async_db.add(admin)
+        await async_db.commit()
+
+        script = await create_draft(
+            async_db,
+            admin_id=admin.id,
+            name="Unpublished Script",
+            scenario_id=scenario.id,
+            format="json",
+            raw_definition=json.dumps(VALID_SCRIPT_CONTRACT),
+        )
+        await publish(async_db, script.id, admin.id)
+        await unpublish(async_db, script.id, admin.id)
+
+        simulator = _make_mock_debtor_simulator()
+        agent_id = uuid.uuid4()
+
+        with pytest.raises(ValueError, match="Published_Script"):
+            await create_session(async_db, scenario.id, agent_id, simulator)
+
+    async def test_raises_descriptive_error_when_no_script_exists(
+        self, async_db: AsyncSession
+    ):
+        scenario = _make_scenario()
+        async_db.add(scenario)
+        await async_db.commit()
+
+        simulator = _make_mock_debtor_simulator()
+        agent_id = uuid.uuid4()
+
+        with pytest.raises(ValueError, match="Published_Script"):
+            await create_session(async_db, scenario.id, agent_id, simulator)
 
 
 class TestGetSession:

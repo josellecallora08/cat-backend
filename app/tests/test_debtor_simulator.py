@@ -14,6 +14,8 @@ from app.services.debtor_simulator import (
     PersonaContext,
     _build_persona_generation_prompt,
     _parse_persona_response,
+    contains_prohibited_response,
+    select_opening_response,
 )
 from app.services.llm_service import LLMMessage, LLMResponse, LLMServiceProtocol
 
@@ -345,3 +347,117 @@ class TestDebtorSimulatorServiceGeneratePersona:
             assert isinstance(persona, PersonaContext)
             assert persona.name  # non-empty name
             assert persona.communication_style in VALID_COMMUNICATION_STYLES
+
+
+# --- Unit Tests: Script_Version Pinning Isolation (Task 13.17) ---
+
+
+class TestScriptVersionPinningIsolation:
+    """Verify a running call keeps using its pinned Script_Version content
+    even after a newer Script_Version is published mid-call (Req 4.4, 4.11).
+
+    At this file's level (no DB), the "pin" is simply: the caller always
+    passes the SAME `script_content` dict on every turn. These tests show
+    that `select_opening_response`/`generate_response` have no mechanism to
+    reach for a script_content dict that was never passed to them -- a
+    newly published version's content only matters if a caller starts
+    passing it, which a properly isolated running call never does.
+    """
+
+    @pytest.fixture
+    def script_content_v1(self) -> dict[str, Any]:
+        """The Script_Version content pinned at session/call start."""
+        return {
+            "opening_response": "Hello, this is Maria.",
+            "prohibited_responses": ["I refuse to pay this debt"],
+            "trigger_phrases": [],
+            "escalation_conditions": [],
+            "payment_conditions": [],
+            "expected_replies": [],
+        }
+
+    @pytest.fixture
+    def script_content_v2(self) -> dict[str, Any]:
+        """A DIFFERENT Script_Version content 'published' mid-call by an
+        admin. It is never assigned back into the running call's state --
+        it only exists here to prove it has no influence on the pinned call.
+        """
+        return {
+            "opening_response": "Good day, this is Ana.",
+            "prohibited_responses": ["I will never talk to you"],
+            "trigger_phrases": [],
+            "escalation_conditions": [],
+            "payment_conditions": [],
+            "expected_replies": [],
+        }
+
+    def test_opening_response_uses_pinned_content_at_call_start(
+        self, script_content_v1: dict[str, Any]
+    ):
+        """Req 4.4: the opening utterance comes verbatim from the pinned
+        Script_Version's content."""
+        assert (
+            select_opening_response(script_content_v1)
+            == script_content_v1["opening_response"]
+        )
+
+    @pytest.mark.asyncio
+    async def test_generate_response_stays_pinned_after_mid_call_publish(
+        self,
+        script_content_v1: dict[str, Any],
+        script_content_v2: dict[str, Any],
+    ):
+        """Req 4.11: a second Script_Version published mid-call must not
+        affect the running session's effective content.
+
+        The LLM is mocked to return text that matches `script_content_v2`'s
+        `prohibited_responses` entry but NOT `script_content_v1`'s entry.
+        Since the running call keeps passing the SAME pinned
+        `script_content_v1` object on every turn, `generate_response` only
+        ever checks the response against v1's prohibited list -- v2's newly
+        published prohibited entry has zero effect, and the raw LLM text is
+        returned unchanged (no retry, no SAFE_DEFAULT fallback).
+        """
+        llm_text_matching_v2_only = "I will never talk to you about this."
+
+        mock_llm = AsyncMock(spec=LLMServiceProtocol)
+        mock_llm.chat_completion.return_value = LLMResponse(
+            content=llm_text_matching_v2_only,
+            model="qwen3:32b",
+        )
+
+        service = DebtorSimulatorService(llm_service=mock_llm)
+        persona = PersonaContext(
+            persona_id=uuid.uuid4(),
+            name="Maria Santos",
+            communication_style="anxious",
+            financial_circumstances={"income_level": "low", "debt_amount": 15000},
+            emotional_state=EmotionalState.NEUTRAL,
+        )
+
+        # Sanity check: the mocked text would have been flagged as
+        # prohibited had it been checked against v2's list.
+        assert contains_prohibited_response(
+            llm_text_matching_v2_only, script_content_v2["prohibited_responses"]
+        )
+        # ...but it is NOT prohibited under the pinned v1 list.
+        assert not contains_prohibited_response(
+            llm_text_matching_v2_only, script_content_v1["prohibited_responses"]
+        )
+
+        # The running call passes the pinned script_content_v1 on this turn,
+        # exactly as it would have on every prior turn -- script_content_v2
+        # (the "newly published" version) is never passed at all.
+        response = await service.generate_response(
+            persona,
+            "Bakit ka tumatawag?",
+            script_content=script_content_v1,
+        )
+
+        # Response reflects script_content_v1's data: no match against v1's
+        # prohibited list means the raw LLM text passes through unchanged,
+        # not the SAFE_DEFAULT fallback that would occur under v2's rules.
+        assert response.text == llm_text_matching_v2_only
+        # Only one LLM call was made: no prohibited-response retry was
+        # triggered, confirming v2's prohibited entry was never consulted.
+        mock_llm.chat_completion.assert_called_once()
