@@ -38,3 +38,42 @@ class UploadSuccessResponse(BaseModel):
     status: str
     quarantine_expires_at: datetime
     created_at: datetime
+    script_id: Optional[UUID] = None
+    scenario_id: Optional[UUID] = None
+    processing_notes: Optional[str] = None
+
+
+class UploadStatusResponse(BaseModel):
+    """Response for GET /uploads/{id}/status."""
+
+    id: UUID
+    filename_original: str
+    mime_type: str
+    file_size_bytes: int
+    content_hash: str
+    storage_key: str
+    uploaded_by: UUID
+    scan_status: str
+    scan_signature: Optional[str] = None
+    extraction_status: str
+    extraction_error: Optional[str] = None
+    status: str
+    script_id: Optional[UUID] = None
+    scenario_id: Optional[UUID] = None
+    created_at: datetime
+    updated_at: datetime
+    quarantine_expires_at: datetime
+    deleted_at: Optional[datetime] = None
+
+
+class UploadListItem(BaseModel):
+    """Summary item for the uploads list."""
+
+    id: UUID
+    filename_original: str
+    mime_type: str
+    file_size_bytes: int
+    status: str
+    script_id: Optional[UUID] = None
+    scenario_id: Optional[UUID] = None
+    created_at: datetime

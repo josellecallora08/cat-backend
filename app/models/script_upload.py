@@ -56,6 +56,12 @@ class ScriptUpload(Base):
     extraction_status = Column(String(20), nullable=False, default="pending")  # pending/completed/failed
     extraction_error = Column(Text, nullable=True)  # error message if extraction failed
 
+    # Extracted content (stored as sanitized pending text, NOT yet a ScriptContract)
+    extracted_content = Column(Text, nullable=True)
+
+    # Scenario link (validated before use)
+    scenario_id = Column(Uuid, ForeignKey("scenarios.id"), nullable=True)
+
     # Overall status
     status = Column(String(20), nullable=False, default=UploadStatus.PENDING.value)
 

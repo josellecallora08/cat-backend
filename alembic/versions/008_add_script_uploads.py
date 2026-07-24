@@ -14,7 +14,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision: str = "008_add_script_uploads"
-down_revision: Union[str, None] = "007_add_script_registry"
+down_revision: Union[str, Sequence[str], None] = ("007_add_script_registry", "007_campaign_modal_revamp")
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
@@ -52,6 +52,10 @@ def upgrade() -> None:
                 server_default=sa.text("'pending'"),
             ),
             sa.Column("extraction_error", sa.Text(), nullable=True),
+            # Extracted content (pending S1-09 ScriptContract conversion)
+            sa.Column("extracted_content", sa.Text(), nullable=True),
+            # Scenario link
+            sa.Column("scenario_id", sa.Uuid(), nullable=True),
             # Overall status
             sa.Column(
                 "status",
@@ -80,6 +84,7 @@ def upgrade() -> None:
             sa.PrimaryKeyConstraint("id"),
             sa.ForeignKeyConstraint(["uploaded_by"], ["users.id"]),
             sa.ForeignKeyConstraint(["script_id"], ["scripts.id"]),
+            sa.ForeignKeyConstraint(["scenario_id"], ["scenarios.id"]),
         )
 
 
