@@ -12,7 +12,7 @@ from app.models.campaign import (
     CampaignStatus,
     campaign_scenarios,
 )
-from app.models.user import User, UserRole
+from app.models.user import User, UserRole, UserType
 from app.models import Scenario
 from app.schemas.campaign import (
     AgentAssignment,
@@ -203,7 +203,8 @@ async def _validate_agent_ids(
     stmt = select(func.count()).where(
         User.id.in_(agent_ids),
         User.is_active == True,  # noqa: E712
-        User.role == UserRole.AGENT.value,
+        User.role == UserRole.USER.value,
+        User.user_type == UserType.AGENT.value,
     )
     result = await db.execute(stmt)
     count = result.scalar_one()

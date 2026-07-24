@@ -251,6 +251,7 @@ class TestGoogleCallbackEndpoint:
         mock_user.email = "test@gmail.com"
         mock_user.full_name = "Test Google User"
         mock_user.role = "agent"
+        mock_user.user_type = None
         mock_user.is_active = True
 
         mock_get_or_create.return_value = (mock_user, "cat-jwt-token")
@@ -321,6 +322,7 @@ class TestGoogleCallbackEndpoint:
         mock_user.email = "inactive@gmail.com"
         mock_user.full_name = "Inactive User"
         mock_user.role = "agent"
+        mock_user.user_type = None
         mock_user.is_active = False
 
         mock_get_or_create.return_value = (mock_user, "token")

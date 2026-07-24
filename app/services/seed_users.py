@@ -10,7 +10,7 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.user import User, UserRole
+from app.models.user import User, UserRole, UserType
 from app.services.auth import hash_password
 
 logger = logging.getLogger(__name__)
@@ -26,7 +26,8 @@ DEFAULT_USERS = [
         "email": "agent@cat.ph",
         "password": "agent123",
         "full_name": "Agent User",
-        "role": UserRole.AGENT.value,
+        "role": UserRole.USER.value,
+        "user_type": UserType.AGENT.value,
     },
 ]
 
@@ -66,6 +67,7 @@ async def seed_default_users(db: AsyncSession) -> None:
             hashed_password=hash_password(user_data["password"]),
             full_name=user_data["full_name"],
             role=user_data["role"],
+            user_type=user_data.get("user_type"),
         )
         db.add(user)
         changed = True

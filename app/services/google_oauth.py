@@ -16,7 +16,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.models.user import AuthProvider, User, UserRole
+from app.models.user import AuthProvider, User, UserRole, UserType
 from app.services.auth import create_access_token
 
 logger = logging.getLogger(__name__)
@@ -152,7 +152,7 @@ async def get_or_create_google_user(
     user = result.scalar_one_or_none()
 
     if user:
-        token = create_access_token(user.id, user.role)
+        token = create_access_token(user.id, user.role, user_type=user.user_type)
         return user, token
 
     # Try to find by email and link accounts
@@ -168,7 +168,7 @@ async def get_or_create_google_user(
                 user.auth_provider = AuthProvider.GOOGLE.value
             await db.commit()
             await db.refresh(user)
-            token = create_access_token(user.id, user.role)
+            token = create_access_token(user.id, user.role, user_type=user.user_type)
             logger.info("Linked Google account to existing user: %s", user.email)
             return user, token
 
@@ -180,7 +180,8 @@ async def get_or_create_google_user(
         email=google_info.email,
         hashed_password=None,
         full_name=google_info.name,
-        role=UserRole.AGENT.value,
+        role=UserRole.USER.value,
+        user_type=UserType.AGENT.value,
         auth_provider=AuthProvider.GOOGLE.value,
         google_sub=google_info.sub,
     )
@@ -188,6 +189,6 @@ async def get_or_create_google_user(
     await db.commit()
     await db.refresh(user)
 
-    token = create_access_token(user.id, user.role)
+    token = create_access_token(user.id, user.role, user_type=user.user_type)
     logger.info("Created new Google user: %s (%s)", user.email, google_info.sub)
     return user, token

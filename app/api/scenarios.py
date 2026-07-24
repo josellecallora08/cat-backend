@@ -1,22 +1,52 @@
 """Scenario selection API endpoints."""
 
-from typing import List
+import json
+import logging
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_session
-from app.schemas import DebtorProfileSchema, ScenarioListItem, ScenarioResponse, ScenarioType
+from app.models import Scenario
+from app.models.user import User, UserRole, UserType
+from app.schemas import (
+    DebtorProfileSchema,
+    ScenarioListItem,
+    ScenarioResponse,
+    ScenarioType,
+)
+from app.services.auth import get_current_user, require_admin
+from app.services.campaign_scenario_service import get_agent_campaign_scenarios
+from app.services.llm_service import LLMMessage, LLMService
 from app.services.scenario_repository import get_scenario_by_id, list_active_scenarios
 
 router = APIRouter()
 
 
-@router.get("", response_model=List[ScenarioListItem])
-async def list_scenarios(db: AsyncSession = Depends(get_session)):
-    """List all active training scenarios."""
+@router.get("", response_model=list[ScenarioListItem])
+async def list_scenarios(
+    db: AsyncSession = Depends(get_session),
+    user: User | None = Depends(get_current_user),
+) -> list[ScenarioListItem]:
+    """List active training scenarios. Agents see only their campaign scenarios."""
+    if (
+        user
+        and user.role == UserRole.USER.value
+        and user.user_type == UserType.AGENT.value
+    ):
+        items = await get_agent_campaign_scenarios(db, user.id)
+        return [
+            ScenarioListItem(
+                id=item.id,
+                name=item.name,
+                scenario_type=ScenarioType(item.scenario_type),
+                description=item.description,
+            )
+            for item in items
+        ]
+
     scenarios = await list_active_scenarios(db)
     return [
         ScenarioListItem(
@@ -56,27 +86,19 @@ async def get_scenario(scenario_id: UUID, db: AsyncSession = Depends(get_session
 
 # --- AI-Powered Scenario Generation ---
 
-import logging
-import json
-
-from pydantic import BaseModel
-
-from app.models import Scenario
-from app.services.llm_service import LLMService, LLMMessage
-from app.services.auth import require_admin
-from app.models.user import User
-
 logger = logging.getLogger(__name__)
 
 
 class GenerateScenarioRequest(BaseModel):
     """Request body for AI-generated scenario creation."""
+
     prompt: str  # Free-text description of the scenario to generate
     scenario_type: str = "FINANCIAL_HARDSHIP"  # Default type, LLM may override
 
 
 class GenerateScenarioResponse(BaseModel):
     """Response after generating and saving a new scenario."""
+
     id: UUID
     name: str
     scenario_type: str
@@ -131,7 +153,10 @@ async def generate_scenario(
 
     messages = [
         LLMMessage(role="system", content=SCENARIO_GENERATION_PROMPT),
-        LLMMessage(role="user", content=f"Create a scenario based on this description: {body.prompt}"),
+        LLMMessage(
+            role="user",
+            content=f"Create a scenario based on this description: {body.prompt}",
+        ),
     ]
 
     try:
@@ -148,21 +173,26 @@ async def generate_scenario(
     try:
         content = response.content.strip()
         if content.startswith("```"):
-            content = content[content.index("\n") + 1:]
+            content = content[content.index("\n") + 1 :]
         if content.endswith("```"):
             content = content[:-3]
         data = json.loads(content.strip())
     except (json.JSONDecodeError, ValueError) as e:
         logger.error("Failed to parse scenario generation response: %s", e)
-        raise HTTPException(status_code=500, detail="Failed to parse generated scenario")
+        raise HTTPException(
+            status_code=500, detail="Failed to parse generated scenario"
+        )
 
     # Validate required fields
     debtor_profile = data.get("debtor_profile", {})
     if not debtor_profile.get("name") or not debtor_profile.get("outstanding_balance"):
-        raise HTTPException(status_code=500, detail="Generated scenario has incomplete profile")
+        raise HTTPException(
+            status_code=500, detail="Generated scenario has incomplete profile"
+        )
 
     # Save to database
     import uuid
+
     scenario = Scenario(
         id=uuid.uuid4(),
         name=data.get("name", "Generated Scenario"),
@@ -192,6 +222,7 @@ async def generate_scenario(
 
 class UpdateScenarioRequest(BaseModel):
     """Request body for updating a scenario."""
+
     name: str | None = None
     scenario_type: str | None = None
     description: str | None = None
@@ -201,6 +232,7 @@ class UpdateScenarioRequest(BaseModel):
 
 class ScenarioDetailResponse(BaseModel):
     """Full scenario detail for admin views."""
+
     id: UUID
     name: str
     scenario_type: str
