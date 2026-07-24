@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.database import get_session
+from app.models.script_upload import ScriptUpload, UploadStatus
 from app.models.user import User
 from app.schemas.upload import UploadRejectionResponse, UploadSuccessResponse
 from app.services.auth import require_admin
@@ -220,17 +221,41 @@ async def upload_training_document(
         },
     )
 
-    # 11. Build response
+    # 11. Persist upload metadata to database
     upload_id = uuid.uuid4()
     quarantine_expires = datetime.now(timezone.utc) + timedelta(
         hours=settings.upload_quarantine_retention_hours
     )
 
-    return UploadSuccessResponse(
+    upload_record = ScriptUpload(
         id=upload_id,
         filename_original=original_filename,
+        mime_type=content_type,
+        file_size_bytes=len(file_bytes),
         content_hash=content_hash,
-        extracted_size_bytes=len(content.encode("utf-8")),
-        scan_result="clean",
+        storage_key=quarantine_path.name,  # UUID filename
+        uploaded_by=admin.id,
+        scan_status="clean",
+        scan_signature=None,
+        extraction_status="completed",
+        extraction_error=None,
+        status=UploadStatus.COMPLETED.value,
         quarantine_expires_at=quarantine_expires,
+    )
+    db.add(upload_record)
+    await db.commit()
+    await db.refresh(upload_record)
+
+    return UploadSuccessResponse(
+        id=upload_record.id,
+        filename_original=original_filename,
+        mime_type=content_type,
+        file_size_bytes=len(file_bytes),
+        content_hash=content_hash,
+        storage_key=quarantine_path.name,
+        scan_result="clean",
+        extraction_status="completed",
+        status=UploadStatus.COMPLETED.value,
+        quarantine_expires_at=quarantine_expires,
+        created_at=upload_record.created_at or datetime.now(timezone.utc),
     )

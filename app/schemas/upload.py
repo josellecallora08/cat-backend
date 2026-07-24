@@ -29,7 +29,12 @@ class UploadSuccessResponse(BaseModel):
 
     id: UUID
     filename_original: str
+    mime_type: str
+    file_size_bytes: int
     content_hash: str
-    extracted_size_bytes: int
-    scan_result: str  # "clean"
+    storage_key: str
+    scan_result: str
+    extraction_status: str
+    status: str
     quarantine_expires_at: datetime
+    created_at: datetime
