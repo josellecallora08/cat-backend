@@ -47,6 +47,7 @@ from app.services.upload_validator import (
     validate_file_signature,
     validate_file_size_streaming,
     validate_mime_type,
+    validate_pdf_not_encrypted,
 )
 
 router = APIRouter()
@@ -190,8 +191,21 @@ async def upload_training_document(
             request=request,
         )
 
-    # 7. Store in quarantine
+    # 7. PDF encryption check (before quarantine, before scanning)
     ext = os.path.splitext(original_filename)[1].lower()
+    if ext == ".pdf":
+        valid, reason = validate_pdf_not_encrypted(file_bytes)
+        if not valid:
+            raise _reject(
+                reason,
+                "Encrypted or password-protected PDFs are not accepted.",
+                admin=admin,
+                filename=original_filename,
+                file_size=len(file_bytes),
+                request=request,
+            )
+
+    # 8. Store in quarantine
     quarantine_path = store_in_quarantine(file_bytes, ext)
 
     try:

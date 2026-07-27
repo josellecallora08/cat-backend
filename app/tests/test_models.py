@@ -313,3 +313,116 @@ async def test_migration_upgrade_downgrade_upgrade_smoke():
             engine.dispose()
     finally:
         await _drop_scratch_database(db_name)
+
+
+@pytest.mark.asyncio
+async def test_migration_script_uploads_schema():
+    """Verify script_uploads table schema after full migration upgrade.
+
+    Checks:
+    - Table exists
+    - All 19 expected columns present with correct types
+    - Foreign keys: uploaded_by→users, scenario_id→scenarios, script_id→scripts
+    - Non-null constraints on required columns
+    - Upgrade → downgrade → upgrade lifecycle succeeds
+    """
+    project_root = Path(__file__).resolve().parent.parent.parent
+    db_name = f"cat_db_upload_schema_test_{uuid.uuid4().hex[:8]}"
+    scratch_asyncpg_url = _admin_dsn(db_name).replace(
+        "postgresql://", "postgresql+asyncpg://", 1
+    )
+    scratch_psycopg_url = _admin_dsn(db_name).replace(
+        "postgresql://", "postgresql+psycopg2://", 1
+    )
+
+    await _create_scratch_database(db_name)
+    try:
+        # Upgrade to head
+        result = _run_alembic(project_root, scratch_asyncpg_url, "upgrade", "head")
+        assert result.returncode == 0, f"upgrade failed: {result.stderr}"
+
+        # Inspect schema
+        engine = create_engine(scratch_psycopg_url)
+        try:
+            inspector = inspect(engine)
+            table_names = set(inspector.get_table_names())
+            assert "script_uploads" in table_names, (
+                f"script_uploads not found. Tables: {sorted(table_names)}"
+            )
+
+            # Verify all columns
+            columns = {col["name"]: col for col in inspector.get_columns("script_uploads")}
+            expected_columns = [
+                "id", "filename_original", "mime_type", "file_size_bytes",
+                "content_hash", "storage_key", "uploaded_by", "scan_status",
+                "scan_signature", "extraction_status", "extraction_error",
+                "extracted_content", "scenario_id", "status", "script_id",
+                "created_at", "updated_at", "quarantine_expires_at", "deleted_at",
+            ]
+            for col_name in expected_columns:
+                assert col_name in columns, f"Missing column: {col_name}"
+
+            # Verify non-null constraints on required columns
+            required_non_null = [
+                "id", "filename_original", "mime_type", "file_size_bytes",
+                "content_hash", "storage_key", "uploaded_by", "scan_status",
+                "extraction_status", "status", "created_at", "updated_at",
+                "quarantine_expires_at",
+            ]
+            for col_name in required_non_null:
+                assert columns[col_name]["nullable"] is False, (
+                    f"Column {col_name} should be NOT NULL"
+                )
+
+            # Verify nullable columns
+            nullable_columns = [
+                "scan_signature", "extraction_error", "extracted_content",
+                "scenario_id", "script_id", "deleted_at",
+            ]
+            for col_name in nullable_columns:
+                assert columns[col_name]["nullable"] is True, (
+                    f"Column {col_name} should be nullable"
+                )
+
+            # Verify foreign keys
+            fks = inspector.get_foreign_keys("script_uploads")
+            fk_map = {}
+            for fk in fks:
+                for col in fk["constrained_columns"]:
+                    fk_map[col] = f"{fk['referred_table']}.{fk['referred_columns'][0]}"
+
+            assert fk_map.get("uploaded_by") == "users.id", (
+                f"uploaded_by FK: {fk_map.get('uploaded_by')}"
+            )
+            assert fk_map.get("scenario_id") == "scenarios.id", (
+                f"scenario_id FK: {fk_map.get('scenario_id')}"
+            )
+            assert fk_map.get("script_id") == "scripts.id", (
+                f"script_id FK: {fk_map.get('script_id')}"
+            )
+        finally:
+            engine.dispose()
+
+        # Downgrade to just before our merge (one of the parents), then re-upgrade
+        # We use the merge revision's parent as the target since -1 is ambiguous for merges
+        result = _run_alembic(
+            project_root, scratch_asyncpg_url, "downgrade", "009_refactor_roles_add_user_type"
+        )
+        assert result.returncode == 0, f"downgrade failed: {result.stderr}"
+
+        result = _run_alembic(project_root, scratch_asyncpg_url, "upgrade", "head")
+        assert result.returncode == 0, f"re-upgrade failed: {result.stderr}"
+
+        # Verify schema still correct after cycle
+        engine = create_engine(scratch_psycopg_url)
+        try:
+            inspector = inspect(engine)
+            assert "script_uploads" in set(inspector.get_table_names())
+            cols = {c["name"] for c in inspector.get_columns("script_uploads")}
+            assert "extracted_content" in cols
+            assert "scenario_id" in cols
+        finally:
+            engine.dispose()
+
+    finally:
+        await _drop_scratch_database(db_name)

@@ -190,9 +190,19 @@ class TestValidateDocxArchive:
         assert reason == UploadRejectionReason.DOCX_TOO_LARGE_UNCOMPRESSED
 
     def test_docx_too_deep(self, tmp_path):
-        # depth limit is 2; entry with 2+ slashes should fail
-        entries = {"a/b/deep.xml": "<nested/>"}
+        # depth limit is 2; entry with dir_depth > 2 should fail
+        # 'a/b/c/deep.xml' has parts ('a','b','c','deep.xml'), dir_depth=3 > 2
+        entries = {"a/b/c/deep.xml": "<nested/>"}
         path = self._make_docx_zip(tmp_path, entries)
         valid, reason = validate_docx_archive(path)
         assert valid is False
         assert reason == UploadRejectionReason.DOCX_TOO_DEEP
+
+    def test_docx_at_depth_limit_accepted(self, tmp_path):
+        # 'word/_rels/doc.xml.rels' has parts ('word','_rels','doc.xml.rels'), dir_depth=2
+        # This should be accepted (dir_depth == max_depth is OK, only > is rejected)
+        entries = {"word/_rels/document.xml.rels": "<Relationships/>"}
+        path = self._make_docx_zip(tmp_path, entries)
+        valid, reason = validate_docx_archive(path)
+        assert valid is True
+        assert reason is None

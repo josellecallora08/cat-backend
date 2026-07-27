@@ -169,24 +169,26 @@ class TestUploadValidation:
         """Valid PDF without scenario_id succeeds with pending status."""
         pdf_content = b"%PDF-1.4 test content for upload"
 
-        with patch("app.api.uploads.scan_file") as mock_scan:
-            mock_scan.return_value = MagicMock(clean=True, signature=None, error=None)
-            with patch("app.api.uploads.extract_content") as mock_extract:
-                mock_extract.return_value = "extracted text from pdf"
-                transport = ASGITransport(app=app)
-                async with AsyncClient(transport=transport, base_url="http://test") as client:
-                    resp = await client.post(
-                        "/api/scripts/upload",
-                        files={"file": ("report.pdf", pdf_content, "application/pdf")},
-                    )
-                    assert resp.status_code == 201
-                    data = resp.json()
-                    assert data["filename_original"] == "report.pdf"
-                    assert data["scan_result"] == "clean"
-                    assert data["extraction_status"] == "completed"
-                    assert data["script_id"] is None  # No script created
-                    assert data["scenario_id"] is None
-                    assert "pending" in data["processing_notes"].lower()
+        with patch("app.api.uploads.validate_pdf_not_encrypted") as mock_pdf_check:
+            mock_pdf_check.return_value = (True, None)
+            with patch("app.api.uploads.scan_file") as mock_scan:
+                mock_scan.return_value = MagicMock(clean=True, signature=None, error=None)
+                with patch("app.api.uploads.extract_content") as mock_extract:
+                    mock_extract.return_value = "extracted text from pdf"
+                    transport = ASGITransport(app=app)
+                    async with AsyncClient(transport=transport, base_url="http://test") as client:
+                        resp = await client.post(
+                            "/api/scripts/upload",
+                            files={"file": ("report.pdf", pdf_content, "application/pdf")},
+                        )
+                        assert resp.status_code == 201
+                        data = resp.json()
+                        assert data["filename_original"] == "report.pdf"
+                        assert data["scan_result"] == "clean"
+                        assert data["extraction_status"] == "completed"
+                        assert data["script_id"] is None
+                        assert data["scenario_id"] is None
+                        assert "pending" in data["processing_notes"].lower()
 
     @pytest.mark.asyncio
     async def test_201_extracted_text_not_parsed_as_json(self, app, override_admin_and_db):
@@ -264,26 +266,28 @@ class TestUploadValidation:
         app.dependency_overrides[get_session] = lambda: mock_db
 
         try:
-            with patch("app.api.uploads.scan_file") as mock_scan:
-                mock_scan.return_value = MagicMock(clean=True, signature=None, error=None)
-                with patch("app.api.uploads.extract_content") as mock_extract:
-                    mock_extract.return_value = "extracted content"
-                    transport = ASGITransport(app=app)
-                    async with AsyncClient(transport=transport, base_url="http://test") as client:
-                        resp = await client.post(
-                            "/api/scripts/upload",
-                            data={"scenario_id": str(fake_scenario_id)},
-                            files={"file": ("report.pdf", b"%PDF-1.4 test", "application/pdf")},
-                        )
-                        assert resp.status_code == 201
-                        data = resp.json()
-                        assert data["scenario_id"] == str(fake_scenario_id)
-                        # Verify db.add was called with the upload record
-                        mock_db.add.assert_called_once()
-                        record = mock_db.add.call_args[0][0]
-                        assert record.scenario_id == fake_scenario_id
-                        assert record.extracted_content == "extracted content"
-                        assert record.script_id is None  # Not linked yet
+            with patch("app.api.uploads.validate_pdf_not_encrypted") as mock_pdf:
+                mock_pdf.return_value = (True, None)
+                with patch("app.api.uploads.scan_file") as mock_scan:
+                    mock_scan.return_value = MagicMock(clean=True, signature=None, error=None)
+                    with patch("app.api.uploads.extract_content") as mock_extract:
+                        mock_extract.return_value = "extracted content"
+                        transport = ASGITransport(app=app)
+                        async with AsyncClient(transport=transport, base_url="http://test") as client:
+                            resp = await client.post(
+                                "/api/scripts/upload",
+                                data={"scenario_id": str(fake_scenario_id)},
+                                files={"file": ("report.pdf", b"%PDF-1.4 test", "application/pdf")},
+                            )
+                            assert resp.status_code == 201
+                            data = resp.json()
+                            assert data["scenario_id"] == str(fake_scenario_id)
+                            # Verify db.add was called with the upload record
+                            mock_db.add.assert_called_once()
+                            record = mock_db.add.call_args[0][0]
+                            assert record.scenario_id == fake_scenario_id
+                            assert record.extracted_content == "extracted content"
+                            assert record.script_id is None
         finally:
             app.dependency_overrides.clear()
 
@@ -335,20 +339,21 @@ class TestDatabaseErrorHandling:
         app.dependency_overrides[get_session] = lambda: mock_db
 
         try:
-            with patch("app.api.uploads.scan_file") as mock_scan:
-                mock_scan.return_value = MagicMock(clean=True, signature=None, error=None)
-                with patch("app.api.uploads.extract_content") as mock_extract:
-                    mock_extract.return_value = "text"
-                    transport = ASGITransport(app=app)
-                    async with AsyncClient(transport=transport, base_url="http://test") as client:
-                        resp = await client.post(
-                            "/api/scripts/upload",
-                            files={"file": ("doc.pdf", b"%PDF-1.4 x", "application/pdf")},
-                        )
-                        assert resp.status_code == 500
-                        assert "persist" in resp.json()["detail"].lower()
-                        # Verify rollback was called
-                        mock_db.rollback.assert_awaited_once()
+            with patch("app.api.uploads.validate_pdf_not_encrypted") as mock_pdf:
+                mock_pdf.return_value = (True, None)
+                with patch("app.api.uploads.scan_file") as mock_scan:
+                    mock_scan.return_value = MagicMock(clean=True, signature=None, error=None)
+                    with patch("app.api.uploads.extract_content") as mock_extract:
+                        mock_extract.return_value = "text"
+                        transport = ASGITransport(app=app)
+                        async with AsyncClient(transport=transport, base_url="http://test") as client:
+                            resp = await client.post(
+                                "/api/scripts/upload",
+                                files={"file": ("doc.pdf", b"%PDF-1.4 x", "application/pdf")},
+                            )
+                            assert resp.status_code == 500
+                            assert "persist" in resp.json()["detail"].lower()
+                            mock_db.rollback.assert_awaited_once()
         finally:
             app.dependency_overrides.clear()
 
