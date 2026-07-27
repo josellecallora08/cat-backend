@@ -78,6 +78,56 @@ async def create_draft(
     return script
 
 
+async def create_draft_in_transaction(
+    db: AsyncSession,
+    admin_id: UUID,
+    name: str,
+    scenario_id: UUID,
+    format: str,
+    raw_definition: str,
+) -> Script:
+    """Create a Draft_Script without committing — for use inside a caller-managed transaction.
+
+    Identical validation to ``create_draft()`` but uses ``flush()`` instead of
+    ``commit()`` so the caller can bundle this write with other operations
+    (e.g. linking a ScriptUpload) in a single atomic transaction.
+
+    After ``flush()``, ``script.id`` is populated and available for foreign-key
+    assignment. The caller is responsible for ``commit()`` or ``rollback()``.
+
+    Args:
+        db: Active async DB session (caller owns the transaction).
+        admin_id: ID of the Administrator creating the script.
+        name: Human-readable name for the script.
+        scenario_id: The scenario this script is tied to.
+        format: Declared format of `raw_definition` ("json" or "yaml").
+        raw_definition: The raw Script definition content.
+
+    Returns:
+        The Script instance (flushed, ID populated, not yet committed).
+
+    Raises:
+        ScriptFormatError: If `format` is unsupported or `raw_definition`
+            cannot be parsed as the declared format.
+        ScriptValidationError: If the parsed definition fails Script_Contract
+            structural validation.
+    """
+    data = parse_script_definition(raw_definition, format)
+    validate_contract_structure(data)
+
+    script = Script(
+        scenario_id=scenario_id,
+        name=name,
+        status=ScriptStatus.DRAFT.value,
+        format=format,
+        draft_content=data,
+        created_by=admin_id,
+    )
+    db.add(script)
+    await db.flush()
+    return script
+
+
 async def get_script(db: AsyncSession, script_id: UUID) -> Optional[Script]:
     """Get a script by ID.
 
