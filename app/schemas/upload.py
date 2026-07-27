@@ -50,7 +50,7 @@ class UploadStatusResponse(BaseModel):
     filename_original: str
     mime_type: str
     file_size_bytes: int
-    content_hash: str
+    content_hash: Optional[str] = None  # Null for pre-extraction failures
     storage_key: str
     uploaded_by: UUID
     scan_status: str

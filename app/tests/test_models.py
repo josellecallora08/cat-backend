@@ -365,7 +365,7 @@ async def test_migration_script_uploads_schema():
             # Verify non-null constraints on required columns
             required_non_null = [
                 "id", "filename_original", "mime_type", "file_size_bytes",
-                "content_hash", "storage_key", "uploaded_by", "scan_status",
+                "storage_key", "uploaded_by", "scan_status",
                 "extraction_status", "status", "created_at", "updated_at",
                 "quarantine_expires_at",
             ]
@@ -374,9 +374,9 @@ async def test_migration_script_uploads_schema():
                     f"Column {col_name} should be NOT NULL"
                 )
 
-            # Verify nullable columns
+            # Verify nullable columns (content_hash is nullable for failed pre-extraction records)
             nullable_columns = [
-                "scan_signature", "extraction_error", "extracted_content",
+                "content_hash", "scan_signature", "extraction_error", "extracted_content",
                 "scenario_id", "script_id", "deleted_at",
             ]
             for col_name in nullable_columns:
@@ -421,6 +421,137 @@ async def test_migration_script_uploads_schema():
             cols = {c["name"] for c in inspector.get_columns("script_uploads")}
             assert "extracted_content" in cols
             assert "scenario_id" in cols
+        finally:
+            engine.dispose()
+
+    finally:
+        await _drop_scratch_database(db_name)
+
+
+@pytest.mark.asyncio
+async def test_migration_011_content_hash_nullable_round_trip():
+    """Data round-trip: NULL content_hash survives downgrade/upgrade cycle.
+
+    1. Upgrade to 011_nullable_content_hash.
+    2. Insert a failed row (content_hash=NULL) and a successful row (valid hash).
+    3. Downgrade to 010_merge_upload_and_roles.
+    4. Verify: failed row uses '' sentinel, successful row unchanged, NOT NULL active.
+    5. Upgrade to head.
+    6. Verify: failed row restored to NULL, successful row unchanged, column nullable.
+    """
+    project_root = Path(__file__).resolve().parent.parent.parent
+    db_name = f"cat_db_hash_roundtrip_{uuid.uuid4().hex[:8]}"
+    scratch_asyncpg_url = _admin_dsn(db_name).replace(
+        "postgresql://", "postgresql+asyncpg://", 1
+    )
+    scratch_psycopg_url = _admin_dsn(db_name).replace(
+        "postgresql://", "postgresql+psycopg2://", 1
+    )
+
+    await _create_scratch_database(db_name)
+    try:
+        # Step 1: Upgrade to head (includes 011)
+        result = _run_alembic(project_root, scratch_asyncpg_url, "upgrade", "head")
+        assert result.returncode == 0, f"upgrade failed: {result.stderr}"
+
+        # Step 2: Insert test rows
+        engine = create_engine(scratch_psycopg_url)
+        try:
+            from sqlalchemy import text
+            with engine.begin() as conn:
+                # Create minimal user and scenario for FK satisfaction
+                user_id = uuid.uuid4()
+                conn.execute(text(
+                    "INSERT INTO users (id, email, hashed_password, full_name, role, is_active) "
+                    "VALUES (:id, 'test@t.com', 'x', 'Test User', 'admin', true)"
+                ), {"id": user_id})
+
+                scenario_id = uuid.uuid4()
+                conn.execute(text(
+                    "INSERT INTO scenarios (id, name, scenario_type, debtor_profile, is_active) "
+                    "VALUES (:id, 'Test', 'TEST', '{}'::jsonb, true)"
+                ), {"id": scenario_id})
+
+                # Failed row: content_hash = NULL
+                failed_id = uuid.uuid4()
+                conn.execute(text(
+                    "INSERT INTO script_uploads "
+                    "(id, filename_original, mime_type, file_size_bytes, content_hash, "
+                    " storage_key, uploaded_by, scan_status, extraction_status, status, "
+                    " quarantine_expires_at) "
+                    "VALUES (:id, 'bad.pdf', 'application/pdf', 1000, NULL, "
+                    " 'key1.pdf', :uid, 'infected', 'failed', 'failed', NOW())"
+                ), {"id": failed_id, "uid": user_id})
+
+                # Successful row: valid hash
+                valid_hash = "a" * 64
+                success_id = uuid.uuid4()
+                conn.execute(text(
+                    "INSERT INTO script_uploads "
+                    "(id, filename_original, mime_type, file_size_bytes, content_hash, "
+                    " storage_key, uploaded_by, scan_status, extraction_status, status, "
+                    " quarantine_expires_at) "
+                    "VALUES (:id, 'ok.pdf', 'application/pdf', 2000, :hash, "
+                    " 'key2.pdf', :uid, 'clean', 'completed', 'completed', NOW())"
+                ), {"id": success_id, "uid": user_id, "hash": valid_hash})
+        finally:
+            engine.dispose()
+
+        # Step 3: Downgrade to 010
+        result = _run_alembic(
+            project_root, scratch_asyncpg_url, "downgrade", "010_merge_upload_and_roles"
+        )
+        assert result.returncode == 0, f"downgrade failed: {result.stderr}"
+
+        # Step 4: Verify sentinel and constraint
+        engine = create_engine(scratch_psycopg_url)
+        try:
+            from sqlalchemy import text
+            with engine.connect() as conn:
+                # Failed row should have '' sentinel
+                row = conn.execute(text(
+                    "SELECT content_hash FROM script_uploads WHERE id = :id"
+                ), {"id": failed_id}).fetchone()
+                assert row[0] == "", f"Expected '' sentinel, got: {row[0]!r}"
+
+                # Successful row unchanged
+                row = conn.execute(text(
+                    "SELECT content_hash FROM script_uploads WHERE id = :id"
+                ), {"id": success_id}).fetchone()
+                assert row[0] == valid_hash
+
+            # Verify NOT NULL constraint is active
+            inspector = inspect(engine)
+            cols = {c["name"]: c for c in inspector.get_columns("script_uploads")}
+            assert cols["content_hash"]["nullable"] is False
+        finally:
+            engine.dispose()
+
+        # Step 5: Upgrade back to head
+        result = _run_alembic(project_root, scratch_asyncpg_url, "upgrade", "head")
+        assert result.returncode == 0, f"re-upgrade failed: {result.stderr}"
+
+        # Step 6: Verify restoration
+        engine = create_engine(scratch_psycopg_url)
+        try:
+            from sqlalchemy import text
+            with engine.connect() as conn:
+                # Failed row restored to NULL
+                row = conn.execute(text(
+                    "SELECT content_hash FROM script_uploads WHERE id = :id"
+                ), {"id": failed_id}).fetchone()
+                assert row[0] is None, f"Expected NULL, got: {row[0]!r}"
+
+                # Successful row still has valid hash
+                row = conn.execute(text(
+                    "SELECT content_hash FROM script_uploads WHERE id = :id"
+                ), {"id": success_id}).fetchone()
+                assert row[0] == valid_hash
+
+            # Column is nullable again
+            inspector = inspect(engine)
+            cols = {c["name"]: c for c in inspector.get_columns("script_uploads")}
+            assert cols["content_hash"]["nullable"] is True
         finally:
             engine.dispose()
 

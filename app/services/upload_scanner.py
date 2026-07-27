@@ -71,8 +71,14 @@ def scan_file(file_path: Path) -> ScanResult:
     try:
         result = cd.scan(str(file_path))
     except Exception as exc:
-        logger.error("ClamAV scan failed for %s: %s", file_path, exc)
-        return ScanResult(clean=False, error="Scanner unavailable")
+        # File-path scan failed; try streaming scan (instream) for TCP mode
+        logger.warning("File-path scan failed (%s), trying instream scan", exc)
+        try:
+            with open(file_path, "rb") as f:
+                result = cd.instream(f)
+        except Exception as stream_exc:
+            logger.error("ClamAV instream scan also failed for %s: %s", file_path, stream_exc)
+            return ScanResult(clean=False, error="Scanner unavailable")
 
     return _parse_scan_result(result, file_path)
 
@@ -137,6 +143,10 @@ def _parse_scan_result(result: dict, file_path: Path) -> ScanResult:
 
     file_key = str(file_path)
     file_result = result.get(file_key)
+
+    if file_result is None:
+        # Try 'stream' key (used by instream scanning)
+        file_result = result.get("stream")
 
     if file_result is None:
         # Try to get any result (ClamAV may use absolute path)

@@ -42,7 +42,7 @@ class ScriptUpload(Base):
     filename_original = Column(String(255), nullable=False)
     mime_type = Column(String(100), nullable=False)
     file_size_bytes = Column(Integer, nullable=False)
-    content_hash = Column(String(64), nullable=False)  # SHA-256 hex digest
+    content_hash = Column(String(64), nullable=True)  # SHA-256 hex; null for pre-extraction failures
 
     # Storage
     storage_key = Column(String(255), nullable=False)  # UUID filename in quarantine
