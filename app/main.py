@@ -199,8 +199,8 @@ def create_app() -> FastAPI:
     app.include_router(
         admin_users.router, prefix="/api/admin/users", tags=["admin-users"]
     )
-    app.include_router(scripts.router, prefix="/api/scripts", tags=["scripts"])
     app.include_router(uploads.router, prefix="/api/scripts", tags=["uploads"])
+    app.include_router(scripts.router, prefix="/api/scripts", tags=["scripts"])
 
     @app.get("/health")
     async def health_check():
