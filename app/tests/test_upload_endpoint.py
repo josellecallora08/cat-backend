@@ -48,6 +48,14 @@ def clear_rate_limiter():
     upload_rate_limiter._cooldown_tracker.clear()
 
 
+@pytest.fixture(autouse=True)
+def _bypass_content_security():
+    """Bypass PDF/DOCX content security checks for endpoint tests using fake bytes."""
+    with patch("app.services.pdf_security.validate_pdf_security", return_value=(True, None)):
+        with patch("app.services.docx_security.validate_docx_security", return_value=(True, None)):
+            yield
+
+
 def _mock_db_session():
     """Create a properly mocked AsyncSession.
 

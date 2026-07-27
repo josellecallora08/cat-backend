@@ -309,8 +309,45 @@ async def upload_training_document(
                 ).model_dump(),
             )
 
-        # 11. Content extraction (only reached for clean files)
-        content = extract_content(quarantine_path, ext)
+        # 11. Content security validation (before extraction)
+        if ext == ".pdf":
+            from app.services.pdf_security import validate_pdf_security
+            valid, reason = validate_pdf_security(file_bytes)
+            if not valid:
+                quarantine_path.unlink(missing_ok=True)
+                raise _reject(reason, f"PDF rejected: {reason.value}",
+                              admin=admin, filename=original_filename,
+                              file_size=len(file_bytes), request=request)
+
+        if ext == ".docx":
+            from app.services.docx_security import validate_docx_security
+            valid, reason = validate_docx_security(quarantine_path)
+            if not valid:
+                quarantine_path.unlink(missing_ok=True)
+                raise _reject(reason, f"DOCX rejected: {reason.value}",
+                              admin=admin, filename=original_filename,
+                              file_size=len(file_bytes), request=request)
+
+        # 12. Content extraction (only reached for validated clean files)
+        from app.services.upload_extractor import ExtractionError
+        try:
+            content = extract_content(quarantine_path, ext)
+        except ExtractionError:
+            quarantine_path.unlink(missing_ok=True)
+            raise _reject(
+                UploadRejectionReason.EXTRACTION_FAILED,
+                "Document content could not be safely extracted.",
+                admin=admin, filename=original_filename,
+                file_size=len(file_bytes), request=request,
+            )
+        except Exception:
+            quarantine_path.unlink(missing_ok=True)
+            raise _reject(
+                UploadRejectionReason.EXTRACTION_FAILED,
+                "Document content could not be safely extracted.",
+                admin=admin, filename=original_filename,
+                file_size=len(file_bytes), request=request,
+            )
         content_hash = compute_content_hash(content)
 
     except HTTPException:
