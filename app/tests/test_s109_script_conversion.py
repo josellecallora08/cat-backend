@@ -498,7 +498,7 @@ class TestConvertEndpointSuccess:
 
         try:
             with patch(
-                "app.api.uploads.create_draft_in_transaction",
+                "app.services.conversion_service.create_draft_in_transaction",
                 new_callable=AsyncMock,
                 return_value=script,
             ):
@@ -527,7 +527,7 @@ class TestConvertEndpointSuccess:
 
         try:
             with patch(
-                "app.api.uploads.create_draft_in_transaction",
+                "app.services.conversion_service.create_draft_in_transaction",
                 new_callable=AsyncMock,
                 return_value=script,
             ) as mock_create:
@@ -555,7 +555,7 @@ class TestConvertEndpointSuccess:
 
         try:
             with patch(
-                "app.api.uploads.create_draft_in_transaction",
+                "app.services.conversion_service.create_draft_in_transaction",
                 new_callable=AsyncMock,
                 return_value=script,
             ):
@@ -581,7 +581,7 @@ class TestConvertEndpointSuccess:
 
         try:
             with patch(
-                "app.api.uploads.create_draft_in_transaction",
+                "app.services.conversion_service.create_draft_in_transaction",
                 new_callable=AsyncMock,
                 return_value=script,
             ):
@@ -824,7 +824,7 @@ class TestConvertEndpointTransactionSafety:
         app.dependency_overrides[get_db_session] = lambda: mock_db
         try:
             with patch(
-                "app.api.uploads.create_draft_in_transaction",
+                "app.services.conversion_service.create_draft_in_transaction",
                 new_callable=AsyncMock,
                 side_effect=Exception("DB flush failed"),
             ):
@@ -850,7 +850,7 @@ class TestConvertEndpointTransactionSafety:
 
         try:
             with patch(
-                "app.api.uploads.create_draft_in_transaction",
+                "app.services.conversion_service.create_draft_in_transaction",
                 new_callable=AsyncMock,
                 return_value=script,
             ):
@@ -873,7 +873,7 @@ class TestConvertEndpointTransactionSafety:
         try:
             from app.services.script_validator import ScriptValidationError
             with patch(
-                "app.api.uploads.validate_script",
+                "app.services.conversion_service.validate_script",
                 side_effect=ScriptValidationError([{
                     "loc": ("trigger_phrases",),
                     "msg": "too many entries",
@@ -901,7 +901,7 @@ class TestConvertEndpointTransactionSafety:
 
         try:
             with patch(
-                "app.api.uploads.create_draft_in_transaction",
+                "app.services.conversion_service.create_draft_in_transaction",
                 new_callable=AsyncMock,
                 return_value=script,
             ):
@@ -941,7 +941,7 @@ class TestConvertEndpointConcurrency:
         app.dependency_overrides[get_db_session] = lambda: mock_db1
         try:
             with patch(
-                "app.api.uploads.create_draft_in_transaction",
+                "app.services.conversion_service.create_draft_in_transaction",
                 new_callable=AsyncMock,
                 return_value=script,
             ):
@@ -1002,7 +1002,7 @@ class TestConvertEndpointConcurrency:
 
         try:
             with patch(
-                "app.api.uploads.create_draft_in_transaction",
+                "app.services.conversion_service.create_draft_in_transaction",
                 new_callable=AsyncMock,
                 return_value=script,
             ):
@@ -1112,7 +1112,7 @@ class TestConvertEndpointLimitsEnforcement:
         app.dependency_overrides[get_db_session] = lambda: mock_db
         try:
             with patch(
-                "app.api.uploads.create_draft_in_transaction",
+                "app.services.conversion_service.create_draft_in_transaction",
                 new_callable=AsyncMock,
                 return_value=script,
             ):
@@ -1154,18 +1154,34 @@ class TestConvertEndpointLogging:
         app.dependency_overrides[get_db_session] = lambda: mock_db
         try:
             with patch(
-                "app.api.uploads.create_draft_in_transaction",
+                "app.services.conversion_service.create_draft_in_transaction",
                 new_callable=AsyncMock,
                 return_value=script,
-            ), caplog.at_level(logging.INFO, logger="app.api.uploads"):
+            ), caplog.at_level(logging.INFO, logger="app.services.conversion_service"):
                 response = await client.post(
                     f"/api/scripts/uploads/{upload.id}/convert"
                 )
                 assert response.status_code == 201
-                # Ensure the actual contract content is not in logs
-                for record in caplog.records:
-                    assert "Hello" not in record.getMessage()
-                    assert "outstanding_balance" not in record.getMessage()
+                events = [
+                    record
+                    for record in caplog.records
+                    if record.name == "app.services.conversion_service"
+                    and record.getMessage() == "upload_converted"
+                ]
+                assert len(events) == 1
+                event = events[0]
+                assert {
+                    "upload_id",
+                    "script_id",
+                    "scenario_id",
+                    "user_id",
+                    "format",
+                } <= set(event.__dict__)
+                # Inspect structured fields as well as the rendered message.
+                record_text = repr(event.__dict__)
+                assert "Hello" not in record_text
+                assert "outstanding_balance" not in record_text
+                assert json.dumps(VALID_CONTRACT) not in record_text
         finally:
             app.dependency_overrides.pop(get_db_session, None)
 
@@ -1182,10 +1198,10 @@ class TestConvertEndpointLogging:
         app.dependency_overrides[get_db_session] = lambda: mock_db
         try:
             with patch(
-                "app.api.uploads.create_draft_in_transaction",
+                "app.services.conversion_service.create_draft_in_transaction",
                 new_callable=AsyncMock,
                 return_value=script,
-            ), caplog.at_level(logging.INFO, logger="app.api.uploads"):
+            ), caplog.at_level(logging.INFO, logger="app.services.conversion_service"):
                 response = await client.post(
                     f"/api/scripts/uploads/{upload.id}/convert"
                 )
@@ -1204,11 +1220,12 @@ class TestConvertEndpointLogging:
 # ============================================================
 
 
-class TestConvertEndpointRealRegistry:
-    """Exercise the real conversion + validation + registry path.
+class TestConvertServicePathMockedSession:
+    """Exercise the conversion + validation + registry SERVICE path with mocked DB.
 
-    These tests do NOT mock create_draft_in_transaction. They mock only the
-    database session to simulate the full pipeline without a real DB connection.
+    These tests verify the code path through real converter and real registry
+    validation logic, but use a mocked AsyncSession (no real database).
+    For real database integration tests, see test_s109_script_conversion_db.py.
     """
 
     async def test_real_conversion_and_registry_success(self, client, admin_override):

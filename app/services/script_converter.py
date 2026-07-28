@@ -9,6 +9,13 @@ Strategy:
 3. Malformed JSON/YAML that clearly attempts to be structured → raise ConversionError.
 4. Plain unstructured prose → raise ConversionError requiring manual mapping.
 
+S1-09 conversion boundary: the upload conversion endpoint accepts a complete
+ScriptContract serialized as JSON or YAML. Ordinary prose extracted from a
+PDF/DOCX/TXT upload is rejected for manual mapping; it must not be silently
+invented into financial or behavioral values. The Script_Registry requirements
+define JSON/YAML as the supported Script definition formats, and this
+conversion boundary preserves that contract.
+
 IMPORTANT: This converter does NOT fabricate financial or behavioral values.
 If the input does not contain valid, complete ScriptContract data, conversion
 fails with an actionable error rather than silently inventing defaults.

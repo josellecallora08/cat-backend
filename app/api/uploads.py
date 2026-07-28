@@ -27,17 +27,6 @@ from app.schemas.upload import (
     UploadSuccessResponse,
 )
 from app.services.auth import require_admin
-from app.services.script_converter import ConversionError, convert_extracted_to_contract
-from app.services.script_registry import create_draft_in_transaction
-from app.services.script_validator import (
-    ScriptFormatError,
-    ScriptLimitError,
-    ScriptLimits,
-    ScriptValidationError,
-    validate_limits,
-    validate_conflicts,
-    validate_script,
-)
 from app.services.upload_extractor import compute_content_hash, extract_content
 from app.services.upload_quarantine import sanitize_filename, store_in_quarantine
 from app.services.upload_rate_limiter import (
@@ -508,245 +497,54 @@ async def convert_upload_to_script(
 ) -> ConversionResponse:
     """Convert a completed, clean ScriptUpload into a Script draft (S1-09).
 
-    Uses a single atomic transaction with row-level locking:
-    1. SELECT ... FOR UPDATE on the ScriptUpload row to prevent concurrent duplicates.
-    2. Validate eligibility (scan clean, extraction completed, overall completed,
-       extracted_content present, scenario_id valid).
-    3. Convert extracted_content into a ScriptContract.
-    4. Run full configurable limit validation (publication-readiness check).
-    5. Create the Script draft via flush (not commit).
-    6. Assign upload.script_id.
-    7. Commit once (both Script creation and upload linkage atomically).
+    Delegates to the conversion service which handles:
+    - SELECT ... FOR UPDATE row locking
+    - Eligibility and scenario checks
+    - Content conversion and full limit validation
+    - Transaction-aware draft creation (flush)
+    - Upload linkage and single atomic commit
+    - IntegrityError classification for scenario uniqueness races
 
-    If any step fails, rollback removes both the draft and linkage.
     Converted contracts are always persisted as normalized JSON.
     """
-    import json as json_mod
-
-    # 1. Load and lock upload row (SELECT ... FOR UPDATE)
-    stmt = (
-        select(ScriptUpload)
-        .where(ScriptUpload.id == upload_id)
-        .with_for_update()
+    from app.services.conversion_service import (
+        ConversionConflict,
+        ConversionInternalError,
+        ConversionRejection,
+        ConversionSuccess,
+        convert_upload_to_script_draft,
     )
-    result = await db.execute(stmt)
-    upload = result.scalar_one_or_none()
 
-    if upload is None:
-        raise HTTPException(status_code=404, detail="Upload not found")
-
-    # 2. Duplicate conversion check (under lock — no race condition)
-    if upload.script_id is not None:
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "error": "already_converted",
-                "message": "This upload has already been converted to a script.",
-                "script_id": str(upload.script_id),
-            },
-        )
-
-    # 3. Eligibility checks
-    if upload.status == UploadStatus.DELETED.value:
-        raise HTTPException(
-            status_code=422,
-            detail={"error": "upload_ineligible", "message": "Upload has been deleted."},
-        )
-
-    if upload.scan_status == "infected":
-        raise HTTPException(
-            status_code=422,
-            detail={"error": "upload_ineligible", "message": "Upload is infected and cannot be converted."},
-        )
-
-    if upload.scan_status == "error":
-        raise HTTPException(
-            status_code=422,
-            detail={"error": "upload_ineligible", "message": "Upload scan failed and cannot be converted."},
-        )
-
-    if upload.scan_status == "pending":
-        raise HTTPException(
-            status_code=422,
-            detail={"error": "upload_ineligible", "message": "Upload scan is still pending."},
-        )
-
-    if upload.scan_status != "clean":
-        raise HTTPException(
-            status_code=422,
-            detail={"error": "upload_ineligible", "message": f"Upload scan status '{upload.scan_status}' is not eligible for conversion."},
-        )
-
-    if upload.extraction_status != "completed":
-        raise HTTPException(
-            status_code=422,
-            detail={"error": "upload_ineligible", "message": f"Extraction status '{upload.extraction_status}' is not eligible for conversion."},
-        )
-
-    if upload.status != UploadStatus.COMPLETED.value:
-        raise HTTPException(
-            status_code=422,
-            detail={"error": "upload_ineligible", "message": f"Upload status '{upload.status}' is not eligible for conversion. Must be 'completed'."},
-        )
-
-    if not upload.extracted_content or not upload.extracted_content.strip():
-        raise HTTPException(
-            status_code=422,
-            detail={"error": "upload_ineligible", "message": "Upload has no extracted content available."},
-        )
-
-    if upload.scenario_id is None:
-        raise HTTPException(
-            status_code=422,
-            detail={"error": "upload_ineligible", "message": "Upload has no scenario_id. A valid scenario is required for conversion."},
-        )
-
-    # Validate scenario still exists
-    from app.models import Scenario
-    scenario_result = await db.execute(
-        select(Scenario).where(Scenario.id == upload.scenario_id)
-    )
-    if scenario_result.scalar_one_or_none() is None:
-        raise HTTPException(
-            status_code=422,
-            detail={"error": "upload_ineligible", "message": f"Scenario '{upload.scenario_id}' does not exist."},
-        )
-
-    # Check if scenario already has a Script (unique constraint on Script.scenario_id)
-    from app.models.script import Script
-    existing_script_result = await db.execute(
-        select(Script).where(
-            Script.scenario_id == upload.scenario_id,
-            Script.is_deleted == False,  # noqa: E712
-        )
-    )
-    existing_script = existing_script_result.scalar_one_or_none()
-    if existing_script is not None:
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "error": "scenario_has_script",
-                "message": f"Scenario '{upload.scenario_id}' already has a script.",
-                "existing_script_id": str(existing_script.id),
-            },
-        )
-
-    # 4. Convert extracted_content into ScriptContract
     try:
-        contract_data = convert_extracted_to_contract(upload.extracted_content)
-    except ConversionError as exc:
+        result = await convert_upload_to_script_draft(db, upload_id, admin.id)
+    except ConversionInternalError:
         raise HTTPException(
-            status_code=422,
-            detail={
-                "error": "conversion_failed",
-                "message": str(exc),
-                "details": exc.details,
-            },
+            status_code=500,
+            detail="Failed to complete conversion. No changes were made.",
         )
 
-    # 5. Full configurable limit validation (publication-readiness)
-    raw_definition = json_mod.dumps(contract_data)
-    limits = ScriptLimits(
-        max_definition_size_bytes=settings.script_max_definition_size_bytes,
-        max_trigger_phrases=settings.script_max_trigger_phrases,
-        max_expected_replies=settings.script_max_expected_replies,
-        max_escalation_conditions=settings.script_max_escalation_conditions,
-        max_field_text_length=settings.script_max_field_text_length,
-    )
-
-    # Run the full validation pipeline (parse + structure + conflicts + limits)
-    try:
-        validate_script(raw_definition, "json", limits)
-    except ScriptFormatError as exc:
-        raise HTTPException(
-            status_code=422,
-            detail={
-                "error": "conversion_failed",
-                "message": f"Converted contract failed format validation: {exc}",
-            },
-        )
-    except ScriptValidationError as exc:
-        raise HTTPException(
-            status_code=422,
-            detail={
-                "error": "conversion_failed",
-                "message": f"Converted contract does not meet publication requirements ({len(exc.errors)} issue(s)).",
-                "details": {"validation_errors": exc.errors},
-            },
-        )
-
-    # 6. Create draft via flush (no commit yet) — atomic with linkage
-    try:
-        script = await create_draft_in_transaction(
-            db,
-            admin_id=admin.id,
-            name=f"Converted from upload {upload.filename_original}",
-            scenario_id=upload.scenario_id,
+    if isinstance(result, ConversionSuccess):
+        return ConversionResponse(
+            upload_id=result.upload_id,
+            script_id=result.script_id,
+            scenario_id=result.scenario_id,
+            status="converted",
             format="json",
-            raw_definition=raw_definition,
-        )
-    except (ScriptFormatError, ScriptValidationError) as exc:
-        await db.rollback()
-        raise HTTPException(
-            status_code=422,
-            detail={
-                "error": "conversion_failed",
-                "message": f"Script registry validation failed: {exc}",
-                "details": getattr(exc, "errors", None) or getattr(exc, "violations", None),
-            },
-        )
-    except Exception as exc:
-        await db.rollback()
-        logger.error(
-            "conversion_registry_failure",
-            extra={
-                "upload_id": str(upload_id),
-                "user_id": str(admin.id),
-                "error": str(exc),
-            },
-        )
-        raise HTTPException(
-            status_code=500,
-            detail="Failed to create script draft. No changes were made.",
         )
 
-    # 7. Link upload to created script (same transaction)
-    upload.script_id = script.id
+    if isinstance(result, ConversionConflict):
+        detail = {
+            "error": result.error,
+            "message": result.message,
+        }
+        if result.existing_script_id is not None:
+            detail["script_id" if result.error == "already_converted" else "existing_script_id"] = str(result.existing_script_id)
+        raise HTTPException(status_code=409, detail=detail)
 
-    # 8. Single atomic commit — both Script and linkage
-    try:
-        await db.commit()
-    except Exception as exc:
-        await db.rollback()
-        logger.error(
-            "conversion_commit_failure",
-            extra={
-                "upload_id": str(upload_id),
-                "user_id": str(admin.id),
-                "error": str(exc),
-            },
-        )
-        raise HTTPException(
-            status_code=500,
-            detail="Failed to commit conversion. No changes were made.",
-        )
-
-    # 9. Audit log — only after successful commit
-    logger.info(
-        "upload_converted",
-        extra={
-            "upload_id": str(upload_id),
-            "script_id": str(script.id),
-            "scenario_id": str(upload.scenario_id),
-            "user_id": str(admin.id),
-            "format": "json",
-        },
-    )
-
-    return ConversionResponse(
-        upload_id=upload.id,
-        script_id=script.id,
-        scenario_id=upload.scenario_id,
-        status="converted",
-        format="json",
-    )
+    if isinstance(result, ConversionRejection):
+        if result.error == "not_found":
+            raise HTTPException(status_code=404, detail="Upload not found")
+        detail: dict = {"error": result.error, "message": result.message}
+        if result.details:
+            detail["details"] = result.details
+        raise HTTPException(status_code=422, detail=detail)
