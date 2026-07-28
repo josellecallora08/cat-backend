@@ -24,6 +24,7 @@ class UploadStatus(str, Enum):
     EXTRACTING = "extracting"
     COMPLETED = "completed"
     FAILED = "failed"
+    REJECTED = "rejected"
     DELETED = "deleted"
 
 
@@ -67,6 +68,11 @@ class ScriptUpload(Base):
 
     # Optional link to script (set when extracted content is used to create/update a script)
     script_id = Column(Uuid, ForeignKey("scripts.id"), nullable=True)
+
+    # Rejection metadata (S1-10)
+    rejected_at = Column(DateTime(timezone=True), nullable=True)
+    rejected_by = Column(Uuid, ForeignKey("users.id"), nullable=True)
+    rejection_reason = Column(Text, nullable=True)
 
     # Timestamps
     created_at = Column(
