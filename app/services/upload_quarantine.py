@@ -17,14 +17,52 @@ import re
 import tempfile
 import time
 import uuid
+from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 
+from sqlalchemy import select, update
+from sqlalchemy.ext.asyncio import async_sessionmaker
+
 from app.config import settings
+from app.models.script_upload import ScriptUpload
 
 logger = logging.getLogger(__name__)
 
 # Strict extension whitelist for quarantine storage
 _ALLOWED_QUARANTINE_EXTENSIONS = frozenset({".pdf", ".docx", ".txt", ".csv", ".md"})
+
+
+@dataclass
+class CleanupResult:
+    """The outcomes from one sequential quarantine cleanup pass."""
+
+    deleted: int = 0
+    orphaned: int = 0
+    skipped: int = 0
+    errors: int = 0
+
+
+def validate_retention_hours(value: int) -> int:
+    """Clamp a dynamically supplied retention value to the supported range."""
+    if value < 0:
+        logger.warning("Negative retention_hours (%d) treated as 0", value)
+        return 0
+    if value > 8760:
+        logger.warning("Retention_hours (%d) clamped to 8760", value)
+        return 8760
+    return value
+
+
+def validate_cleanup_interval_minutes(value: int) -> int:
+    """Clamp a dynamically supplied scheduler interval to the supported range."""
+    if value < 1:
+        logger.warning("Cleanup interval (%d) clamped to 1 minute", value)
+        return 1
+    if value > 1440:
+        logger.warning("Cleanup interval (%d) clamped to 1440 minutes", value)
+        return 1440
+    return value
 
 
 def get_quarantine_path() -> Path:
@@ -150,52 +188,219 @@ def sanitize_filename(filename: str) -> str:
     return filename
 
 
-def cleanup_expired_files() -> int:
-    """Delete quarantine files older than the configured retention period.
+async def cleanup_expired_files(session_factory: async_sessionmaker) -> CleanupResult:
+    """Purge expired raw files while retaining their database audit history.
 
-    Returns:
-        int: Number of files deleted.
+    The database transaction is committed before the file is removed.  A database
+    failure therefore leaves the raw file intact for a later cleanup pass.
     """
     quarantine_dir = get_quarantine_path()
-    retention_seconds = settings.upload_quarantine_retention_hours * 3600
+    retention_hours = validate_retention_hours(
+        settings.upload_quarantine_retention_hours
+    )
+    retention_seconds = retention_hours * 3600
     now = time.time()
-    deleted_count = 0
+    result = CleanupResult()
+    logger.debug(
+        "Starting quarantine cleanup pass: retention_hours=%d utc=%s",
+        retention_hours,
+        datetime.now(timezone.utc).isoformat(),
+        extra={
+            "event": "quarantine_cleanup_started",
+            "retention_hours": retention_hours,
+            "cleanup_started_at": datetime.now(timezone.utc).isoformat(),
+        },
+    )
 
     for file_path in quarantine_dir.iterdir():
         if not file_path.is_file():
             continue
-        # Skip .gitkeep
-        if file_path.name == ".gitkeep":
+        if file_path.name == ".gitkeep" or file_path.name.startswith(
+            ".tmp_upload_"
+        ):
             continue
 
-        mtime = file_path.stat().st_mtime
+        try:
+            mtime = file_path.stat().st_mtime
+        except FileNotFoundError:
+            logger.warning(
+                "Quarantine file already removed: %s",
+                file_path.name,
+                extra={
+                    "event": "quarantine_file_already_removed",
+                    "storage_key": file_path.name,
+                },
+            )
+            result.skipped += 1
+            continue
+        except OSError as error:
+            logger.warning(
+                "Unable to inspect quarantine file %s: %s",
+                file_path.name,
+                error,
+                extra={
+                    "event": "quarantine_file_inspection_failed",
+                    "storage_key": file_path.name,
+                    "failure_reason": str(error),
+                },
+            )
+            result.skipped += 1
+            result.errors += 1
+            continue
         age_seconds = now - mtime
 
-        if age_seconds > retention_seconds:
-            try:
-                file_path.unlink()
-                deleted_count += 1
-                logger.debug("Deleted expired quarantine file: %s", file_path.name)
-            except OSError as e:
-                logger.warning("Failed to delete quarantine file %s: %s", file_path.name, e)
+        # A zero-hour retention explicitly makes every completed quarantine
+        # file eligible, including files with clock-skewed future mtimes.
+        if retention_hours != 0 and age_seconds <= retention_seconds:
+            continue
 
-    logger.info("Quarantine cleanup complete: %d file(s) deleted", deleted_count)
-    return deleted_count
+        try:
+            async with session_factory() as session:
+                upload = (
+                    await session.execute(
+                        select(ScriptUpload).where(
+                            ScriptUpload.storage_key == file_path.name
+                        )
+                    )
+                ).scalar_one_or_none()
+
+                if upload is not None and upload.deleted_at is None:
+                    deletion_time = datetime.now(timezone.utc)
+                    await session.execute(
+                        update(ScriptUpload)
+                        .where(ScriptUpload.id == upload.id)
+                        .values(
+                            deleted_at=deletion_time,
+                            # ScriptUpload.updated_at has an automatic on-update
+                            # value. Explicitly retaining the column value prevents
+                            # cleanup from modifying audit metadata.
+                            updated_at=ScriptUpload.updated_at,
+                        )
+                    )
+                    await session.commit()
+        except Exception as error:
+            logger.error(
+                "Failed to record quarantine deletion for %s: %s",
+                file_path.name,
+                error,
+                exc_info=True,
+                extra={
+                    "event": "quarantine_metadata_update_failed",
+                    "storage_key": file_path.name,
+                    "failure_reason": str(error),
+                },
+            )
+            result.skipped += 1
+            result.errors += 1
+            continue
+
+        try:
+            file_path.unlink()
+        except FileNotFoundError:
+            logger.warning(
+                "Quarantine file already removed: %s",
+                file_path.name,
+                extra={
+                    "event": "quarantine_file_already_removed",
+                    "storage_key": file_path.name,
+                },
+            )
+            result.skipped += 1
+        except OSError as error:
+            logger.warning(
+                "Failed to delete quarantine file %s: %s",
+                file_path.name,
+                error,
+                extra={
+                    "event": "quarantine_file_deletion_failed",
+                    "storage_key": file_path.name,
+                    "failure_reason": str(error),
+                },
+            )
+            result.skipped += 1
+            result.errors += 1
+        else:
+            if upload is None:
+                result.orphaned += 1
+                logger.warning(
+                    "Removed orphaned quarantine file: %s",
+                    file_path.name,
+                    extra={
+                        "event": "orphaned_quarantine_file_removed",
+                        "storage_key": file_path.name,
+                    },
+                )
+            else:
+                result.deleted += 1
+            logger.debug(
+                "Deleted expired quarantine file: %s",
+                file_path.name,
+                extra={
+                    "event": "quarantine_file_deleted",
+                    "storage_key": file_path.name,
+                },
+            )
+
+    logger.info(
+        "Quarantine cleanup complete: deleted=%d orphaned=%d skipped=%d total_removed=%d",
+        result.deleted,
+        result.orphaned,
+        result.skipped,
+        result.deleted + result.orphaned,
+        extra={
+            "event": "quarantine_cleanup_completed",
+            "deleted": result.deleted,
+            "orphaned": result.orphaned,
+            "skipped": result.skipped,
+            "errors": result.errors,
+            "total_removed": result.deleted + result.orphaned,
+        },
+    )
+    return result
 
 
 async def start_cleanup_scheduler(app) -> None:
-    """Start background cleanup task on app startup."""
-    interval_seconds = settings.upload_quarantine_cleanup_interval_minutes * 60
+    """Run initial cleanup, then start the recurring background task."""
+    from app.database import async_session_factory
 
     async def _cleanup_loop() -> None:
         try:
-            cleanup_expired_files()
             while True:
+                # Read settings for every cycle so runtime configuration changes
+                # take effect without restarting the application.
+                interval_seconds = validate_cleanup_interval_minutes(
+                    settings.upload_quarantine_cleanup_interval_minutes
+                ) * 60
                 await asyncio.sleep(interval_seconds)
-                cleanup_expired_files()
+                await cleanup_expired_files(async_session_factory)
         except asyncio.CancelledError:
             logger.info("Quarantine cleanup scheduler cancelled")
             raise
 
+    # Startup does not complete until the required initial pass has completed.
+    await cleanup_expired_files(async_session_factory)
     task = asyncio.create_task(_cleanup_loop())
     app.state.quarantine_cleanup_task = task
+
+
+async def stop_cleanup_scheduler(app, timeout_seconds: float = 5) -> bool:
+    """Cancel the recurring cleanup task without blocking shutdown indefinitely.
+
+    Returns:
+        True when the task stopped within the timeout, otherwise False.
+    """
+    task = getattr(app.state, "quarantine_cleanup_task", None)
+    if task is None or task.done():
+        return True
+
+    task.cancel()
+    try:
+        await asyncio.wait_for(asyncio.shield(task), timeout=timeout_seconds)
+    except asyncio.CancelledError:
+        return True
+    except asyncio.TimeoutError:
+        logger.warning(
+            "Timed out waiting for quarantine cleanup scheduler cancellation"
+        )
+        return False
+    return True

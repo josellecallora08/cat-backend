@@ -157,7 +157,12 @@ async def lifespan(app: FastAPI):
     from app.services.upload_quarantine import start_cleanup_scheduler
     await start_cleanup_scheduler(app)
 
-    yield
+    try:
+        yield
+    finally:
+        from app.services.upload_quarantine import stop_cleanup_scheduler
+
+        await stop_cleanup_scheduler(app, timeout_seconds=5)
 
 
 def create_app() -> FastAPI:
