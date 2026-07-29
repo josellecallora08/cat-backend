@@ -42,7 +42,7 @@ class PeerConnectionManager:
         """Check if aiortc is available for WebRTC connections."""
         return AIORTC_AVAILABLE
 
-    async def create_peer_connection(self, session_id: UUID) -> Any:
+    async def create_peer_connection(self, session_id: UUID, on_track=None) -> Any:
         """Create a new RTCPeerConnection for the given session.
 
         Returns the peer connection instance.
@@ -69,13 +69,14 @@ class PeerConnectionManager:
             logger.info(
                 f"Session {session_id}: received {track.kind} track"
             )
-            # Audio track handling will be wired in VoicePipelineOrchestrator (task 13.2)
+            if on_track is not None:
+                await on_track(track)
 
         logger.info(f"Session {session_id}: peer connection created")
         return pc
 
     async def handle_offer(
-        self, session_id: UUID, sdp: str, sdp_type: str = "offer"
+        self, session_id: UUID, sdp: str, sdp_type: str = "offer", on_track=None
     ) -> dict:
         """Process an SDP offer and return an SDP answer.
 
@@ -94,7 +95,7 @@ class PeerConnectionManager:
 
         pc = self._connections.get(session_id)
         if pc is None:
-            pc = await self.create_peer_connection(session_id)
+            pc = await self.create_peer_connection(session_id, on_track=on_track)
 
         # Set the remote description from the client's offer
         offer = RTCSessionDescription(sdp=sdp, type=sdp_type)
