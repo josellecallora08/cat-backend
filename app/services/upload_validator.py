@@ -38,8 +38,17 @@ class UploadRejectionReason(str, Enum):
     DOCX_NESTED_ARCHIVE = "docx_nested_archive"
     PDF_ENCRYPTED = "pdf_encrypted"
     PDF_MALFORMED = "pdf_malformed"
+    PDF_ATTACHMENT = "pdf_attachment"
+    PDF_EMBEDDED_OBJECT = "pdf_embedded_object"
+    PDF_ACTIVE_CONTENT = "pdf_active_content"
+    PDF_EXTERNAL_LINK = "pdf_external_link"
+    PDF_UNSAFE_STRUCTURE = "pdf_unsafe_structure"
+    DOCX_EMBEDDED_OBJECT = "docx_embedded_object"
+    DOCX_EXTERNAL_LINK = "docx_external_link"
+    DOCX_UNSAFE_XML = "docx_unsafe_xml"
     MALWARE_DETECTED = "malware_detected"
     SCANNER_UNAVAILABLE = "scanner_unavailable"
+    EXTRACTION_FAILED = "extraction_failed"
     RATE_LIMITED = "rate_limited"
 
 
@@ -264,12 +273,25 @@ def validate_docx_archive(
             if total_uncompressed > settings.upload_max_docx_uncompressed_size:
                 return (False, UploadRejectionReason.DOCX_TOO_LARGE_UNCOMPRESSED)
 
-            # Compression ratio
+            # Compression ratio (aggregate)
             total_compressed = sum(i.compress_size for i in info_list)
             if total_compressed > 0:
                 ratio = total_uncompressed / total_compressed
                 if ratio > _MAX_COMPRESSION_RATIO:
                     return (False, UploadRejectionReason.DOCX_EXCESSIVE_RATIO)
+
+            # Per-entry compression ratio and suspicious zero-compress detection
+            for info in info_list:
+                if info.filename.endswith("/"):
+                    continue  # Skip directory entries
+                # Reject file_size > 0 with compress_size == 0 (suspicious)
+                if info.file_size > 0 and info.compress_size == 0:
+                    return (False, UploadRejectionReason.DOCX_EXCESSIVE_RATIO)
+                # Per-entry ratio check
+                if info.compress_size > 0 and info.file_size > 0:
+                    entry_ratio = info.file_size / info.compress_size
+                    if entry_ratio > _MAX_COMPRESSION_RATIO:
+                        return (False, UploadRejectionReason.DOCX_EXCESSIVE_RATIO)
 
             # Per-entry checks
             max_depth = settings.upload_max_docx_depth

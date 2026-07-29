@@ -19,6 +19,7 @@ from app.api import (
     config,
     scripts,
     uploads,
+    review,
 )
 from app.config import settings
 from app.database import async_session_factory, get_session
@@ -156,7 +157,12 @@ async def lifespan(app: FastAPI):
     from app.services.upload_quarantine import start_cleanup_scheduler
     await start_cleanup_scheduler(app)
 
-    yield
+    try:
+        yield
+    finally:
+        from app.services.upload_quarantine import stop_cleanup_scheduler
+
+        await stop_cleanup_scheduler(app, timeout_seconds=5)
 
 
 def create_app() -> FastAPI:
@@ -200,6 +206,7 @@ def create_app() -> FastAPI:
         admin_users.router, prefix="/api/admin/users", tags=["admin-users"]
     )
     app.include_router(uploads.router, prefix="/api/scripts", tags=["uploads"])
+    app.include_router(review.router, prefix="/api/scripts", tags=["review"])
     app.include_router(scripts.router, prefix="/api/scripts", tags=["scripts"])
 
     @app.get("/health")
