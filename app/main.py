@@ -117,7 +117,7 @@ async def _fix_orphaned_sessions():
 async def lifespan(app: FastAPI):
     """Application lifespan: run migrations and seed default data on startup."""
     # Import all models so Base.metadata knows about them
-    import app.models  # noqa: F401
+    from app import models as _models  # noqa: F401
 
     # Run database migrations before any DB operations
     try:

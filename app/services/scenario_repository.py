@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Scenario
+from app.schemas import ScenarioType
 
 
 async def list_active_scenarios(db: AsyncSession) -> List[Scenario]:
@@ -16,7 +17,10 @@ async def list_active_scenarios(db: AsyncSession) -> List[Scenario]:
     """
     stmt = (
         select(Scenario)
-        .where(Scenario.is_active == True)  # noqa: E712
+        .where(
+            Scenario.is_active == True,  # noqa: E712
+            Scenario.scenario_type.in_([item.value for item in ScenarioType]),
+        )
         .order_by(Scenario.name)
     )
     result = await db.execute(stmt)

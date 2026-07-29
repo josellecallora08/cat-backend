@@ -37,15 +37,26 @@ async def list_scenarios(
         and user.user_type == UserType.AGENT.value
     ):
         items = await get_agent_campaign_scenarios(db, user.id)
-        return [
-            ScenarioListItem(
-                id=item.id,
-                name=item.name,
-                scenario_type=ScenarioType(item.scenario_type),
-                description=item.description,
+        response: list[ScenarioListItem] = []
+        for item in items:
+            try:
+                scenario_type = ScenarioType(item.scenario_type)
+            except ValueError:
+                logger.warning(
+                    "Skipping scenario %s with unsupported type %r",
+                    item.id,
+                    item.scenario_type,
+                )
+                continue
+            response.append(
+                ScenarioListItem(
+                    id=item.id,
+                    name=item.name,
+                    scenario_type=scenario_type,
+                    description=item.description,
+                )
             )
-            for item in items
-        ]
+        return response
 
     scenarios = await list_active_scenarios(db)
     return [
