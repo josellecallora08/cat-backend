@@ -102,6 +102,17 @@ class TestConvertValidJSON:
         assert len(result["expected_replies"]) == 1
         assert len(result["trigger_phrases"]) == 1
 
+    def test_extracts_json_contract_from_markdown_code_fence(self):
+        text = (
+            "# Training Script: Cooperative Debtor\n\n"
+            "Introductory prose for the reviewer.\n\n"
+            "```json\n"
+            f"{json.dumps(VALID_CONTRACT)}\n"
+            "```\n"
+        )
+        result = convert_extracted_to_contract(text)
+        assert result["debtor_persona"]["name"] == "J"
+
 
 class TestConvertValidYAML:
     """Complete valid YAML conversion."""

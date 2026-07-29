@@ -184,6 +184,12 @@ class ScriptUpdateRequest(BaseModel):
     format: ScriptFormat
 
 
+class ScriptAssignmentRequest(BaseModel):
+    model_config = {"extra": "forbid"}
+
+    scenario_id: UUID
+
+
 class ScriptVersionItem(BaseModel):
     """A single immutable published snapshot of a Script's content."""
 
