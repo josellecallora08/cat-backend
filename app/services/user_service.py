@@ -16,6 +16,7 @@ from app.models import Session
 from app.models.user import User, UserRole
 from app.schemas.admin_user import AdminUserCreate, AdminUserUpdate
 from app.services.auth import hash_password
+from app.services.event_instances import event_broadcaster, event_connection_manager
 
 
 class UserService:
@@ -62,6 +63,7 @@ class UserService:
         self.db.add(user)
         await self.db.commit()
         await self.db.refresh(user)
+        await event_broadcaster.emit("user.created", user.id)
         return user
 
     async def update_user(
@@ -93,6 +95,7 @@ class UserService:
         user.user_type = payload.user_type
         await self.db.commit()
         await self.db.refresh(user)
+        await event_broadcaster.emit("user.updated", user.id)
         return user
 
     async def set_user_status(
@@ -120,6 +123,9 @@ class UserService:
         user.is_active = is_active
         await self.db.commit()
         await self.db.refresh(user)
+        await event_broadcaster.emit("user.status_changed", user.id)
+        if not is_active:
+            await event_connection_manager.disconnect_user(user_id, 4403)
         return user
 
     async def delete_user(self, user_id: UUID, admin_id: UUID) -> None:
@@ -145,6 +151,7 @@ class UserService:
 
         await self.db.delete(user)
         await self.db.commit()
+        await event_broadcaster.emit("user.deleted", user_id)
 
     async def reset_password(self, user_id: UUID, new_password: str) -> None:
         """Hash and update the user's password.

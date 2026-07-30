@@ -10,6 +10,7 @@ from app.api import (
     campaign_dashboard,
     campaign_scenarios,
     campaigns,
+    events,
     scenarios,
     sessions,
     voice,
@@ -17,9 +18,11 @@ from app.api import (
     dashboard,
     auth,
     config,
+    profile,
 )
 from app.config import settings
 from app.database import async_session_factory, get_session
+from app.services.event_instances import event_connection_manager
 
 logger = logging.getLogger(__name__)
 
@@ -151,6 +154,8 @@ async def lifespan(app: FastAPI):
         logger.error("Startup error during seed: %s", e, exc_info=True)
 
     yield
+    # Shutdown: close all WebSocket connections gracefully
+    await event_connection_manager.close_all(code=1001)
 
 
 def create_app() -> FastAPI:
@@ -193,6 +198,8 @@ def create_app() -> FastAPI:
     app.include_router(
         admin_users.router, prefix="/api/admin/users", tags=["admin-users"]
     )
+    app.include_router(profile.router, prefix="/api/profile", tags=["profile"])
+    app.include_router(events.router, tags=["events"])
 
     @app.get("/health")
     async def health_check():
