@@ -119,6 +119,15 @@ async def lifespan(app: FastAPI):
     # Import all models so Base.metadata knows about them
     import app.models  # noqa: F401
 
+    # Ensure the database exists before attempting migrations
+    from app.utils.ensure_database import ensure_database_exists
+
+    try:
+        await ensure_database_exists(settings.async_database_url)
+    except Exception as e:
+        logger.error("Failed to ensure database exists: %s", e, exc_info=True)
+        raise
+
     # Run database migrations before any DB operations
     try:
         _run_migrations()
