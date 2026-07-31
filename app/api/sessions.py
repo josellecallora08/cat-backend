@@ -1,17 +1,20 @@
 """Session API router with endpoints for session lifecycle and artifact retrieval.
 
-Validates: Requirements 5.1, 6.1, 7.8, 8.2
+Validates: Requirements 4.1, 4.4, 5.1, 6.1, 7.8, 8.2
 """
 
 import logging
+from datetime import datetime, timezone
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
-from sqlalchemy import select
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_session as get_db_session
 from app.models import Session, Evaluation, CoachingReport, LearningPlan, Transcript
+from app.models.user import User, UserRole, UserType
 from app.schemas import (
     SessionCreate,
     SessionResponse,
@@ -28,7 +31,12 @@ from app.schemas import (
     LearningPlanItem,
     EvaluationCategory,
 )
-from app.services.debtor_simulator import DebtorSimulatorService
+from app.services.auth import get_current_user, require_auth
+from app.services.debtor_simulator import (
+    DebtorSimulatorService,
+    EmotionalState,
+    PersonaContext,
+)
 from app.services.evaluation_pipeline import EvaluationPipeline
 from app.services.llm_service import LLMService
 from app.services.auth import get_current_user
@@ -39,10 +47,174 @@ from app.services.session_service import (
     get_session as get_session_service,
     end_session as end_session_service,
 )
+from app.services.trainer_service import (
+    get_trainer_campaign,
+    get_trainer_campaign_agent_ids,
+)
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+# --- Session list models ---
+
+
+class SessionListEntry(BaseModel):
+    """A single session entry in the paginated list."""
+
+    id: str
+    scenario_id: str
+    agent_id: str
+    status: str
+    persona_name: str | None = None
+    overall_score: float | None = None
+    created_at: str
+    ended_at: str | None = None
+
+
+class PaginatedSessionList(BaseModel):
+    """Paginated response for session list."""
+
+    items: list[SessionListEntry]
+    total: int
+    page: int
+    page_size: int
+    total_pages: int
+
+
+# --- Session list endpoint ---
+
+
+@router.get("", response_model=PaginatedSessionList)
+async def list_sessions(
+    page: int = 1,
+    page_size: int = 20,
+    agent_id: str | None = None,
+    status: str | None = None,
+    db: AsyncSession = Depends(get_db_session),
+    current_user: User = Depends(require_auth),
+):
+    """List sessions with role-based scoping, pagination, and filtering.
+
+    Role-based behavior:
+      - Admin: All sessions; optional agent_id and status filters.
+      - Trainer: Sessions for agents in the trainer's campaign; optional
+        agent_id filter (must be within campaign) and status filter.
+      - Agent: Only sessions where agent_id matches the authenticated user.
+
+    Query params:
+      - page: Page number (default 1).
+      - page_size: Items per page (default 20, max 100).
+      - agent_id: Filter by agent UUID (admin/trainer only).
+      - status: Filter by session status (pending, active, completed).
+    """
+    page = max(1, page)
+    page_size = max(1, min(100, page_size))
+    offset = (page - 1) * page_size
+
+    # Determine role
+    is_admin = current_user.role == UserRole.ADMIN.value
+    is_trainer = (
+        current_user.role == UserRole.USER.value
+        and current_user.user_type == UserType.TRAINER.value
+    )
+
+    # Build filter conditions based on role
+    conditions = []
+
+    if is_admin:
+        # Admin can optionally filter by agent_id
+        if agent_id:
+            conditions.append(Session.agent_id == UUID(agent_id))
+    elif is_trainer:
+        # Resolve trainer's campaign → get campaign agent IDs
+        campaign = await get_trainer_campaign(db, current_user.id)
+        if not campaign:
+            # Trainer with no campaign: return empty result
+            return PaginatedSessionList(
+                items=[],
+                total=0,
+                page=page,
+                page_size=page_size,
+                total_pages=0,
+            )
+        campaign_agent_ids = await get_trainer_campaign_agent_ids(db, campaign.id)
+        if not campaign_agent_ids:
+            return PaginatedSessionList(
+                items=[],
+                total=0,
+                page=page,
+                page_size=page_size,
+                total_pages=0,
+            )
+        # If trainer specifies an agent_id filter, validate it's within campaign
+        if agent_id:
+            requested_agent = UUID(agent_id)
+            if requested_agent not in campaign_agent_ids:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Not authorized to view sessions for this agent",
+                )
+            conditions.append(Session.agent_id == requested_agent)
+        else:
+            conditions.append(Session.agent_id.in_(campaign_agent_ids))
+    else:
+        # Agent: force filter to own sessions, ignore agent_id param
+        conditions.append(Session.agent_id == current_user.id)
+
+    # Status filter (available to all roles)
+    if status:
+        conditions.append(Session.status == status)
+
+    # Count total matching sessions
+    count_stmt = select(func.count()).select_from(Session)
+    for cond in conditions:
+        count_stmt = count_stmt.where(cond)
+    total = (await db.execute(count_stmt)).scalar_one()
+
+    total_pages = max(1, -(-total // page_size))
+
+    # Fetch page of sessions with evaluation scores
+    stmt = select(Session, Evaluation).outerjoin(
+        Evaluation, Evaluation.session_id == Session.id
+    )
+    for cond in conditions:
+        stmt = stmt.where(cond)
+    stmt = stmt.order_by(Session.created_at.desc()).offset(offset).limit(page_size)
+
+    result = await db.execute(stmt)
+    rows = result.all()
+
+    items = []
+    for session, evaluation in rows:
+        persona_ctx = session.persona_context or {}
+        score = None
+        if evaluation and not evaluation.is_too_short:
+            score = round(evaluation.overall_score, 1)
+
+        items.append(
+            SessionListEntry(
+                id=str(session.id),
+                scenario_id=str(session.scenario_id),
+                agent_id=str(session.agent_id),
+                status=session.status,
+                persona_name=persona_ctx.get("name"),
+                overall_score=score,
+                created_at=(
+                    session.created_at.isoformat() if session.created_at else ""
+                ),
+                ended_at=(session.ended_at.isoformat() if session.ended_at else None),
+            )
+        )
+
+    return PaginatedSessionList(
+        items=items,
+        total=total,
+        page=page,
+        page_size=page_size,
+        total_pages=total_pages,
+    )
 
 
 def _build_persona_summary(persona_context: dict | None) -> PersonaSummary | None:
@@ -85,10 +257,17 @@ async def create_session(
     # Use the authenticated user's ID, or fallback to random UUID
     if current_user:
         agent_id = current_user.id
-        logger.info("Creating session for authenticated user: %s (%s)", current_user.email, current_user.id)
+        logger.info(
+            "Creating session for authenticated user: %s (%s)",
+            current_user.email,
+            current_user.id,
+        )
     else:
         agent_id = uuid4()
-        logger.warning("Creating session without authenticated user — using random agent_id: %s", agent_id)
+        logger.warning(
+            "Creating session without authenticated user — using random agent_id: %s",
+            agent_id,
+        )
 
     try:
         session = await create_session_service(
@@ -107,11 +286,37 @@ async def create_session(
 async def get_session(
     session_id: UUID,
     db: AsyncSession = Depends(get_db_session),
+    current_user: User = Depends(require_auth),
 ):
-    """Get session details."""
+    """Get session details with role-based authorization.
+
+    Role-based behavior:
+      - Admin: Always allowed.
+      - Trainer: Allowed only if session belongs to an agent in their campaign.
+      - Agent: Allowed only if session belongs to them.
+    """
     session = await get_session_service(db, session_id)
     if session is None:
         raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
+
+    # Authorization check
+    is_admin = current_user.role == UserRole.ADMIN.value
+    if not is_admin:
+        is_trainer = (
+            current_user.role == UserRole.USER.value
+            and current_user.user_type == UserType.TRAINER.value
+        )
+        if is_trainer:
+            campaign = await get_trainer_campaign(db, current_user.id)
+            if not campaign:
+                raise HTTPException(status_code=403, detail="Access denied")
+            campaign_agent_ids = await get_trainer_campaign_agent_ids(db, campaign.id)
+            if session.agent_id not in campaign_agent_ids:
+                raise HTTPException(status_code=403, detail="Access denied")
+        else:
+            # Agent: can only view own sessions
+            if session.agent_id != current_user.id:
+                raise HTTPException(status_code=403, detail="Access denied")
 
     return _session_to_response(session)
 
@@ -301,17 +506,16 @@ async def get_session_learning_plan(
 
 # --- Conversation endpoint for browser-based STT/TTS demo ---
 
-from datetime import datetime, timezone
-from pydantic import BaseModel
-
 
 class ConversationMessage(BaseModel):
     """Request body for sending a message in a conversation."""
+
     text: str
 
 
 class ConversationResponse(BaseModel):
     """Response from the debtor simulator."""
+
     text: str
     emotional_state: str
     language: str
@@ -321,7 +525,7 @@ class ConversationResponse(BaseModel):
 
 
 # In-memory persona store for active conversations (keyed by session_id)
-_active_personas: dict[UUID, "PersonaContext"] = {}
+_active_personas: dict[UUID, PersonaContext] = {}
 
 
 @router.post("/{session_id}/message", response_model=ConversationResponse)

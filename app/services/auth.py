@@ -130,3 +130,21 @@ async def require_agent(
         status_code=status.HTTP_403_FORBIDDEN,
         detail="Agent access required",
     )
+
+
+async def require_trainer(
+    user: User = Depends(require_auth),
+) -> User:
+    """Require trainer access (role=user+user_type=trainer, or admin).
+
+    Admins have full access. Non-admin users must have user_type="trainer".
+    All other combinations are rejected with 403.
+    """
+    if user.role == UserRole.ADMIN.value:
+        return user
+    if user.role == UserRole.USER.value and user.user_type == UserType.TRAINER.value:
+        return user
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Trainer access required",
+    )

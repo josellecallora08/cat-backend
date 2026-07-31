@@ -15,7 +15,14 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Session, Scenario
+from app.models import Session
+from app.schemas.event import EventMetadata
+from app.services.debtor_simulator import (
+    DebtorSimulatorService,
+    PersonaContext,
+    EmotionalState,
+)
+from app.services.event_instances import event_broadcaster
 from app.services.scenario_repository import get_scenario_by_id
 from app.services.script_registry import get_active_published_version
 from app.services.debtor_simulator import DebtorSimulatorService, PersonaContext, EmotionalState
@@ -89,6 +96,12 @@ async def create_session(
     await db.commit()
     await db.refresh(session)
 
+    await event_broadcaster.emit(
+        "session.created",
+        session.id,
+        EventMetadata(agent_id=agent_id),
+    )
+
     return session
 
 
@@ -101,18 +114,20 @@ async def _generate_persona_with_fallback(
     try:
         return await debtor_simulator.generate_persona(scenario_data)
     except Exception as e:
-        logger.warning(
-            "LLM persona generation failed, using fallback persona: %s", e
-        )
+        logger.warning("LLM persona generation failed, using fallback persona: %s", e)
         # Build a fallback persona from the scenario's debtor profile
         profile = scenario.debtor_profile or {}
         return PersonaContext(
             persona_id=uuid_module.uuid4(),
             name=profile.get("name", "Unknown Debtor"),
-            communication_style=profile.get("personality_profile", "cooperative").split()[0].lower(),
+            communication_style=profile.get("personality_profile", "cooperative")
+            .split()[0]
+            .lower(),
             financial_circumstances={
                 "income_level": "medium",
-                "debt_amount": float(str(profile.get("outstanding_balance", 5000)).replace(",", "")),
+                "debt_amount": float(
+                    str(profile.get("outstanding_balance", 5000)).replace(",", "")
+                ),
                 "reason_for_delinquency": "Financial difficulties",
             },
             emotional_state=EmotionalState.NEUTRAL,
@@ -168,6 +183,12 @@ async def end_session(db: AsyncSession, session_id: UUID) -> Session:
 
     await db.commit()
     await db.refresh(session)
+
+    await event_broadcaster.emit(
+        "session.ended",
+        session.id,
+        EventMetadata(agent_id=session.agent_id),
+    )
 
     return session
 

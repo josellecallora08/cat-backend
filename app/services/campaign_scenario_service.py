@@ -13,6 +13,8 @@ from app.models.campaign import (
     campaign_scenarios,
 )
 from app.schemas.campaign import AgentCampaignScenarioItem, CampaignScenarioItem
+from app.schemas.event import EventMetadata
+from app.services.event_instances import event_broadcaster
 
 
 async def add_scenarios_to_campaign(
@@ -48,6 +50,11 @@ async def add_scenarios_to_campaign(
         values = [{"campaign_id": campaign_id, "scenario_id": sid} for sid in new_ids]
         await db.execute(campaign_scenarios.insert().values(values))
         await db.commit()
+        await event_broadcaster.emit(
+            "campaign.scenario_added",
+            campaign_id,
+            EventMetadata(campaign_id=campaign_id),
+        )
 
     return await _get_sorted_campaign_scenarios(db, campaign_id)
 
@@ -85,6 +92,11 @@ async def remove_scenario_from_campaign(
         )
     )
     await db.commit()
+    await event_broadcaster.emit(
+        "campaign.scenario_removed",
+        scenario_id,
+        EventMetadata(campaign_id=campaign_id),
+    )
 
     return await _get_sorted_campaign_scenarios(db, campaign_id)
 

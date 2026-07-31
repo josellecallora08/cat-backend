@@ -21,6 +21,8 @@ from app.schemas.campaign import (
     CampaignUpdate,
     PaginatedCampaigns,
 )
+from app.schemas.event import EventMetadata
+from app.services.event_instances import event_broadcaster, event_connection_manager
 
 
 async def list_campaigns(
@@ -90,6 +92,11 @@ async def create_campaign(db: AsyncSession, data: CampaignCreate) -> Campaign:
     await _insert_agent_associations(db, campaign.id, data.agents)
     await db.commit()
     await db.refresh(campaign)
+    await event_broadcaster.emit(
+        "campaign.created",
+        campaign.id,
+        EventMetadata(campaign_id=campaign.id),
+    )
     return campaign
 
 
@@ -129,6 +136,24 @@ async def update_campaign(
 
     await db.commit()
     await db.refresh(campaign)
+
+    # Update WebSocket scopes for affected agents
+    if data.agents is not None:
+        for agent in data.agents:
+            agent_campaigns_stmt = select(CampaignAgent.campaign_id).where(
+                CampaignAgent.agent_id == agent.agent_id
+            )
+            result = await db.execute(agent_campaigns_stmt)
+            new_campaign_ids = {row[0] for row in result.all()}
+            await event_connection_manager.update_client_scope(
+                agent.agent_id, new_campaign_ids
+            )
+
+    await event_broadcaster.emit(
+        "campaign.updated",
+        campaign.id,
+        EventMetadata(campaign_id=campaign.id),
+    )
     return campaign
 
 
@@ -141,6 +166,11 @@ async def archive_campaign(db: AsyncSession, campaign_id: UUID) -> None:
     campaign = await _get_campaign_or_raise(db, campaign_id)
     campaign.status = CampaignStatus.ARCHIVED.value
     await db.commit()
+    await event_broadcaster.emit(
+        "campaign.archived",
+        campaign.id,
+        EventMetadata(campaign_id=campaign.id),
+    )
 
 
 # --- Private helpers ---

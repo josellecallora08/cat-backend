@@ -1,30 +1,59 @@
-"""Campaign scenario association API endpoints (admin only)."""
+"""Campaign scenario association API endpoints (admin and trainer)."""
 
 import uuid as uuid_lib
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_session
 from app.models import Scenario
 from app.models.campaign import campaign_scenarios
-from app.models.user import User
+from app.models.user import User, UserRole, UserType
 from app.schemas import CreateScenarioRequest
 from app.schemas.campaign import (
     AddScenariosRequest,
     CampaignScenariosResponse,
 )
-from app.services.auth import require_admin
+from app.services.auth import require_admin, require_auth
 from app.services.campaign_scenario_service import (
     _get_campaign_or_raise,
     add_scenarios_to_campaign,
     remove_scenario_from_campaign,
 )
+from app.services.trainer_service import verify_trainer_campaign_access
 
 
 router = APIRouter()
+
+
+async def _authorize_campaign_scenario_access(
+    db: AsyncSession,
+    user: User,
+    campaign_id: UUID,
+) -> None:
+    """Verify user is authorized to manage scenarios for a campaign.
+
+    Admins have full access. Trainers must be assigned to the campaign.
+    All other users receive HTTP 403.
+    """
+    if user.role == UserRole.ADMIN.value:
+        return
+
+    if user.role == UserRole.USER.value and user.user_type == UserType.TRAINER.value:
+        has_access = await verify_trainer_campaign_access(db, user.id, campaign_id)
+        if has_access:
+            return
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized for this campaign",
+        )
+
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Admin or trainer access required",
+    )
 
 
 @router.post(
@@ -35,13 +64,17 @@ async def add_scenarios_endpoint(
     campaign_id: UUID,
     body: AddScenariosRequest,
     db: AsyncSession = Depends(get_session),
-    admin: User = Depends(require_admin),
+    user: User = Depends(require_auth),
 ) -> CampaignScenariosResponse:
     """Add scenarios to a campaign.
 
     Accepts a list of scenario IDs (1–50) and associates them with the campaign,
     skipping any that are already assigned. Returns the updated scenario list.
+
+    Accessible by admins (any campaign) and trainers (own campaign only).
     """
+    await _authorize_campaign_scenario_access(db, user, campaign_id)
+
     try:
         scenarios = await add_scenarios_to_campaign(db, campaign_id, body.scenario_ids)
     except ValueError as e:
@@ -93,13 +126,17 @@ async def create_scenario_for_campaign(
     campaign_id: UUID,
     body: CreateScenarioRequest,
     db: AsyncSession = Depends(get_session),
-    admin: User = Depends(require_admin),
+    user: User = Depends(require_auth),
 ) -> CreatedScenarioResponse:
     """Create a custom scenario and add it to the campaign atomically.
 
     Creates a new scenario from the provided fields and links it to the
     specified campaign in a single transaction.
+
+    Accessible by admins (any campaign) and trainers (own campaign only).
     """
+    await _authorize_campaign_scenario_access(db, user, campaign_id)
+
     # Verify campaign exists and is not archived
     try:
         await _get_campaign_or_raise(db, campaign_id)

@@ -4,16 +4,21 @@ import logging
 from typing import Optional
 from uuid import UUID as PyUUID
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy import func, select, desc, asc
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_session
 from app.models import Session, Evaluation, Scenario, Transcript
+from app.models.campaign import Campaign, CampaignAgent, CampaignStatus
 from app.models.user import User, UserRole, UserType
-from app.services.auth import get_current_user
+from app.services.auth import require_auth
 from app.services.campaign_scenario_service import get_agent_scenario_ids
+from app.services.trainer_service import (
+    get_trainer_campaign,
+    get_trainer_campaign_agent_ids,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -34,8 +39,20 @@ class RecentSession(BaseModel):
     created_at: str
 
 
+class AgentRanking(BaseModel):
+    """Agent ranking entry for the leaderboard."""
+
+    rank: int
+    agent_id: str
+    agent_name: str
+    sessions_completed: int
+    average_score: float
+    best_score: float
+    improvement: Optional[float] = None  # Score change over last sessions
+
+
 class DashboardStats(BaseModel):
-    """Aggregated dashboard statistics."""
+    """Aggregated dashboard statistics with role-based scoping."""
 
     total_sessions: int
     completed_sessions: int
@@ -46,43 +63,94 @@ class DashboardStats(BaseModel):
     recent_sessions: list[RecentSession]
     total_conversations: int  # total transcript entries
     improvement_trend: Optional[float] = None  # score change over last 5 sessions
+    campaign_name: str | None = None
+    campaign_id: str | None = None
+    leaderboard: list[AgentRanking] | None = None
 
 
 @router.get("/dashboard", response_model=DashboardStats)
 async def get_dashboard(
     agent_id: str | None = None,
     db: AsyncSession = Depends(get_session),
-    user: User | None = Depends(get_current_user),
+    user: User = Depends(require_auth),
 ):
-    """Get aggregated dashboard statistics for the training platform.
+    """Get aggregated dashboard statistics with role-based scoping.
 
-    Optional filter:
-      - agent_id: When provided, only shows stats for that specific agent's sessions.
-
-    Role-based scoping:
-      - Agents see metrics scoped to their active campaign scenarios only.
-      - Admins and unauthenticated users see system-wide metrics.
+    Role-based behavior:
+      - Admin: System-wide metrics, optional agent_id filter respected.
+      - Trainer: Metrics scoped to all agents in the trainer's campaign.
+      - Agent: Metrics scoped to the authenticated agent only.
 
     Returns:
     - Total/completed/active session counts
-    - Average scores across all evaluations
+    - Average scores across evaluations
     - Per-category score averages
     - Recent session history with scores
     - Total conversation count
     - Improvement trend (last 5 vs previous 5 sessions)
+    - Campaign name and ID (for trainers and agents)
+    - Leaderboard (for admins and trainers; None for agents)
     """
+    # Determine role and resolve scoping
+    is_trainer = (
+        user.role == UserRole.USER.value and user.user_type == UserType.TRAINER.value
+    )
+    is_agent = (
+        user.role == UserRole.USER.value and user.user_type == UserType.AGENT.value
+    )
+
+    campaign_name: str | None = None
+    campaign_id_str: str | None = None
+    scoped_agent_ids: list[PyUUID] | None = None
+
+    if is_trainer:
+        # Resolve trainer's campaign and scope to campaign's agents
+        campaign = await get_trainer_campaign(db, user.id)
+        if campaign:
+            campaign_name = campaign.name
+            campaign_id_str = str(campaign.id)
+            scoped_agent_ids = await get_trainer_campaign_agent_ids(db, campaign.id)
+        else:
+            # Trainer with no active campaign: return empty dashboard
+            return DashboardStats(
+                total_sessions=0,
+                completed_sessions=0,
+                active_sessions=0,
+                total_scenarios=0,
+                average_overall_score=None,
+                category_averages=[],
+                recent_sessions=[],
+                total_conversations=0,
+                improvement_trend=None,
+                campaign_name=None,
+                campaign_id=None,
+                leaderboard=[],
+            )
+        # Override agent_id filter — trainer sees all campaign agents
+        agent_id = None
+    elif is_agent:
+        # Force agent to see only their own data
+        agent_id = str(user.id)
+        # Resolve agent's campaign for display
+        agent_campaign = await _get_agent_campaign(db, user.id)
+        if agent_campaign:
+            campaign_name = agent_campaign.name
+            campaign_id_str = str(agent_campaign.id)
+    else:
+        # Admin: respect the optional agent_id query param as-is
+        pass
+
     # Determine campaign-scoped scenario IDs for agents
     campaign_scenario_ids: set[PyUUID] | None = None
-    if (
-        user
-        and user.role == UserRole.USER.value
-        and user.user_type == UserType.AGENT.value
-    ):
+    if is_agent:
         campaign_scenario_ids = await get_agent_scenario_ids(db, user.id)
 
     # Build base session filter
     session_filter = []
-    if agent_id:
+    if scoped_agent_ids is not None:
+        # Trainer: scope to campaign agent IDs
+        session_filter.append(Session.agent_id.in_(scoped_agent_ids))
+    elif agent_id:
         session_filter.append(Session.agent_id == PyUUID(agent_id))
     if campaign_scenario_ids is not None:
         session_filter.append(Session.scenario_id.in_(campaign_scenario_ids))
@@ -125,14 +193,14 @@ async def get_dashboard(
         )
         total_scenarios = scenario_result.scalar_one()
 
-    # Average overall score (filtered by agent and/or campaign scenarios)
+    # Average overall score (filtered by scope)
     avg_q = select(func.avg(Evaluation.overall_score)).where(
         Evaluation.is_too_short == False  # noqa: E712
     )
-    if agent_id or campaign_scenario_ids is not None:
+    if session_filter or campaign_scenario_ids is not None:
         avg_q = avg_q.join(Session, Session.id == Evaluation.session_id)
-        if agent_id:
-            avg_q = avg_q.where(Session.agent_id == PyUUID(agent_id))
+        for f in session_filter:
+            avg_q = avg_q.where(f)
         if campaign_scenario_ids is not None:
             avg_q = avg_q.where(Session.scenario_id.in_(campaign_scenario_ids))
     avg_score_result = await db.execute(avg_q)
@@ -145,10 +213,10 @@ async def get_dashboard(
     eval_q = select(Evaluation.category_scores).where(
         Evaluation.is_too_short == False  # noqa: E712
     )
-    if agent_id or campaign_scenario_ids is not None:
+    if session_filter or campaign_scenario_ids is not None:
         eval_q = eval_q.join(Session, Session.id == Evaluation.session_id)
-        if agent_id:
-            eval_q = eval_q.where(Session.agent_id == PyUUID(agent_id))
+        for f in session_filter:
+            eval_q = eval_q.where(f)
         if campaign_scenario_ids is not None:
             eval_q = eval_q.where(Session.scenario_id.in_(campaign_scenario_ids))
     eval_result = await db.execute(eval_q)
@@ -185,15 +253,15 @@ async def get_dashboard(
                     )
                 )
 
-    # Total transcript entries (conversations) - filtered by agent/campaign
-    if agent_id or campaign_scenario_ids is not None:
+    # Total transcript entries (conversations) - filtered by scope
+    if session_filter or campaign_scenario_ids is not None:
         transcript_q = (
             select(func.count())
             .select_from(Transcript)
             .join(Session, Session.id == Transcript.session_id)
         )
-        if agent_id:
-            transcript_q = transcript_q.where(Session.agent_id == PyUUID(agent_id))
+        for f in session_filter:
+            transcript_q = transcript_q.where(f)
         if campaign_scenario_ids is not None:
             transcript_q = transcript_q.where(
                 Session.scenario_id.in_(campaign_scenario_ids)
@@ -210,8 +278,8 @@ async def get_dashboard(
         .outerjoin(Evaluation, Evaluation.session_id == Session.id)
         .outerjoin(Scenario, Scenario.id == Session.scenario_id)
     )
-    if agent_id:
-        recent_stmt = recent_stmt.where(Session.agent_id == PyUUID(agent_id))
+    for f in session_filter:
+        recent_stmt = recent_stmt.where(f)
     if campaign_scenario_ids is not None:
         recent_stmt = recent_stmt.where(Session.scenario_id.in_(campaign_scenario_ids))
     recent_stmt = recent_stmt.order_by(desc(Session.created_at)).limit(10)
@@ -229,19 +297,21 @@ async def get_dashboard(
                 overall_score=round(evaluation.overall_score, 1)
                 if evaluation and not evaluation.is_too_short
                 else None,
-                created_at=session.created_at.isoformat() if session.created_at else "",
+                created_at=(
+                    session.created_at.isoformat() if session.created_at else ""
+                ),
             )
         )
 
     # Improvement trend: compare average of last 5 scored sessions vs previous 5
     improvement_trend = None
-    trend_stmt = (
-        select(Evaluation.overall_score).where(Evaluation.is_too_short == False)  # noqa: E712
+    trend_stmt = select(Evaluation.overall_score).where(
+        Evaluation.is_too_short == False  # noqa: E712
     )
-    if agent_id or campaign_scenario_ids is not None:
+    if session_filter or campaign_scenario_ids is not None:
         trend_stmt = trend_stmt.join(Session, Session.id == Evaluation.session_id)
-        if agent_id:
-            trend_stmt = trend_stmt.where(Session.agent_id == PyUUID(agent_id))
+        for f in session_filter:
+            trend_stmt = trend_stmt.where(f)
         if campaign_scenario_ids is not None:
             trend_stmt = trend_stmt.where(
                 Session.scenario_id.in_(campaign_scenario_ids)
@@ -255,6 +325,11 @@ async def get_dashboard(
         previous_avg = sum(scored_list[5:10]) / len(scored_list[5:10])
         improvement_trend = round(recent_avg - previous_avg, 1)
 
+    # Leaderboard: included for admins and trainers, None for agents
+    leaderboard: list[AgentRanking] | None = None
+    if not is_agent:
+        leaderboard = await _compute_leaderboard(db, scoped_agent_ids)
+
     return DashboardStats(
         total_sessions=total_sessions,
         completed_sessions=completed_sessions,
@@ -265,7 +340,108 @@ async def get_dashboard(
         recent_sessions=recent_sessions,
         total_conversations=total_conversations,
         improvement_trend=improvement_trend,
+        campaign_name=campaign_name,
+        campaign_id=campaign_id_str,
+        leaderboard=leaderboard,
     )
+
+
+async def _get_agent_campaign(db: AsyncSession, agent_id: PyUUID) -> Campaign | None:
+    """Resolve the first active campaign an agent is assigned to.
+
+    Returns the Campaign object or None if the agent has no active campaign.
+    """
+    stmt = (
+        select(Campaign)
+        .join(CampaignAgent, CampaignAgent.campaign_id == Campaign.id)
+        .where(
+            CampaignAgent.agent_id == agent_id,
+            Campaign.status == CampaignStatus.ACTIVE.value,
+        )
+        .limit(1)
+    )
+    result = await db.execute(stmt)
+    return result.scalar_one_or_none()
+
+
+async def _compute_leaderboard(
+    db: AsyncSession,
+    scoped_agent_ids: list[PyUUID] | None = None,
+) -> list[AgentRanking]:
+    """Compute agent rankings, optionally scoped to a list of agent IDs.
+
+    Args:
+        db: Async database session.
+        scoped_agent_ids: If provided, only include these agents.
+            None means system-wide (admin view).
+
+    Returns:
+        Sorted list of AgentRanking entries (top 20).
+    """
+    stmt = (
+        select(Session.agent_id, Evaluation.overall_score)
+        .join(Evaluation, Evaluation.session_id == Session.id)
+        .where(Evaluation.is_too_short.is_(False))
+        .order_by(Session.agent_id, Evaluation.created_at.asc())
+    )
+    if scoped_agent_ids is not None:
+        stmt = stmt.where(Session.agent_id.in_(scoped_agent_ids))
+
+    result = await db.execute(stmt)
+    rows = result.all()
+
+    if not rows:
+        return []
+
+    # Group by agent_id
+    agent_data: dict[str, list[float]] = {}
+    for aid, score in rows:
+        aid_str = str(aid)
+        if aid_str not in agent_data:
+            agent_data[aid_str] = []
+        agent_data[aid_str].append(score)
+
+    # Fetch user names
+    agent_ids = list(agent_data.keys())
+    user_stmt = select(User.id, User.full_name).where(User.id.in_(agent_ids))
+    user_result = await db.execute(user_stmt)
+    user_names = {str(uid): name for uid, name in user_result.all()}
+
+    # Build rankings
+    rankings = []
+    for aid_str, scores in agent_data.items():
+        avg = sum(scores) / len(scores)
+        best = max(scores)
+
+        improvement = None
+        if len(scores) >= 4:
+            recent = scores[-3:]
+            earlier = scores[:3]
+            improvement = round(
+                sum(recent) / len(recent) - sum(earlier) / len(earlier), 1
+            )
+
+        name = user_names.get(aid_str) or _agent_names.get(
+            aid_str, f"Agent {aid_str[:8]}"
+        )
+
+        rankings.append(
+            AgentRanking(
+                rank=0,
+                agent_id=aid_str,
+                agent_name=name,
+                sessions_completed=len(scores),
+                average_score=round(avg, 1),
+                best_score=round(best, 1),
+                improvement=improvement,
+            )
+        )
+
+    rankings.sort(key=lambda r: r.average_score, reverse=True)
+    for i, r in enumerate(rankings):
+        r.rank = i + 1
+
+    return rankings[:20]
 
 
 class SessionListItem(BaseModel):
@@ -402,20 +578,57 @@ class ScoreDataPoint(BaseModel):
 async def get_score_history(
     agent_id: str | None = None,
     db: AsyncSession = Depends(get_session),
+    user: User = Depends(require_auth),
 ):
     """Get score progression over time for line/area charts.
 
-    Optional filter:
-      - agent_id: Only show scores for this agent's sessions.
+    Role-based behavior:
+      - Admin: respects optional agent_id filter, or returns all scores.
+      - Trainer: returns scores for all agents in the trainer's campaign
+        (agent_id param is ignored).
+      - Agent: returns only the authenticated agent's scores
+        (agent_id param is ignored).
 
     Returns chronological list of scored sessions with per-category breakdowns.
     Excludes too-short sessions.
     """
+    # Determine role and resolve scoping
+    is_trainer = (
+        user.role == UserRole.USER.value and user.user_type == UserType.TRAINER.value
+    )
+    is_agent = (
+        user.role == UserRole.USER.value and user.user_type == UserType.AGENT.value
+    )
+
+    scoped_agent_ids: list[PyUUID] | None = None
+
+    if is_trainer:
+        # Resolve trainer's campaign and scope to campaign's agents
+        campaign = await get_trainer_campaign(db, user.id)
+        if campaign:
+            scoped_agent_ids = await get_trainer_campaign_agent_ids(db, campaign.id)
+        else:
+            # Trainer with no active campaign: return empty list
+            return []
+        # Ignore agent_id param for trainers
+        agent_id = None
+    elif is_agent:
+        # Force agent to see only their own data
+        agent_id = str(user.id)
+    # else: Admin — respect optional agent_id param as-is
+
     stmt = select(Evaluation).where(Evaluation.is_too_short.is_(False))
-    if agent_id:
+
+    if scoped_agent_ids is not None:
+        # Trainer: filter to campaign agent IDs
+        stmt = stmt.join(Session, Session.id == Evaluation.session_id).where(
+            Session.agent_id.in_(scoped_agent_ids)
+        )
+    elif agent_id:
         stmt = stmt.join(Session, Session.id == Evaluation.session_id).where(
             Session.agent_id == PyUUID(agent_id)
         )
+
     stmt = stmt.order_by(Evaluation.created_at.asc()).limit(50)
 
     result = await db.execute(stmt)
@@ -519,18 +732,6 @@ async def list_agents(db: AsyncSession = Depends(get_session)):
     ]
 
 
-class AgentRanking(BaseModel):
-    """Agent ranking entry for the leaderboard."""
-
-    rank: int
-    agent_id: str
-    agent_name: str
-    sessions_completed: int
-    average_score: float
-    best_score: float
-    improvement: Optional[float] = None  # Score change over last sessions
-
-
 # In-memory agent name registry (for MVP demo without auth)
 _agent_names: dict[str, str] = {}
 
@@ -549,76 +750,43 @@ async def register_agent_name(
 
 
 @router.get("/dashboard/leaderboard", response_model=list[AgentRanking])
-async def get_leaderboard(db: AsyncSession = Depends(get_session)):
-    """Get agent rankings sorted by average score.
+async def get_leaderboard(
+    db: AsyncSession = Depends(get_session),
+    user: User = Depends(require_auth),
+):
+    """Get agent rankings sorted by average score with role-based scoping.
 
-    Aggregates evaluation scores per agent_id across all completed sessions.
+    Role-based behavior:
+      - Admin: All agents (system-wide leaderboard).
+      - Trainer: Only agents in the trainer's assigned campaign.
+      - Agent: Not accessible (returns HTTP 403).
+
+    Aggregates evaluation scores per agent_id across completed sessions.
     Returns top performers with session count, average/best scores, and trend.
     """
-    # Get all evaluations joined with sessions for agent_id
-    stmt = (
-        select(Session.agent_id, Evaluation.overall_score)
-        .join(Evaluation, Evaluation.session_id == Session.id)
-        .where(Evaluation.is_too_short.is_(False))
-        .order_by(Session.agent_id, Evaluation.created_at.asc())
+    # Determine role
+    is_agent = (
+        user.role == UserRole.USER.value and user.user_type == UserType.AGENT.value
     )
-    result = await db.execute(stmt)
-    rows = result.all()
+    is_trainer = (
+        user.role == UserRole.USER.value and user.user_type == UserType.TRAINER.value
+    )
 
-    if not rows:
-        return []
-
-    # Group by agent_id
-    agent_data: dict[str, list[float]] = {}
-    for agent_id, score in rows:
-        aid = str(agent_id)
-        if aid not in agent_data:
-            agent_data[aid] = []
-        agent_data[aid].append(score)
-
-    # Fetch user names for all agent_ids
-    agent_ids = list(agent_data.keys())
-    user_stmt = select(User.id, User.full_name).where(User.id.in_(agent_ids))
-    user_result = await db.execute(user_stmt)
-    user_names = {str(uid): name for uid, name in user_result.all()}
-
-    # Build rankings
-    rankings = []
-    for agent_id, scores in agent_data.items():
-        avg = sum(scores) / len(scores)
-        best = max(scores)
-
-        # Calculate improvement (last 3 vs first 3)
-        improvement = None
-        if len(scores) >= 4:
-            recent = scores[-3:]
-            earlier = scores[:3]
-            improvement = round(
-                sum(recent) / len(recent) - sum(earlier) / len(earlier), 1
-            )
-
-        # Get display name from User table, fallback to in-memory registry
-        name = user_names.get(agent_id) or _agent_names.get(
-            agent_id, f"Agent {agent_id[:8]}"
+    # Agents cannot access the leaderboard
+    if is_agent:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Leaderboard is not available for agents",
         )
 
-        rankings.append(
-            AgentRanking(
-                rank=0,  # Will be set after sorting
-                agent_id=agent_id,
-                agent_name=name,
-                sessions_completed=len(scores),
-                average_score=round(avg, 1),
-                best_score=round(best, 1),
-                improvement=improvement,
-            )
-        )
+    # Resolve scoping for trainers
+    scoped_agent_ids: list[PyUUID] | None = None
+    if is_trainer:
+        campaign = await get_trainer_campaign(db, user.id)
+        if campaign:
+            scoped_agent_ids = await get_trainer_campaign_agent_ids(db, campaign.id)
+        else:
+            # Trainer with no active campaign: return empty leaderboard
+            return []
 
-    # Sort by average score descending
-    rankings.sort(key=lambda r: r.average_score, reverse=True)
-
-    # Assign ranks
-    for i, r in enumerate(rankings):
-        r.rank = i + 1
-
-    return rankings[:20]  # Top 20
+    return await _compute_leaderboard(db, scoped_agent_ids)

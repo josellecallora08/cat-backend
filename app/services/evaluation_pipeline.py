@@ -20,8 +20,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Transcript
 from app.schemas import CoachingReportSchema, EvaluationResult, LearningPlanSchema
+from app.schemas.event import EventMetadata
 from app.services.coaching_engine import CoachingEngine
 from app.services.evaluation_engine import EvaluationEngine
+from app.services.event_instances import event_broadcaster
 from app.services.learning_plan_generator import LearningPlanGenerator
 from app.services.llm_service import LLMServiceProtocol
 
@@ -67,9 +69,7 @@ class EvaluationPipeline:
         self._coaching_engine = CoachingEngine(llm_service=llm_service)
         self._learning_plan_generator = LearningPlanGenerator()
 
-    async def get_transcript(
-        self, session_id: UUID, db: AsyncSession
-    ) -> list[dict]:
+    async def get_transcript(self, session_id: UUID, db: AsyncSession) -> list[dict]:
         """Retrieve the transcript for a session as a list of dicts.
 
         Args:
@@ -222,6 +222,18 @@ class EvaluationPipeline:
         )
 
         logger.info("Evaluation pipeline completed for session %s", session_id)
+
+        # Emit real-time events after pipeline completes
+        await event_broadcaster.emit(
+            "session.evaluated",
+            session_id,
+            EventMetadata(agent_id=agent_id),
+        )
+        await event_broadcaster.emit(
+            "dashboard.updated",
+            session_id,
+            EventMetadata(),
+        )
 
         return PipelineResult(
             session_id=session_id,

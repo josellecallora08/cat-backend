@@ -20,11 +20,12 @@ class CampaignStatus(str, Enum):
 
 
 class CampaignRole(str, Enum):
-    """Valid roles for agents assigned to a campaign."""
+    """Valid roles for users assigned to a campaign."""
 
     TEAM_LEAD = "team_lead"
     PARTICIPANT = "participant"
     OBSERVER = "observer"
+    TRAINER = "trainer"
 
 
 # Association tables

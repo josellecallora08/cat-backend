@@ -21,6 +21,7 @@ from app.models import (
     Session,
     Transcript,
 )
+from app.services.auth import require_auth
 
 
 @pytest.fixture
@@ -151,6 +152,20 @@ class TestCreateSession:
 class TestGetSession:
     """Tests for GET /api/sessions/{id}."""
 
+    @pytest.fixture(autouse=True)
+    def _auth_override(self):
+        """Override require_auth with an admin user for session detail tests."""
+        from unittest.mock import MagicMock
+
+        mock_user = MagicMock()
+        mock_user.id = uuid.uuid4()
+        mock_user.email = "admin@test.com"
+        mock_user.role = "admin"
+        mock_user.user_type = None
+        app.dependency_overrides[require_auth] = lambda: mock_user
+        yield
+        app.dependency_overrides.pop(require_auth, None)
+
     async def test_returns_session_details(self, client):
         session = _make_session(status="active")
 
@@ -193,6 +208,55 @@ class TestGetSession:
         assert response.status_code == 200
         data = response.json()
         assert data["persona"] is None
+
+    async def test_returns_403_for_agent_accessing_other_session(self, client):
+        """Agent cannot access session belonging to another user."""
+        from unittest.mock import MagicMock
+
+        agent_user = MagicMock()
+        agent_user.id = uuid.uuid4()
+        agent_user.email = "agent@test.com"
+        agent_user.role = "user"
+        agent_user.user_type = "agent"
+        app.dependency_overrides[require_auth] = lambda: agent_user
+
+        session = _make_session(status="active")
+        # session.agent_id is a different UUID
+
+        with patch(
+            "app.api.sessions.get_session_service",
+            new_callable=AsyncMock,
+            return_value=session,
+        ):
+            response = await client.get(f"/api/sessions/{session.id}")
+
+        assert response.status_code == 403
+        assert "access denied" in response.json()["detail"].lower()
+
+    async def test_agent_can_access_own_session(self, client):
+        """Agent can access their own session."""
+        from unittest.mock import MagicMock
+
+        agent_user = MagicMock()
+        agent_user.id = uuid.uuid4()
+        agent_user.email = "agent@test.com"
+        agent_user.role = "user"
+        agent_user.user_type = "agent"
+        app.dependency_overrides[require_auth] = lambda: agent_user
+
+        session = _make_session(status="active")
+        session.agent_id = agent_user.id
+
+        with patch(
+            "app.api.sessions.get_session_service",
+            new_callable=AsyncMock,
+            return_value=session,
+        ):
+            response = await client.get(f"/api/sessions/{session.id}")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["id"] == str(session.id)
 
 
 class TestEndSession:
@@ -526,7 +590,10 @@ class TestGetLearningPlan:
         assert len(data["weak_competencies"]) == 2
         assert data["weak_competencies"][0]["category"] == "compliance"
         assert data["weak_competencies"][0]["score"] == 55
-        assert data["weak_competencies"][0]["recommended_scenario"] == "Compliance Fundamentals"
+        assert (
+            data["weak_competencies"][0]["recommended_scenario"]
+            == "Compliance Fundamentals"
+        )
 
     async def test_returns_learning_plan_all_passing(self, client):
         session = _make_session()

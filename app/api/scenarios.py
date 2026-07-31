@@ -17,8 +17,10 @@ from app.schemas import (
     ScenarioResponse,
     ScenarioType,
 )
+from app.schemas.event import EventMetadata
 from app.services.auth import get_current_user, require_admin
 from app.services.campaign_scenario_service import get_agent_campaign_scenarios
+from app.services.event_instances import event_broadcaster
 from app.services.llm_service import LLMMessage, LLMService
 from app.services.scenario_repository import get_scenario_by_id, list_active_scenarios
 
@@ -217,6 +219,12 @@ async def generate_scenario(
     await db.commit()
     await db.refresh(scenario)
 
+    await event_broadcaster.emit(
+        "scenario.created",
+        scenario.id,
+        EventMetadata(scenario_id=scenario.id),
+    )
+
     logger.info("Generated new scenario: %s (id=%s)", scenario.name, scenario.id)
 
     return GenerateScenarioResponse(
@@ -280,6 +288,12 @@ async def update_scenario(
     await db.commit()
     await db.refresh(scenario)
 
+    await event_broadcaster.emit(
+        "scenario.updated",
+        scenario.id,
+        EventMetadata(scenario_id=scenario.id),
+    )
+
     return ScenarioDetailResponse(
         id=scenario.id,
         name=scenario.name,
@@ -305,3 +319,9 @@ async def delete_scenario(
 
     scenario.is_active = False
     await db.commit()
+
+    await event_broadcaster.emit(
+        "scenario.deleted",
+        scenario_id,
+        EventMetadata(scenario_id=scenario_id),
+    )

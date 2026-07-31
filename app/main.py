@@ -10,6 +10,7 @@ from app.api import (
     campaign_dashboard,
     campaign_scenarios,
     campaigns,
+    events,
     scenarios,
     sessions,
     voice,
@@ -17,12 +18,14 @@ from app.api import (
     dashboard,
     auth,
     config,
+    profile,
     scripts,
     uploads,
     review,
 )
 from app.config import settings
 from app.database import async_session_factory, get_session
+from app.services.event_instances import event_connection_manager
 
 logger = logging.getLogger(__name__)
 
@@ -119,6 +122,15 @@ async def lifespan(app: FastAPI):
     # Import all models so Base.metadata knows about them
     from app import models as _models  # noqa: F401
 
+    # Ensure the database exists before attempting migrations
+    from app.utils.ensure_database import ensure_database_exists
+
+    try:
+        await ensure_database_exists(settings.async_database_url)
+    except Exception as e:
+        logger.error("Failed to ensure database exists: %s", e, exc_info=True)
+        raise
+
     # Run database migrations before any DB operations
     try:
         _run_migrations()
@@ -153,6 +165,9 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error("Startup error during seed: %s", e, exc_info=True)
 
+    yield
+    # Shutdown: close all WebSocket connections gracefully
+    await event_connection_manager.close_all(code=1001)
     # Start quarantine cleanup scheduler
     from app.services.upload_quarantine import start_cleanup_scheduler
     await start_cleanup_scheduler(app)
@@ -205,6 +220,8 @@ def create_app() -> FastAPI:
     app.include_router(
         admin_users.router, prefix="/api/admin/users", tags=["admin-users"]
     )
+    app.include_router(profile.router, prefix="/api/profile", tags=["profile"])
+    app.include_router(events.router, tags=["events"])
     app.include_router(uploads.router, prefix="/api/scripts", tags=["uploads"])
     app.include_router(review.router, prefix="/api/scripts", tags=["review"])
     app.include_router(scripts.router, prefix="/api/scripts", tags=["scripts"])
