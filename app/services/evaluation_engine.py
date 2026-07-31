@@ -110,8 +110,40 @@ class EvaluationEngine:
         Raises:
             ValueError: If no LLM service is configured.
         """
-        # Always run full evaluation regardless of length
-        too_short = False
+        too_short = self.is_session_too_short(transcript)
+
+        if too_short:
+            excerpt = next(
+                (
+                    entry.get("text", "N/A")
+                    for entry in transcript
+                    if entry.get("speaker") == "agent"
+                ),
+                "N/A",
+            )
+            result = EvaluationResult(
+                session_id=session_id,
+                category_scores=[],
+                overall_score=0.0,
+                strengths=[
+                    StrengthItem(
+                        description="Session was too short for meaningful evaluation",
+                        category=EvaluationCategory.CALL_OPENING,
+                        transcript_excerpt=excerpt,
+                    )
+                ],
+                weaknesses=[
+                    WeaknessItem(
+                        description="Session was too short for meaningful evaluation",
+                        category=EvaluationCategory.CALL_OPENING,
+                        transcript_excerpt=excerpt,
+                    )
+                ],
+                is_too_short=True,
+            )
+            if db is not None:
+                await self._persist_evaluation(session_id, result, db)
+            return result
 
         if self._llm_service is None:
             raise ValueError("LLM service is required for evaluation")

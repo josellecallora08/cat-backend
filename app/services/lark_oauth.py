@@ -38,7 +38,7 @@ class LarkUserInfo:
     name: str
     email: str
     avatar_url: str
-    employee_id: str
+    employee_id: str = ""
 
 
 def get_authorize_url(state: str) -> str:

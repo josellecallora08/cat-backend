@@ -24,6 +24,8 @@ from app.services.debtor_simulator import (
 )
 from app.services.event_instances import event_broadcaster
 from app.services.scenario_repository import get_scenario_by_id
+from app.services.script_registry import get_active_published_version
+from app.services.debtor_simulator import DebtorSimulatorService, PersonaContext, EmotionalState
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +57,12 @@ async def create_session(
     if scenario is None:
         raise ValueError(f"Scenario with id {scenario_id} not found or inactive")
 
+    # Scripts are optional. When a published script is linked to this
+    # scenario, pin its immutable version for deterministic debtor behavior.
+    # Otherwise preserve the simulator's default behavior so admins do not
+    # need to upload a script for every scenario.
+    script_version = await get_active_published_version(db, scenario_id)
+
     # Build scenario dict for persona generation
     scenario_data = {
         "debtor_profile": scenario.debtor_profile,
@@ -81,6 +89,7 @@ async def create_session(
         agent_id=agent_id,
         status="pending",
         persona_context=persona_dict,
+        script_version_id=script_version.id if script_version is not None else None,
     )
 
     db.add(session)

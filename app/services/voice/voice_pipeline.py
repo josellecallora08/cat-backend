@@ -27,6 +27,14 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass
+class CallEndSignal:
+    """Sentinel value placed in the output queue to signal call termination."""
+
+    reason: str
+    target_outcome: str | None = None
+
+
+@dataclass
 class PipelineState:
     """Internal state tracking for the voice pipeline."""
 
@@ -55,6 +63,7 @@ class VoicePipelineOrchestrator:
         peer_connection_manager: Optional[PeerConnectionManager] = None,
         vad: Optional[VADProcessor] = None,
         audio_buffer: Optional[AudioBuffer] = None,
+        script_content: dict[str, Any] | None = None,
     ) -> None:
         """Initialize the voice pipeline orchestrator.
 
@@ -68,6 +77,8 @@ class VoicePipelineOrchestrator:
             peer_connection_manager: WebRTC peer connection manager (optional).
             vad: Voice activity detection processor (created if not provided).
             audio_buffer: Audio frame buffer (created if not provided).
+            script_content: Optional loaded ScriptContract content dict for
+                the pinned ScriptVersion, used for script-driven behavior.
         """
         self.session_id = session_id
         self.persona = persona
@@ -78,8 +89,9 @@ class VoicePipelineOrchestrator:
         self._peer_connection_manager = peer_connection_manager or PeerConnectionManager()
         self._vad = vad or VADProcessor()
         self._audio_buffer = audio_buffer or AudioBuffer()
+        self._script_content = script_content
         self._state = PipelineState()
-        self._output_queue: asyncio.Queue[bytes] = asyncio.Queue()
+        self._output_queue: asyncio.Queue[bytes | CallEndSignal] = asyncio.Queue()
         self._peer_connection: Any = None
 
     @property
@@ -205,9 +217,24 @@ class VoicePipelineOrchestrator:
         transcript entry, generates debtor response via LLM, synthesizes
         response via TTS, and records the debtor's transcript entry.
 
+        When script_content is loaded:
+        - On first utterance, delivers the opening_response from the script
+        - Evaluates escalation conditions, conversation goals, trigger phrases,
+          and payment conditions before LLM generation
+        - Passes script_content to generate_response for prohibited response
+          enforcement and emotional state transitions
+
         Returns:
             TTS audio bytes for the debtor response, or None on failure.
         """
+        from app.services.debtor_simulator import (
+            select_opening_response,
+            evaluate_escalation_conditions,
+            evaluate_conversation_goal_completion,
+            match_trigger_phrase,
+            match_payment_condition,
+        )
+
         # Step 1: Flush buffer to get PCM bytes
         pcm_audio = self._audio_buffer.flush()
 
@@ -248,10 +275,140 @@ class VoicePipelineOrchestrator:
                 e,
             )
 
+        # Step 3.5: First-utterance opening response from script
+        if self._state.utterance_count == 0 and self._script_content is not None:
+            opening = select_opening_response(self._script_content)
+            if opening is not None:
+                # Record opening response in transcript
+                try:
+                    await self._transcript_manager.append_entry(
+                        session_id=self.session_id,
+                        speaker="debtor",
+                        text=opening,
+                        timestamp=datetime.now(timezone.utc),
+                    )
+                except Exception as e:
+                    logger.error(
+                        "Session %s: failed to record opening transcript: %s",
+                        self.session_id,
+                        e,
+                    )
+
+                # Synthesize opening response via TTS
+                try:
+                    audio_stream = await self._tts_service.synthesize(
+                        opening, language="tl"
+                    )
+                    response_audio = audio_stream.data
+                except Exception as e:
+                    logger.error(
+                        "Session %s: TTS synthesis for opening failed: %s",
+                        self.session_id,
+                        e,
+                    )
+                    return None
+
+                await self._output_queue.put(response_audio)
+                self._state.utterance_count += 1
+                logger.info(
+                    "Session %s: delivered script opening response",
+                    self.session_id,
+                )
+                return response_audio
+
+        # Step 3.6: Script-driven escalation and goal checks
+        if self._script_content is not None:
+            escalation_result = evaluate_escalation_conditions(
+                agent_text, self._script_content.get("escalation_conditions")
+            )
+            if escalation_result is not None:
+                escalation_behavior, ends_call = escalation_result
+                if ends_call:
+                    # Record escalation behavior in transcript
+                    try:
+                        await self._transcript_manager.append_entry(
+                            session_id=self.session_id,
+                            speaker="debtor",
+                            text=escalation_behavior,
+                            timestamp=datetime.now(timezone.utc),
+                        )
+                    except Exception as e:
+                        logger.error(
+                            "Session %s: failed to record escalation transcript: %s",
+                            self.session_id,
+                            e,
+                        )
+
+                    # Synthesize escalation response
+                    try:
+                        audio_stream = await self._tts_service.synthesize(
+                            escalation_behavior, language="tl"
+                        )
+                        response_audio = audio_stream.data
+                    except Exception as e:
+                        logger.error(
+                            "Session %s: TTS synthesis for escalation failed: %s",
+                            self.session_id,
+                            e,
+                        )
+                        response_audio = None
+
+                    self._state.utterance_count += 1
+                    await self.teardown()
+                    # Queue the sentinel after teardown; teardown clears stale
+                    # output, so queuing it before teardown loses the signal.
+                    await self._output_queue.put(
+                        CallEndSignal(reason=escalation_behavior)
+                    )
+                    return response_audio
+
+            # Check conversation goal completion
+            goal_outcome = evaluate_conversation_goal_completion(
+                agent_text, self._script_content.get("conversation_goal")
+            )
+            if goal_outcome is not None:
+                completion_message = "Salamat po. Maayos na po ang usapan natin."
+                try:
+                    await self._transcript_manager.append_entry(
+                        session_id=self.session_id,
+                        speaker="debtor",
+                        text=completion_message,
+                        timestamp=datetime.now(timezone.utc),
+                    )
+                except Exception as e:
+                    logger.error(
+                        "Session %s: failed to record goal completion transcript: %s",
+                        self.session_id,
+                        e,
+                    )
+
+                # Synthesize completion response
+                try:
+                    audio_stream = await self._tts_service.synthesize(
+                        completion_message, language="tl"
+                    )
+                    response_audio = audio_stream.data
+                except Exception as e:
+                    logger.error(
+                        "Session %s: TTS synthesis for goal completion failed: %s",
+                        self.session_id,
+                        e,
+                    )
+                    response_audio = None
+
+                self._state.utterance_count += 1
+                await self.teardown()
+                # Queue after teardown so the call-ended sentinel survives
+                # teardown's stale-output drain.
+                await self._output_queue.put(
+                    CallEndSignal(reason=goal_outcome, target_outcome=goal_outcome)
+                )
+                return response_audio
+
         # Step 4: Generate debtor response via DebtorSimulatorService
         try:
             simulator_response = await self._debtor_simulator.generate_response(
-                self.persona, agent_text
+                self.persona, agent_text, script_content=self._script_content
             )
         except Exception as e:
             logger.error(
@@ -305,11 +462,11 @@ class VoicePipelineOrchestrator:
 
         return response_audio
 
-    async def get_next_response_audio(self) -> Optional[bytes]:
+    async def get_next_response_audio(self) -> Optional[bytes | CallEndSignal]:
         """Get the next queued response audio for WebRTC output.
 
         Returns:
-            Audio bytes if available, None if queue is empty.
+            Audio bytes, a ``CallEndSignal``, or None if queue is empty.
         """
         try:
             return self._output_queue.get_nowait()

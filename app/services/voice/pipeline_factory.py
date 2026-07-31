@@ -40,6 +40,7 @@ def create_voice_pipeline(
     db: AsyncSession,
     llm_service: LLMServiceProtocol,
     *,
+    script_content: dict | None = None,
     stt_service: STTServiceProtocol | None = None,
     tts_service: TTSServiceProtocol | None = None,
     peer_connection_manager: PeerConnectionManager | None = None,
@@ -64,6 +65,8 @@ def create_voice_pipeline(
         persona: The debtor persona context for this session.
         db: Async database session for transcript persistence.
         llm_service: LLM service for debtor response generation.
+        script_content: Optional loaded ScriptContract content dict for
+            the pinned ScriptVersion, used for script-driven behavior.
         stt_service: Optional STT service override (defaults to STTService).
         tts_service: Optional TTS service override (defaults to TTSService).
         peer_connection_manager: Optional WebRTC manager override.
@@ -118,6 +121,7 @@ def create_voice_pipeline(
         peer_connection_manager=peer_connection_manager,
         vad=vad,
         audio_buffer=audio_buffer,
+        script_content=script_content,
     )
 
     logger.info(

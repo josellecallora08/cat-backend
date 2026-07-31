@@ -39,6 +39,9 @@ from app.services.debtor_simulator import (
 )
 from app.services.evaluation_pipeline import EvaluationPipeline
 from app.services.llm_service import LLMService
+from app.services.auth import get_current_user
+from app.models.user import User
+from app.services.script_content_loader import load_script_content
 from app.services.session_service import (
     create_session as create_session_service,
     get_session as get_session_service,
@@ -537,6 +540,13 @@ async def send_message(
     sends text here, gets the debtor response text, and synthesizes it with
     browser TTS.
     """
+    from app.services.debtor_simulator import (
+        DebtorSimulatorService,
+        EmotionalState,
+        Message,
+        PersonaContext,
+        select_opening_response,
+    )
     from app.services.transcript_manager import TranscriptManager
 
     # Get the session
@@ -547,11 +557,18 @@ async def send_message(
     if session.status not in ("pending", "active"):
         raise HTTPException(status_code=400, detail="Session is not active")
 
-    # Activate session if still pending
+    # Activate session if still pending.  First-turn detection is based on the
+    # persona history as well, because a session may already be active when
+    # the first message arrives (for example after reconnecting a client).
+    is_first_message = False
     if session.status == "pending":
         session.status = "active"
+        is_first_message = True
         await db.commit()
         await db.refresh(session)
+
+    # Load pinned script content for script-driven behavior
+    script_content = await load_script_content(db, session.script_version_id)
 
     # Get or create persona context for this session
     if session_id not in _active_personas:
@@ -566,6 +583,8 @@ async def send_message(
         )
 
     persona = _active_personas[session_id]
+    if not is_first_message:
+        is_first_message = not persona.conversation_history
 
     # Record agent transcript entry (skip system/initialization messages)
     transcript_manager = TranscriptManager(db)
@@ -580,12 +599,132 @@ async def send_message(
             timestamp=now,
         )
 
+    # A session can be activated by another transport before this endpoint is
+    # called, so use the persona history as the source of truth as well.
+    is_first_message = is_first_message or not persona.conversation_history
+
+    # First-message detection: deliver opening response from script if available
+    if is_first_message and script_content is not None and not is_system_prompt:
+        opening_response = select_opening_response(script_content)
+        if opening_response is not None:
+            # Keep the in-memory simulator state aligned with the persisted
+            # transcript; the normal generate_response path appends both
+            # turns, but this early opening-response path bypasses it.
+            if not is_system_prompt:
+                from app.services.debtor_simulator import Message
+                persona.conversation_history.append(
+                    Message(role="agent", content=body.text)
+                )
+                persona.conversation_history.append(
+                    Message(role="debtor", content=opening_response)
+                )
+            # Record debtor opening response in transcript
+            await transcript_manager.append_entry(
+                session_id=session_id,
+                speaker="debtor",
+                text=opening_response,
+                timestamp=datetime.now(timezone.utc),
+            )
+            persona.conversation_history.extend(
+                [
+                    Message(role="agent", content=body.text),
+                    Message(role="debtor", content=opening_response),
+                ]
+            )
+            await transcript_manager.persist(session_id)
+
+            return ConversationResponse(
+                text=opening_response,
+                emotional_state=persona.emotional_state.name.lower(),
+                language=persona.language,
+                call_ended=False,
+                call_ended_reason=None,
+                interrupt=False,
+            )
+
+    # Script-driven escalation and goal completion checks (before LLM generation)
+    if script_content is not None and not is_system_prompt:
+        from app.services.debtor_simulator import (
+            evaluate_escalation_conditions,
+            evaluate_conversation_goal_completion,
+        )
+
+        # Check escalation conditions against agent's message
+        escalation_result = evaluate_escalation_conditions(
+            body.text, script_content.get("escalation_conditions")
+        )
+        if escalation_result is not None:
+            escalation_behavior, ends_call = escalation_result
+            if ends_call:
+                # Record escalation behavior as debtor response in transcript
+                await transcript_manager.append_entry(
+                    session_id=session_id,
+                    speaker="debtor",
+                    text=escalation_behavior,
+                    timestamp=datetime.now(timezone.utc),
+                )
+                await transcript_manager.persist(session_id)
+                _active_personas.pop(session_id, None)
+
+                return ConversationResponse(
+                    text=escalation_behavior,
+                    emotional_state=persona.emotional_state.name.lower(),
+                    language=persona.language,
+                    call_ended=True,
+                    call_ended_reason=escalation_behavior,
+                    interrupt=False,
+                )
+
+        # Check conversation goal completion against agent's message
+        goal_outcome = evaluate_conversation_goal_completion(
+            body.text, script_content.get("conversation_goal")
+        )
+        if goal_outcome is not None:
+            # Goal met — end the call with a default completion message
+            completion_message = "Salamat po. Maayos na po ang usapan natin."
+            # Record completion message as debtor response in transcript
+            await transcript_manager.append_entry(
+                session_id=session_id,
+                speaker="debtor",
+                text=completion_message,
+                timestamp=datetime.now(timezone.utc),
+            )
+            await transcript_manager.persist(session_id)
+            _active_personas.pop(session_id, None)
+
+            return ConversationResponse(
+                text=completion_message,
+                emotional_state=persona.emotional_state.name.lower(),
+                language=persona.language,
+                call_ended=True,
+                call_ended_reason=goal_outcome,
+                interrupt=False,
+            )
+
+    # Script-driven trigger phrase and payment condition evaluation (before LLM generation)
+    trigger_behavior: str | None = None
+    payment_match: tuple[str, bool] | None = None
+    if script_content is not None and not is_system_prompt:
+        from app.services.debtor_simulator import (
+            match_trigger_phrase,
+            match_payment_condition,
+        )
+
+        trigger_behavior = match_trigger_phrase(
+            body.text, script_content.get("trigger_phrases")
+        )
+        payment_match = match_payment_condition(
+            body.text, script_content.get("payment_conditions")
+        )
+
     # Generate debtor response via LLM
     llm_service = LLMService()
     simulator = DebtorSimulatorService(llm_service)
 
     try:
-        response = await simulator.generate_response(persona, body.text)
+        response = await simulator.generate_response(
+            persona, body.text, script_content=script_content
+        )
     except Exception as e:
         logger.error("Debtor response generation failed: %s", e)
         raise HTTPException(status_code=500, detail="Failed to generate response")
@@ -601,69 +740,63 @@ async def send_message(
     # Persist transcript entries
     await transcript_manager.persist(session_id)
 
-    # Detect if debtor wants to end the call
-    # Only trigger on very explicit hang-up phrases, not casual language
-    hang_up_signals = [
-        "hangs up",
-        "ends the call",
-        "slams the phone",
-        "puts down the phone",
-        "disconnects",
-        "*hangs up*",
-        "*ends call*",
-        "*click*",
-        "[end_call]",
-    ]
-    response_lower = response.text.lower()
-    call_ended = any(signal in response_lower for signal in hang_up_signals)
-
-    # Detect if debtor is interrupting (short, sharp interjection)
-    interrupt_signals = [
-        "wait",
-        "teka",
-        "sandali",
-        "ano",
-        "ha?",
-        "huy",
-        "excuse me",
-        "hold on",
-        "saglit",
-        "wait lang",
-    ]
-    interrupt = len(response.text.split()) <= 8 and any(
-        signal in response_lower for signal in interrupt_signals
-    )
-
+    # Determine call-end and interrupt signals.
+    # When script_content is present, skip hardcoded hang_up_signals entirely —
+    # script-driven escalation/goal completion (evaluated above) handles call-end.
+    # When no script is loaded, fall back to existing hardcoded detection.
+    call_ended = False
     call_ended_reason = None
     display_text = response.text
-    if call_ended:
-        call_ended_reason = "Debtor ended the call"
-        _active_personas.pop(session_id, None)
-        # Strip hang-up action markers from the displayed text
-        import re
+    interrupt = False
 
-        display_text = re.sub(
-            r"\s*\*(?:hangs up|ends call|click|slams the phone|puts down the phone|disconnects)\*\s*",
-            "",
-            display_text,
-            flags=re.IGNORECASE,
-        ).strip()
-        # Remove [END_CALL] marker
-        display_text = re.sub(
-            r"\s*\[END_CALL\]\s*",
-            "",
-            display_text,
-            flags=re.IGNORECASE,
-        ).strip()
-        # Also remove non-asterisk variants at the end of the message
-        for signal in hang_up_signals:
-            if not signal.startswith("*") and not signal.startswith("["):
-                display_text = re.sub(
-                    rf",?\s*{re.escape(signal)}\.?\s*$",
-                    "",
-                    display_text,
-                    flags=re.IGNORECASE,
-                ).strip()
+    if script_content is None:
+        # Fallback: detect if debtor wants to end the call via hardcoded signals
+        hang_up_signals = [
+            "hangs up", "ends the call", "slams the phone",
+            "puts down the phone", "disconnects",
+            "*hangs up*", "*ends call*", "*click*",
+            "[end_call]",
+        ]
+        response_lower = response.text.lower()
+        call_ended = any(signal in response_lower for signal in hang_up_signals)
+
+        # Detect if debtor is interrupting (short, sharp interjection)
+        interrupt_signals = [
+            "wait", "teka", "sandali", "ano", "ha?", "huy",
+            "excuse me", "hold on", "saglit", "wait lang",
+        ]
+        interrupt = (
+            len(response.text.split()) <= 8 and
+            any(signal in response_lower for signal in interrupt_signals)
+        )
+
+        if call_ended:
+            call_ended_reason = "Debtor ended the call"
+            _active_personas.pop(session_id, None)
+            # Strip hang-up action markers from the displayed text
+            import re
+            display_text = re.sub(
+                r"\s*\*(?:hangs up|ends call|click|slams the phone|puts down the phone|disconnects)\*\s*",
+                "",
+                display_text,
+                flags=re.IGNORECASE,
+            ).strip()
+            # Remove [END_CALL] marker
+            display_text = re.sub(
+                r"\s*\[END_CALL\]\s*",
+                "",
+                display_text,
+                flags=re.IGNORECASE,
+            ).strip()
+            # Also remove non-asterisk variants at the end of the message
+            for signal in hang_up_signals:
+                if not signal.startswith("*") and not signal.startswith("["):
+                    display_text = re.sub(
+                        rf",?\s*{re.escape(signal)}\.?\s*$",
+                        "",
+                        display_text,
+                        flags=re.IGNORECASE,
+                    ).strip()
 
     return ConversationResponse(
         text=display_text,

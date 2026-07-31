@@ -1,4 +1,10 @@
+import logging
+
+from pydantic import field_validator
 from pydantic_settings import BaseSettings
+
+
+logger = logging.getLogger(__name__)
 
 
 class Settings(BaseSettings):
@@ -50,7 +56,64 @@ class Settings(BaseSettings):
     # TTS provider: "elevenlabs", "gtts", or "auto" (tries elevenlabs first)
     tts_provider: str = "auto"
 
+    # Upload Security Configuration
+    upload_max_file_size: int = 10_485_760  # 10 MB in bytes
+    upload_accepted_extensions: str = ".pdf,.docx,.txt,.csv,.md"
+    upload_quarantine_path: str = "./quarantine"
+    upload_quarantine_retention_hours: int = 24
+    upload_max_docx_entries: int = 500
+    upload_max_docx_uncompressed_size: int = 52_428_800  # 50 MB
+    upload_max_docx_depth: int = 2
+    upload_rejection_max_attempts: int = 10
+    upload_rejection_window_minutes: int = 60
+    upload_rejection_cooldown_minutes: int = 30
+    upload_scanner_enabled: bool = True
+    upload_scanner_socket: str = "/var/run/clamav/clamd.ctl"
+    upload_quarantine_cleanup_interval_minutes: int = 60
+
+    # Script Registry Configuration
+    script_max_definition_size_bytes: int = 262_144  # 256 KB in bytes
+    script_max_trigger_phrases: int = 50
+    script_max_expected_replies: int = 20
+    script_max_escalation_conditions: int = 20
+    script_max_field_text_length: int = 2000
+
     model_config = {"env_prefix": "CAT_", "env_file": ".env"}
+
+    @field_validator("upload_quarantine_retention_hours")
+    @classmethod
+    def validate_upload_quarantine_retention_hours(cls, value: int) -> int:
+        """Keep quarantine retention within the supported operating range."""
+        if value < 0:
+            logger.warning(
+                "Negative upload quarantine retention hours (%d) treated as 0",
+                value,
+            )
+            return 0
+        if value > 8760:
+            logger.warning(
+                "Upload quarantine retention hours (%d) clamped to 8760", value
+            )
+            return 8760
+        return value
+
+    @field_validator("upload_quarantine_cleanup_interval_minutes")
+    @classmethod
+    def validate_upload_quarantine_cleanup_interval_minutes(cls, value: int) -> int:
+        """Keep the cleanup scheduler interval within safe bounds."""
+        if value < 1:
+            logger.warning(
+                "Upload quarantine cleanup interval (%d) clamped to 1 minute",
+                value,
+            )
+            return 1
+        if value > 1440:
+            logger.warning(
+                "Upload quarantine cleanup interval (%d) clamped to 1440 minutes",
+                value,
+            )
+            return 1440
+        return value
 
     @property
     def async_database_url(self) -> str:

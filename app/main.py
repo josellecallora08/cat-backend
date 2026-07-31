@@ -19,6 +19,9 @@ from app.api import (
     auth,
     config,
     profile,
+    scripts,
+    uploads,
+    review,
 )
 from app.config import settings
 from app.database import async_session_factory, get_session
@@ -117,7 +120,7 @@ async def _fix_orphaned_sessions():
 async def lifespan(app: FastAPI):
     """Application lifespan: run migrations and seed default data on startup."""
     # Import all models so Base.metadata knows about them
-    import app.models  # noqa: F401
+    from app import models as _models  # noqa: F401
 
     # Ensure the database exists before attempting migrations
     from app.utils.ensure_database import ensure_database_exists
@@ -165,6 +168,16 @@ async def lifespan(app: FastAPI):
     yield
     # Shutdown: close all WebSocket connections gracefully
     await event_connection_manager.close_all(code=1001)
+    # Start quarantine cleanup scheduler
+    from app.services.upload_quarantine import start_cleanup_scheduler
+    await start_cleanup_scheduler(app)
+
+    try:
+        yield
+    finally:
+        from app.services.upload_quarantine import stop_cleanup_scheduler
+
+        await stop_cleanup_scheduler(app, timeout_seconds=5)
 
 
 def create_app() -> FastAPI:
@@ -209,6 +222,9 @@ def create_app() -> FastAPI:
     )
     app.include_router(profile.router, prefix="/api/profile", tags=["profile"])
     app.include_router(events.router, tags=["events"])
+    app.include_router(uploads.router, prefix="/api/scripts", tags=["uploads"])
+    app.include_router(review.router, prefix="/api/scripts", tags=["review"])
+    app.include_router(scripts.router, prefix="/api/scripts", tags=["scripts"])
 
     @app.get("/health")
     async def health_check():

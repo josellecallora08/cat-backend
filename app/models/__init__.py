@@ -10,6 +10,15 @@ from app.models.campaign import (
     CampaignStatus as CampaignStatus,
     campaign_scenarios as campaign_scenarios,
 )
+from app.models.script import (
+    Script as Script,
+    ScriptStatus as ScriptStatus,
+    ScriptVersion as ScriptVersion,
+)
+from app.models.script_upload import (
+    ScriptUpload as ScriptUpload,
+    UploadStatus as UploadStatus,
+)
 
 from sqlalchemy import (
     Boolean,
@@ -69,6 +78,9 @@ class Session(Base):
     agent_id = Column(Uuid, nullable=False)
     status = Column(String(20), default="pending", nullable=False)
     persona_context = Column(JSONVariant)
+    script_version_id = Column(
+        Uuid, ForeignKey("script_versions.id"), nullable=True
+    )
     created_at = Column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

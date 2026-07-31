@@ -14,6 +14,7 @@ build/
 .pytest_cache/
 .coverage
 htmlcov/
+test_migration_*.db
 
 # IDE
 .idea/
@@ -21,6 +22,10 @@ htmlcov/
 
 # Environment
 .env
+
+# Quarantined uploads
+quarantine/*
+!quarantine/.gitkeep
 
 # OS
 .DS_Store
