@@ -3,15 +3,28 @@
 Provides WebSocket-based signaling for SDP offer/answer exchange and
 ICE candidate negotiation. Uses aiortc for server-side WebRTC when available.
 
-Validates: Requirements 3.4, 3.7
+When a session has a pinned ScriptVersion, the voice pipeline loads the
+script content and uses it for script-driven debtor behavior (opening
+response, escalation, trigger phrases, etc.).
+
+Validates: Requirements 3.4, 3.7, 9.1, 9.2, 9.3, 9.4
 """
 
 import json
 import logging
+import asyncio
+import base64
 from uuid import UUID
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
+from app.database import async_session_factory
+from app.models import Session
+from app.services.script_content_loader import load_script_content
+from app.services.debtor_simulator import EmotionalState, PersonaContext
+from app.services.llm_service import LLMService
+from app.services.voice.pipeline_factory import create_voice_pipeline
+from app.services.voice.voice_pipeline import CallEndSignal
 from app.services.voice.peer_connection_manager import (
     PeerConnectionManager,
     AIORTC_AVAILABLE,
@@ -48,19 +61,74 @@ async def voice_signaling_websocket(websocket: WebSocket, session_id: UUID) -> N
       Payload: {"type": "error", "message": "<error description>"}
     """
     await websocket.accept()
+    manager = get_peer_connection_manager()
+    db_context = async_session_factory()
+    db = await db_context.__aenter__()
 
-    # Check if aiortc is available
+    # Resolve the immutable script snapshot once per connection.  The
+    # signaling route is intentionally transport-only today, but keeping the
+    # pinned content on the connection makes it available to the pipeline
+    # attachment when media handling is installed and prevents looking up a
+    # mutable Script.current_version_id mid-call.
+    script_content = None
+    session = None
+    try:
+        session = await db.get(Session, session_id)
+        if session is not None:
+            script_content = await load_script_content(db, session.script_version_id)
+    except Exception as exc:
+        # Signaling must remain available when the optional database is
+        # unavailable; media still works with the legacy unscripted path.
+        logger.warning("Voice session lookup unavailable: %s", exc)
+    websocket.state.script_content = script_content
+
     if not AIORTC_AVAILABLE:
         await websocket.send_json(
-            {
-                "type": "error",
-                "message": "WebRTC is not available: aiortc is not installed on the server.",
-            }
+            {"type": "error", "message": "WebRTC is not available: aiortc is not installed on the server."}
         )
         await websocket.close(code=1011, reason="aiortc not available")
+        await db_context.__aexit__(None, None, None)
         return
 
-    manager = get_peer_connection_manager()
+    pipeline = None
+    output_task = None
+    if session is not None:
+        persona_data = session.persona_context or {}
+        pipeline = create_voice_pipeline(
+            session_id=session_id,
+            persona=PersonaContext(
+                persona_id=session_id,
+                name=persona_data.get("name", "Debtor"),
+                communication_style=persona_data.get("communication_style", "cooperative"),
+                financial_circumstances=persona_data.get("financial_circumstances", {}),
+                emotional_state=EmotionalState(persona_data.get("emotional_state", 3)),
+                language=persona_data.get("language", "TAGLISH"),
+            ),
+            db=db,
+            llm_service=LLMService(),
+            peer_connection_manager=manager,
+            script_content=script_content,
+        )
+
+        async def forward_output():
+            while True:
+                item = await pipeline.get_next_response_audio()
+                if item is None:
+                    await asyncio.sleep(0.01)
+                    continue
+                if isinstance(item, CallEndSignal):
+                    await websocket.send_json(
+                        {"type": "call_ended", "reason": item.reason,
+                         "target_outcome": item.target_outcome}
+                    )
+                    await websocket.close()
+                    return
+                await websocket.send_json({
+                    "type": "audio",
+                    "audio": base64.b64encode(item).decode("ascii"),
+                })
+
+        output_task = asyncio.create_task(forward_output())
 
     logger.info(f"Voice WebSocket connected for session {session_id}")
 
@@ -93,6 +161,7 @@ async def voice_signaling_websocket(websocket: WebSocket, session_id: UUID) -> N
                         session_id=session_id,
                         sdp=sdp,
                         sdp_type="offer",
+                        on_track=pipeline.handle_audio_track if pipeline else None,
                     )
                     await websocket.send_json(
                         {"type": "answer", "sdp": answer["sdp"]}
@@ -157,5 +226,10 @@ async def voice_signaling_websocket(websocket: WebSocket, session_id: UUID) -> N
     except Exception as e:
         logger.error(f"Voice WebSocket error for session {session_id}: {e}")
     finally:
+        if output_task is not None:
+            output_task.cancel()
+        if pipeline is not None:
+            await pipeline.teardown()
+        await db_context.__aexit__(None, None, None)
         # Clean up the peer connection when WebSocket closes
         await manager.close_peer_connection(session_id)

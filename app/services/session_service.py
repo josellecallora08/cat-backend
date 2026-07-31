@@ -45,18 +45,16 @@ async def create_session(
 
     Raises:
         ValueError: If the scenario does not exist or is inactive.
-        ValueError: If the scenario has no active Published_Script.
     """
     scenario = await get_scenario_by_id(db, scenario_id)
     if scenario is None:
         raise ValueError(f"Scenario with id {scenario_id} not found or inactive")
 
+    # Scripts are optional. When a published script is linked to this
+    # scenario, pin its immutable version for deterministic debtor behavior.
+    # Otherwise preserve the simulator's default behavior so admins do not
+    # need to upload a script for every scenario.
     script_version = await get_active_published_version(db, scenario_id)
-    if script_version is None:
-        raise ValueError(
-            f"No Published_Script found for scenario {scenario_id}; "
-            f"cannot start Training_Call"
-        )
 
     # Build scenario dict for persona generation
     scenario_data = {
@@ -84,7 +82,7 @@ async def create_session(
         agent_id=agent_id,
         status="pending",
         persona_context=persona_dict,
-        script_version_id=script_version.id,
+        script_version_id=script_version.id if script_version is not None else None,
     )
 
     db.add(session)

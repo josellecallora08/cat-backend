@@ -728,8 +728,11 @@ class DebtorSimulatorService:
         # 1. Classify agent tone
         tone = classify_agent_tone(agent_message)
 
-        # 2. Transition emotional state
-        new_state = transition_emotional_state(persona.emotional_state, tone)
+        # 2. Transition emotional state (using script rules when available)
+        emotional_rules = script_content.get("emotional_state_rules") if script_content else None
+        new_state = transition_emotional_state(
+            persona.emotional_state, tone, emotional_state_rules=emotional_rules
+        )
         persona.emotional_state = new_state
 
         # 3. Detect language
@@ -738,6 +741,46 @@ class DebtorSimulatorService:
 
         # 4. Build system prompt
         system_prompt = self._build_conversation_system_prompt(persona, detected_language)
+
+        # Script matches are part of the pinned contract and must be visible
+        # to the model on every turn (text and voice use this same method).
+        if script_content:
+            escalation_result = evaluate_escalation_conditions(
+                agent_message, script_content.get("escalation_conditions")
+            )
+            trigger_behavior = match_trigger_phrase(
+                agent_message, script_content.get("trigger_phrases")
+            )
+            payment_match = match_payment_condition(
+                agent_message, script_content.get("payment_conditions")
+            )
+            script_context: list[str] = []
+            if escalation_result is not None:
+                escalation_behavior, ends_call = escalation_result
+                # Call termination is handled by the API/pipeline before this
+                # method is invoked; for non-terminal escalation, expose the
+                # scripted behavior to the model as turn context.
+                if not ends_call and escalation_behavior:
+                    script_context.append(
+                        f"Matched escalation behavior: {escalation_behavior}"
+                    )
+            if trigger_behavior:
+                script_context.append(f"Matched trigger behavior: {trigger_behavior}")
+            if payment_match is not None:
+                term, accepted = payment_match
+                script_context.append(
+                    f"Payment condition: term={term}; accepted={accepted}"
+                )
+            escalation_match = evaluate_escalation_conditions(
+                agent_message, script_content.get("escalation_conditions")
+            )
+            if escalation_match is not None and not escalation_match[1]:
+                script_context.append(f"Escalation behavior: {escalation_match[0]}")
+            if script_context:
+                system_prompt += (
+                    "\n\nScript instructions for this turn:\n- "
+                    + "\n- ".join(script_context)
+                )
 
         # 5. Build messages with conversation history
         messages: list[LLMMessage] = [LLMMessage(role="system", content=system_prompt)]

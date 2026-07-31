@@ -13,6 +13,7 @@ from app.models.user import User
 from app.schemas.script import (
     PaginatedScripts,
     ScriptCreateRequest,
+    ScriptAssignmentRequest,
     ScriptDetail,
     ScriptListItem,
     ScriptUpdateRequest,
@@ -174,6 +175,36 @@ async def update_script_endpoint(
     return _script_to_detail(script)
 
 
+@router.patch("/{script_id}/assignment", response_model=ScriptDetail)
+async def assign_script_endpoint(
+    script_id: UUID,
+    body: ScriptAssignmentRequest,
+    db: AsyncSession = Depends(get_session),
+    admin: User = Depends(require_admin),
+) -> ScriptDetail:
+    """Assign an existing script to a different scenario."""
+    script = await get_script(db, script_id)
+    if script is None:
+        raise HTTPException(status_code=404, detail="Script not found")
+    from app.models import Scenario
+    scenario = await db.get(Scenario, body.scenario_id)
+    if scenario is None:
+        raise HTTPException(status_code=404, detail="Scenario not found")
+    conflict = await db.scalar(
+        select(Script).where(
+            Script.scenario_id == body.scenario_id,
+            Script.id != script_id,
+            Script.is_deleted == False,  # noqa: E712
+        )
+    )
+    if conflict is not None:
+        raise HTTPException(status_code=409, detail="That scenario already has a script.")
+    script.scenario_id = body.scenario_id
+    await db.commit()
+    await db.refresh(script)
+    return _script_to_detail(script)
+
+
 @router.delete("/{script_id}", status_code=204)
 async def delete_script_endpoint(
     script_id: UUID,
@@ -185,6 +216,22 @@ async def delete_script_endpoint(
         await delete_script(db, script_id, admin_id=admin.id)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.post("/bulk-delete", status_code=204)
+async def bulk_delete_scripts_endpoint(
+    script_ids: list[UUID],
+    db: AsyncSession = Depends(get_session),
+    admin: User = Depends(require_admin),
+) -> None:
+    """Soft-delete multiple scripts in one administrator action."""
+    if not script_ids:
+        raise HTTPException(status_code=422, detail="At least one script is required")
+    for script_id in dict.fromkeys(script_ids):
+        try:
+            await delete_script(db, script_id, admin_id=admin.id)
+        except ValueError as e:
+            raise HTTPException(status_code=404, detail=str(e))
 
 
 @router.post("/{script_id}/publish", response_model=ScriptDetail)

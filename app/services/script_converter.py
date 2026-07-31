@@ -23,6 +23,7 @@ fails with an actionable error rather than silently inventing defaults.
 
 import json
 import logging
+import re
 from typing import Any
 
 import yaml
@@ -32,6 +33,11 @@ from app.config import settings
 from app.schemas.script import ScriptContract
 
 logger = logging.getLogger(__name__)
+
+_STRUCTURED_CODE_BLOCK = re.compile(
+    r"```(?P<format>json|ya?ml)\s*\r?\n(?P<body>.*?)\r?\n```",
+    re.IGNORECASE | re.DOTALL,
+)
 
 
 class ConversionError(Exception):
@@ -69,10 +75,28 @@ def convert_extracted_to_contract(
 
     text = extracted_text.strip()
 
+    # Markdown documents commonly wrap the authoritative ScriptContract in a
+    # fenced JSON/YAML block. Parse that block rather than misclassifying the
+    # document heading (for example "# Script: Name") as YAML.
+    fenced = _STRUCTURED_CODE_BLOCK.search(text)
+    if fenced:
+        fenced_format = fenced.group("format").lower()
+        fenced_text = fenced.group("body").strip()
+        if fenced_format == "json":
+            return _parse_json_contract(fenced_text)
+        return _parse_yaml_contract(fenced_text)
+
     # Detect whether the content attempts to be JSON
     is_json_attempt = text.startswith("{") or text.startswith("[")
     # Detect whether the content attempts to be YAML with mapping structure
-    is_yaml_attempt = ":" in text.split("\n")[0] and not is_json_attempt
+    first_meaningful_line = next(
+        (line.strip() for line in text.splitlines() if line.strip()), ""
+    )
+    is_yaml_attempt = (
+        ":" in first_meaningful_line
+        and not first_meaningful_line.startswith(("#", "-", "*", ">"))
+        and not is_json_attempt
+    )
 
     # If a format_hint is provided, use it to guide parsing
     if format_hint == "json" or (format_hint is None and is_json_attempt):

@@ -278,7 +278,7 @@ class TestCreateSession:
 
         assert session.script_version_id == script_version.id
 
-    async def test_raises_descriptive_error_when_script_is_draft_only(
+    async def test_starts_without_published_script_when_script_is_draft_only(
         self, async_db: AsyncSession
     ):
         scenario = _make_scenario()
@@ -301,10 +301,10 @@ class TestCreateSession:
         simulator = _make_mock_debtor_simulator()
         agent_id = uuid.uuid4()
 
-        with pytest.raises(ValueError, match="Published_Script"):
-            await create_session(async_db, scenario.id, agent_id, simulator)
+        session = await create_session(async_db, scenario.id, agent_id, simulator)
+        assert session.script_version_id is None
 
-    async def test_raises_descriptive_error_when_script_is_unpublished(
+    async def test_starts_without_published_script_when_script_is_unpublished(
         self, async_db: AsyncSession
     ):
         scenario = _make_scenario()
@@ -329,10 +329,10 @@ class TestCreateSession:
         simulator = _make_mock_debtor_simulator()
         agent_id = uuid.uuid4()
 
-        with pytest.raises(ValueError, match="Published_Script"):
-            await create_session(async_db, scenario.id, agent_id, simulator)
+        session = await create_session(async_db, scenario.id, agent_id, simulator)
+        assert session.script_version_id is None
 
-    async def test_raises_descriptive_error_when_no_script_exists(
+    async def test_starts_without_script_when_no_script_exists(
         self, async_db: AsyncSession
     ):
         scenario = _make_scenario()
@@ -342,8 +342,8 @@ class TestCreateSession:
         simulator = _make_mock_debtor_simulator()
         agent_id = uuid.uuid4()
 
-        with pytest.raises(ValueError, match="Published_Script"):
-            await create_session(async_db, scenario.id, agent_id, simulator)
+        session = await create_session(async_db, scenario.id, agent_id, simulator)
+        assert session.script_version_id is None
 
 
 class TestGetSession:

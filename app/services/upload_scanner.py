@@ -70,8 +70,15 @@ def scan_file(file_path: Path) -> ScanResult:
 
     try:
         result = cd.scan(str(file_path))
+        # A network-connected ClamAV daemon (including a container) cannot
+        # resolve the backend's local filesystem path. Its scan response is
+        # an ERROR rather than an exception, so stream the bytes in that case.
+        status = next(iter(result.values()), (None,))[0] if result else None
+        if status == "ERROR":
+            with open(file_path, "rb") as f:
+                result = cd.instream(f)
     except Exception as exc:
-        # File-path scan failed; try streaming scan (instream) for TCP mode
+        # File-path scan failed; try streaming scan as a safe fallback.
         logger.warning("File-path scan failed (%s), trying instream scan", exc)
         try:
             with open(file_path, "rb") as f:
