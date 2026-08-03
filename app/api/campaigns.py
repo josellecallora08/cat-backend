@@ -3,9 +3,11 @@
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_session
+from app.models.campaign import Campaign, CampaignAgent
 from app.models.user import User
 from app.schemas.campaign import (
     CampaignAgentItem,
@@ -15,7 +17,15 @@ from app.schemas.campaign import (
     CampaignUpdate,
     PaginatedCampaigns,
 )
-from app.services.auth import require_admin
+from app.schemas.campaign_progress import (
+    AgentCampaignWithProgress,
+    CampaignProgressResponse,
+)
+from app.services.auth import require_admin, require_agent
+from app.services.campaign_progress_service import (
+    get_agent_campaigns_with_progress,
+    get_campaign_progress,
+)
 from app.services.campaign_service import (
     archive_campaign,
     create_campaign,
@@ -86,6 +96,44 @@ async def create_campaign_endpoint(
             raise HTTPException(status_code=409, detail=msg)
         raise HTTPException(status_code=422, detail=msg)
     return _campaign_to_detail(campaign)
+
+
+@router.get("/my", response_model=list[AgentCampaignWithProgress])
+async def list_my_campaigns_endpoint(
+    db: AsyncSession = Depends(get_session),
+    current_user: User = Depends(require_agent),
+) -> list[AgentCampaignWithProgress]:
+    """Return active campaigns assigned to the authenticated agent."""
+    return await get_agent_campaigns_with_progress(db, current_user.id)
+
+
+@router.get("/{campaign_id}/progress", response_model=CampaignProgressResponse)
+async def get_campaign_progress_endpoint(
+    campaign_id: UUID,
+    db: AsyncSession = Depends(get_session),
+    current_user: User = Depends(require_agent),
+) -> CampaignProgressResponse:
+    """Return scenario completion progress for an assigned agent."""
+    campaign = await db.scalar(select(Campaign.id).where(Campaign.id == campaign_id))
+    if campaign is None:
+        raise HTTPException(status_code=404, detail="Campaign not found")
+
+    assignment = await db.scalar(
+        select(CampaignAgent.campaign_id).where(
+            CampaignAgent.campaign_id == campaign_id,
+            CampaignAgent.agent_id == current_user.id,
+        )
+    )
+    if assignment is None:
+        raise HTTPException(
+            status_code=403,
+            detail="Agent is not assigned to this campaign",
+        )
+
+    try:
+        return await get_campaign_progress(db, campaign_id, current_user.id)
+    except ValueError as error:
+        raise HTTPException(status_code=404, detail="Campaign not found") from error
 
 
 @router.get("/{campaign_id}", response_model=CampaignDetail)

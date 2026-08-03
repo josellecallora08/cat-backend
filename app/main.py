@@ -165,19 +165,19 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error("Startup error during seed: %s", e, exc_info=True)
 
-    yield
-    # Shutdown: close all WebSocket connections gracefully
-    await event_connection_manager.close_all(code=1001)
-    # Start quarantine cleanup scheduler
+    # Start quarantine cleanup scheduler after seeding
     from app.services.upload_quarantine import start_cleanup_scheduler
+
     await start_cleanup_scheduler(app)
 
-    try:
-        yield
-    finally:
-        from app.services.upload_quarantine import stop_cleanup_scheduler
+    yield
 
-        await stop_cleanup_scheduler(app, timeout_seconds=5)
+    # --- Shutdown ---
+    await event_connection_manager.close_all(code=1001)
+
+    from app.services.upload_quarantine import stop_cleanup_scheduler
+
+    await stop_cleanup_scheduler(app, timeout_seconds=5)
 
 
 def create_app() -> FastAPI:

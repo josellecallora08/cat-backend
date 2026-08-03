@@ -50,7 +50,7 @@ class EventBroadcaster:
         if metadata is None:
             metadata = EventMetadata()
 
-        seq = self._event_store.next_seq()
+        seq = await self._event_store.next_seq()
 
         event = EventPayload(
             event=event_type,

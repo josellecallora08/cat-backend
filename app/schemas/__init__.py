@@ -126,6 +126,7 @@ class SessionCreate(BaseModel):
     """Request body for creating a new training session."""
 
     scenario_id: UUID
+    campaign_id: UUID | None = None
 
 
 class SessionResponse(BaseModel):
@@ -133,6 +134,8 @@ class SessionResponse(BaseModel):
 
     id: UUID
     scenario_id: UUID
+    campaign_id: UUID | None = None
+    campaign_name: str | None = Field(default=None, max_length=100)
     persona: Optional[PersonaSummary] = None
     status: SessionStatus
     created_at: datetime

@@ -14,6 +14,7 @@ from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.models import Session
 from app.schemas.event import EventMetadata
@@ -25,7 +26,6 @@ from app.services.debtor_simulator import (
 from app.services.event_instances import event_broadcaster
 from app.services.scenario_repository import get_scenario_by_id
 from app.services.script_registry import get_active_published_version
-from app.services.debtor_simulator import DebtorSimulatorService, PersonaContext, EmotionalState
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +35,7 @@ async def create_session(
     scenario_id: UUID,
     agent_id: UUID,
     debtor_simulator: DebtorSimulatorService,
+    campaign_id: UUID | None = None,
 ) -> Session:
     """Create a new training session for a given scenario.
 
@@ -46,6 +47,7 @@ async def create_session(
         scenario_id: The UUID of the scenario to use.
         agent_id: The UUID of the agent starting the session.
         debtor_simulator: Service for generating the debtor persona.
+        campaign_id: Optional campaign context for the new session.
 
     Returns:
         The newly created Session model instance.
@@ -87,6 +89,7 @@ async def create_session(
     session = Session(
         scenario_id=scenario_id,
         agent_id=agent_id,
+        campaign_id=campaign_id,
         status="pending",
         persona_context=persona_dict,
         script_version_id=script_version.id if script_version is not None else None,
@@ -145,7 +148,11 @@ async def get_session(db: AsyncSession, session_id: UUID) -> Optional[Session]:
     Returns:
         The Session if found, otherwise None.
     """
-    stmt = select(Session).where(Session.id == session_id)
+    stmt = (
+        select(Session)
+        .options(selectinload(Session.campaign))
+        .where(Session.id == session_id)
+    )
     result = await db.execute(stmt)
     return result.scalar_one_or_none()
 

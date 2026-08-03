@@ -10,6 +10,11 @@ from typing import Sequence, Union
 
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy.dialects.postgresql import JSONB
+
+
+# Use JSONB on PostgreSQL, plain JSON on other backends (e.g., SQLite for tests)
+JSONVariant = sa.JSON().with_variant(JSONB, "postgresql")
 
 
 # revision identifiers, used by Alembic.
@@ -32,7 +37,7 @@ def upgrade() -> None:
             sa.Column("name", sa.String(length=255), nullable=False),
             sa.Column("scenario_type", sa.String(length=50), nullable=False),
             sa.Column("description", sa.Text(), nullable=True),
-            sa.Column("debtor_profile", sa.JSON(), nullable=False),
+            sa.Column("debtor_profile", JSONVariant, nullable=False),
             sa.Column(
                 "is_active",
                 sa.Boolean(),
@@ -68,7 +73,7 @@ def upgrade() -> None:
                 nullable=False,
                 server_default=sa.text("'pending'"),
             ),
-            sa.Column("persona_context", sa.JSON(), nullable=True),
+            sa.Column("persona_context", JSONVariant, nullable=True),
             sa.Column(
                 "created_at",
                 sa.DateTime(timezone=True),
@@ -102,9 +107,9 @@ def upgrade() -> None:
             sa.Column("id", sa.Uuid(), nullable=False),
             sa.Column("session_id", sa.Uuid(), nullable=False),
             sa.Column("overall_score", sa.Float(), nullable=False),
-            sa.Column("category_scores", sa.JSON(), nullable=False),
-            sa.Column("strengths", sa.JSON(), nullable=False),
-            sa.Column("weaknesses", sa.JSON(), nullable=False),
+            sa.Column("category_scores", JSONVariant, nullable=False),
+            sa.Column("strengths", JSONVariant, nullable=False),
+            sa.Column("weaknesses", JSONVariant, nullable=False),
             sa.Column(
                 "is_too_short",
                 sa.Boolean(),
@@ -129,7 +134,7 @@ def upgrade() -> None:
             "coaching_reports",
             sa.Column("id", sa.Uuid(), nullable=False),
             sa.Column("session_id", sa.Uuid(), nullable=False),
-            sa.Column("mistakes_by_category", sa.JSON(), nullable=False),
+            sa.Column("mistakes_by_category", JSONVariant, nullable=False),
             sa.Column("total_mistakes", sa.Integer(), nullable=False),
             sa.Column(
                 "no_mistakes",
@@ -158,7 +163,7 @@ def upgrade() -> None:
             sa.Column("id", sa.Uuid(), nullable=False),
             sa.Column("session_id", sa.Uuid(), nullable=False),
             sa.Column("agent_id", sa.Uuid(), nullable=False),
-            sa.Column("weak_competencies", sa.JSON(), nullable=False),
+            sa.Column("weak_competencies", JSONVariant, nullable=False),
             sa.Column(
                 "all_passing",
                 sa.Boolean(),
