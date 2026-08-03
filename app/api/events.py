@@ -112,7 +112,7 @@ async def events_websocket(websocket: WebSocket) -> None:
                         id="0",
                         timestamp=datetime.now(timezone.utc).isoformat(),
                     ),
-                    seq=event_store.next_seq(),
+                    seq=await event_store.next_seq(),
                 )
                 await websocket.send_json(resync_payload.model_dump())
             else:
