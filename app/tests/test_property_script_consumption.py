@@ -428,76 +428,56 @@ def _make_mock_debtor_simulator() -> DebtorSimulatorService:
     return simulator
 
 
-class TestTrainingCallFailsWithoutPublishedScript:
-    """Property 16: Training_Call start fails descriptively without a
-    Published_Script.
+class TestTrainingCallLegacyScriptCompatibility:
+    """Property coverage for legacy sessions without a published script.
 
-    Feature: ai-debtor-script-contract, Property 16: Training_Call start
-    fails descriptively without a Published_Script
-
-    For any scenario with no Published_Script (no script at all,
-    draft-only, or unpublished), attempting to start a Training_Call
-    SHALL fail with a descriptive error and SHALL NOT create a Session
-    with a script_version_id.
-
-    **Validates: Requirements 4.2**
+    Campaign-linked sessions now require a published negotiation standard, but
+    scenarios without a campaign remain supported for legacy/local training.
+    In that compatibility path, a missing, draft-only, or unpublished script
+    produces a normal session with no pinned script version.
     """
 
-    async def _assert_create_session_fails_without_partial_session(
+    async def _assert_create_session_remains_legacy_without_published_script(
         self, async_db: AsyncSession, scenario_id: uuid.UUID
     ) -> None:
-        """Shared assertion: create_session raises ValueError and no
-        Session row exists for scenario_id afterward."""
+        """A scriptless legacy session is created without a script pin."""
         simulator = _make_mock_debtor_simulator()
         agent_id = uuid.uuid4()
 
-        with pytest.raises(ValueError) as exc_info:
-            await create_session(async_db, scenario_id, agent_id, simulator)
+        session = await create_session(async_db, scenario_id, agent_id, simulator)
 
-        # Descriptive: the error must say something more than nothing.
-        assert str(exc_info.value).strip() != "", (
-            "Expected create_session to raise a ValueError with a "
-            "descriptive (non-empty) message when no Published_Script "
-            "exists"
-        )
-
+        assert session.scenario_id == scenario_id
+        assert session.status == "pending"
+        assert session.script_version_id is None
         result = await async_db.execute(
             select(Session).where(Session.scenario_id == scenario_id)
         )
         sessions = result.scalars().all()
-        assert sessions == [], (
-            "Expected no Session row to be created for the scenario when "
-            f"create_session fails due to a missing Published_Script, "
-            f"found {len(sessions)} row(s)"
-        )
+        assert len(sessions) == 1
+        assert sessions[0].script_version_id is None
 
         await async_db.rollback()
 
     @settings(max_examples=50, suppress_health_check=[HealthCheck.function_scoped_fixture])
     @given(case=st.just(None))
-    async def test_no_script_at_all_fails_without_partial_session(
+    async def test_no_script_at_all_creates_legacy_session_without_script_pin(
         self, async_db: AsyncSession, case
     ):
-        """For any scenario with no associated `Script` row at all,
-        `create_session` SHALL raise a descriptive `ValueError` and
-        SHALL NOT create a `Session` row for that scenario."""
+        """A scenario with no Script remains usable as a legacy session."""
         scenario = _make_scenario()
         async_db.add(scenario)
         await async_db.commit()
 
-        await self._assert_create_session_fails_without_partial_session(
+        await self._assert_create_session_remains_legacy_without_published_script(
             async_db, scenario.id
         )
 
     @settings(max_examples=50, suppress_health_check=[HealthCheck.function_scoped_fixture])
     @given(case=raw_definition_and_format_cases())
-    async def test_draft_only_script_fails_without_partial_session(
+    async def test_draft_only_script_creates_legacy_session_without_script_pin(
         self, async_db: AsyncSession, case
     ):
-        """For any scenario whose associated `Script` exists only as a
-        Draft_Script (never published), `create_session` SHALL raise a
-        descriptive `ValueError` and SHALL NOT create a `Session` row for
-        that scenario, regardless of the draft's varied content."""
+        """A draft-only Script does not block a legacy session."""
         name, raw_definition, format = case
 
         admin = _make_admin_user()
@@ -515,20 +495,16 @@ class TestTrainingCallFailsWithoutPublishedScript:
             raw_definition=raw_definition,
         )
 
-        await self._assert_create_session_fails_without_partial_session(
+        await self._assert_create_session_remains_legacy_without_published_script(
             async_db, scenario.id
         )
 
     @settings(max_examples=50, suppress_health_check=[HealthCheck.function_scoped_fixture])
     @given(case=raw_definition_and_format_cases())
-    async def test_unpublished_script_fails_without_partial_session(
+    async def test_unpublished_script_creates_legacy_session_without_script_pin(
         self, async_db: AsyncSession, case
     ):
-        """For any scenario whose associated `Script` was published then
-        unpublished, `create_session` SHALL raise a descriptive
-        `ValueError` and SHALL NOT create a `Session` row for that
-        scenario, despite the `Script`'s `current_version_id` and
-        `ScriptVersion` row still existing."""
+        """An unpublished Script does not block a legacy session."""
         name, raw_definition, format = case
 
         admin = _make_admin_user()
@@ -548,6 +524,6 @@ class TestTrainingCallFailsWithoutPublishedScript:
         await publish(async_db, script_id=script.id, admin_id=admin.id)
         await unpublish(async_db, script_id=script.id, admin_id=admin.id)
 
-        await self._assert_create_session_fails_without_partial_session(
+        await self._assert_create_session_remains_legacy_without_published_script(
             async_db, scenario.id
         )

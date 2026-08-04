@@ -16,7 +16,14 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models import Session
+from app.models import (
+    Campaign,
+    CampaignAgent,
+    NegotiationStandard,
+    NegotiationStandardVersion,
+    Session,
+    campaign_scenarios,
+)
 from app.schemas.event import EventMetadata
 from app.services.debtor_simulator import (
     DebtorSimulatorService,
@@ -30,6 +37,60 @@ from app.services.script_registry import get_active_published_version
 logger = logging.getLogger(__name__)
 
 
+class PublishedStandardRequiredError(ValueError):
+    """Raised when a campaign simulation lacks a published rubric version."""
+
+    def __init__(self, campaign_id: UUID) -> None:
+        super().__init__(f"Campaign {campaign_id} requires a published negotiation standard")
+        self.campaign_id = campaign_id
+
+
+async def _resolve_published_version(
+    db: AsyncSession,
+    scenario_id: UUID,
+    agent_id: UUID,
+    campaign_id: UUID | None,
+) -> NegotiationStandardVersion | None:
+    """Resolve an assigned campaign and its current immutable published version."""
+    campaign_statement = (
+        select(Campaign)
+        .join(campaign_scenarios, campaign_scenarios.c.campaign_id == Campaign.id)
+        .where(campaign_scenarios.c.scenario_id == scenario_id)
+    )
+    if campaign_id is not None:
+        campaign_statement = campaign_statement.where(Campaign.id == campaign_id)
+    else:
+        campaign_statement = campaign_statement.join(
+            CampaignAgent, CampaignAgent.campaign_id == Campaign.id
+        ).where(
+            CampaignAgent.agent_id == agent_id,
+            CampaignAgent.role != "trainer",
+        )
+    campaign_result = await db.execute(campaign_statement)
+    campaigns = campaign_result.scalars().unique().all()
+    if not campaigns:
+        return None
+    if campaign_id is None and len(campaigns) > 1:
+        raise PublishedStandardRequiredError(campaigns[0].id)
+    selected_campaign = campaigns[0]
+    statement = (
+        select(NegotiationStandardVersion)
+        .join(
+            NegotiationStandard,
+            NegotiationStandard.current_version_id == NegotiationStandardVersion.id,
+        )
+        .where(
+            NegotiationStandard.campaign_id == selected_campaign.id,
+            NegotiationStandard.status == "published",
+            NegotiationStandardVersion.snapshot.is_not(None),
+        )
+    )
+    version = (await db.execute(statement)).scalar_one_or_none()
+    if version is None:
+        raise PublishedStandardRequiredError(selected_campaign.id)
+    return version
+
+
 async def create_session(
     db: AsyncSession,
     scenario_id: UUID,
@@ -37,8 +98,11 @@ async def create_session(
     debtor_simulator: DebtorSimulatorService,
     campaign_id: UUID | None = None,
 ) -> Session:
-    """Create a new training session for a given scenario.
+    """Create a session and pin an assigned campaign's published rubric version.
 
+    Scenarios without a campaign remain readable for legacy/local sessions. When
+    a campaign is explicitly selected or uniquely assigned, a published version
+    is mandatory and is stored in the same transaction as the session.
     Validates the scenario exists, generates a debtor persona via the
     DebtorSimulatorService, and persists a new session with status "pending".
 
@@ -59,24 +123,19 @@ async def create_session(
     if scenario is None:
         raise ValueError(f"Scenario with id {scenario_id} not found or inactive")
 
-    # Scripts are optional. When a published script is linked to this
-    # scenario, pin its immutable version for deterministic debtor behavior.
-    # Otherwise preserve the simulator's default behavior so admins do not
-    # need to upload a script for every scenario.
+    standard_version = await _resolve_published_version(
+        db, scenario_id, agent_id, campaign_id
+    )
     script_version = await get_active_published_version(db, scenario_id)
 
-    # Build scenario dict for persona generation
     scenario_data = {
         "debtor_profile": scenario.debtor_profile,
         "scenario_type": scenario.scenario_type,
         "description": scenario.description or "",
     }
-
     persona: PersonaContext = await _generate_persona_with_fallback(
         debtor_simulator, scenario_data, scenario
     )
-
-    # Serialize persona context to JSONB-compatible dict
     persona_dict = {
         "persona_id": str(persona.persona_id),
         "name": persona.name,
@@ -93,18 +152,18 @@ async def create_session(
         status="pending",
         persona_context=persona_dict,
         script_version_id=script_version.id if script_version is not None else None,
+        negotiation_standard_version_id=(
+            standard_version.id if standard_version is not None else None
+        ),
     )
-
     db.add(session)
     await db.commit()
     await db.refresh(session)
-
     await event_broadcaster.emit(
         "session.created",
         session.id,
         EventMetadata(agent_id=agent_id),
     )
-
     return session
 
 

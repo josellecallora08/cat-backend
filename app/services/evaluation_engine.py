@@ -9,6 +9,7 @@ Validates: Requirements 5.1, 5.2, 5.3, 5.4, 5.5, 5.6, 5.7
 
 import json
 import logging
+from typing import Any
 from uuid import UUID
 
 from app.schemas import (
@@ -18,8 +19,22 @@ from app.schemas import (
     StrengthItem,
     WeaknessItem,
 )
+from app.schemas.negotiation_standard import NegotiationStandardContent, ValidationIssue
+from app.schemas.rubric_evaluation import (
+    CanonicalEvaluationResult,
+    RubricAIObservation,
+)
 from app.services.db_retry import retry_db_operation
 from app.services.llm_service import LLMMessage, LLMServiceProtocol
+from app.services.rubric_observation_validator import (
+    ObservationValidationError,
+    validate_observation,
+)
+from app.services.rubric_prompt_builder import (
+    build_evaluation_messages,
+    build_strict_response_schema,
+)
+from app.services.rubric_score_calculator import calculate_rubric_score
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +49,20 @@ CATEGORY_WEIGHTS: dict[EvaluationCategory, float] = {
 
 # Minimum number of agent utterances for a meaningful evaluation
 MIN_AGENT_UTTERANCES = 4
+MAX_RUBRIC_ATTEMPTS = 3
+
+
+class RubricEvaluationError(RuntimeError):
+    """Raised when bounded rubric evaluation cannot produce a trusted result."""
+
+    def __init__(self, errors: list[ValidationIssue]) -> None:
+        super().__init__("Rubric evaluation failed after bounded retries")
+        self.errors = errors
+
+
+class PinnedStandardRequiredError(RuntimeError):
+    """Raised when a rubric evaluation has no pinned published version."""
+
 
 EVALUATION_SYSTEM_PROMPT = """You are an expert evaluator of debt collection agent conversations.
 Analyze the following transcript and evaluate the agent's performance across four categories.
@@ -255,6 +284,139 @@ class EvaluationEngine:
             await self._persist_evaluation(session_id, result, db)
 
         return result
+
+    async def evaluate_rubric(
+        self,
+        session_id: UUID,
+        transcript: list[dict],
+        standard_version: Any,
+        db=None,
+    ) -> CanonicalEvaluationResult:
+        """Evaluate against one pinned published snapshot with bounded retries.
+
+        The LLM only supplies observations. Every reference and score is checked
+        against the supplied immutable snapshot before deterministic scoring.
+        """
+        raw_snapshot = (
+            standard_version.snapshot
+            if hasattr(standard_version, "snapshot")
+            else standard_version.get("snapshot", standard_version)
+        )
+        snapshot = (
+            raw_snapshot
+            if isinstance(raw_snapshot, NegotiationStandardContent)
+            else NegotiationStandardContent.model_validate(raw_snapshot)
+        )
+
+        if self.is_session_too_short(transcript):
+            not_applicable = RubricAIObservation(
+                status="not_applicable",
+                summary="The transcript was too short for a grounded rubric evaluation.",
+                categories=[
+                    {
+                        "rubric_block_id": block.id,
+                        "raw_score": None,
+                        "evidence": [],
+                        "strengths": [],
+                        "violations": [],
+                        "failed_criteria": [],
+                        "recommendation_inputs": [],
+                    }
+                    for block in snapshot.blocks
+                ],
+                applied_techniques={"techniques_used": [], "reason_if_empty": "Not applicable."},
+                missed_opportunities={"missed_techniques": [], "reason_if_empty": "Not applicable."},
+            )
+            canonical = calculate_rubric_score(
+                validate_observation(not_applicable, snapshot, transcript)
+            )
+            if db is not None:
+                await self._persist_rubric_evaluation(session_id, canonical, snapshot, standard_version, db)
+            return canonical
+
+        if self._llm_service is None:
+            raise ValueError("LLM service is required for rubric evaluation")
+
+        snapshot_dict = snapshot.model_dump(mode="json")
+        messages = build_evaluation_messages(snapshot_dict, transcript)
+        response_format = build_strict_response_schema(snapshot_dict)
+        errors: list[ValidationIssue] = []
+
+        for attempt in range(MAX_RUBRIC_ATTEMPTS):
+            response = await self._llm_service.chat_completion(
+                messages,
+                temperature=0.1,
+                response_format=response_format,
+            )
+            try:
+                payload = json.loads(response.content)
+                validated = validate_observation(payload, snapshot, transcript)
+                canonical = calculate_rubric_score(validated)
+            except ObservationValidationError as exc:
+                errors = exc.errors
+            except (json.JSONDecodeError, TypeError, ValueError) as exc:
+                errors = [
+                    ValidationIssue(
+                        code="invalid",
+                        path="response",
+                        message=f"The model response could not be converted into a valid rubric result: {exc}",
+                    )
+                ]
+            else:
+                if db is not None:
+                    await self._persist_rubric_evaluation(
+                        session_id, canonical, snapshot, standard_version, db
+                    )
+                return canonical
+
+            if attempt < MAX_RUBRIC_ATTEMPTS - 1:
+                feedback = "; ".join(f"{item.path}: {item.message}" for item in errors)
+                messages = build_evaluation_messages(snapshot_dict, transcript)
+                messages[0] = LLMMessage(
+                    role="system",
+                    content=f"{messages[0].content}\nPrevious output failed backend validation. Correct these issues: {feedback}",
+                )
+
+        raise RubricEvaluationError(errors)
+
+    async def _persist_rubric_evaluation(
+        self,
+        session_id: UUID,
+        canonical: CanonicalEvaluationResult,
+        snapshot: NegotiationStandardContent,
+        standard_version: Any,
+        db,
+    ) -> None:
+        """Persist canonical rubric data only after validation and scoring succeed."""
+        from app.models import Evaluation
+
+        version_id = getattr(standard_version, "id", None)
+        if isinstance(standard_version, dict):
+            version_id = standard_version.get("id")
+
+        async def _do_persist():
+            evaluation = Evaluation(
+                session_id=session_id,
+                overall_score=float(canonical.weighted_total),
+                category_scores=[item.model_dump(mode="json") for item in canonical.categories],
+                strengths=[],
+                weaknesses=[],
+                negotiation_standard_version_id=version_id,
+                standard_snapshot=snapshot.model_dump(mode="json"),
+                weighted_total=float(canonical.weighted_total),
+                passing_score=canonical.passing_score,
+                passed=canonical.passed,
+                rubric_result=canonical.model_dump(mode="json"),
+                is_too_short=canonical.status == "not_applicable",
+            )
+            db.add(evaluation)
+            await db.commit()
+
+        await retry_db_operation(
+            _do_persist,
+            session_id=str(session_id),
+            data=canonical.model_dump(mode="json"),
+        )
 
     def _format_transcript(self, transcript: list[dict]) -> str:
         """Format transcript entries into readable text for the LLM prompt.

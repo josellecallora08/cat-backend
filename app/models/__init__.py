@@ -15,9 +15,11 @@ from app.models.script import (
     ScriptStatus as ScriptStatus,
     ScriptVersion as ScriptVersion,
 )
-from app.models.script_upload import (
-    ScriptUpload as ScriptUpload,
-    UploadStatus as UploadStatus,
+from app.models.script_upload import ScriptUpload as ScriptUpload, UploadStatus as UploadStatus
+from app.models.negotiation_standard import (
+    ImmutableVersionError as ImmutableVersionError,
+    NegotiationStandard as NegotiationStandard,
+    NegotiationStandardVersion as NegotiationStandardVersion,
 )
 
 from sqlalchemy import (
@@ -84,6 +86,11 @@ class Session(Base):
         ForeignKey("campaigns.id", ondelete="SET NULL"),
         nullable=True,
     )
+    negotiation_standard_version_id = Column(
+        Uuid,
+        ForeignKey("negotiation_standard_versions.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
     created_at = Column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -94,6 +101,11 @@ class Session(Base):
     campaign = relationship("Campaign", lazy="selectin")
     transcripts = relationship("Transcript", back_populates="session")
     evaluation = relationship("Evaluation", back_populates="session", uselist=False)
+    negotiation_standard_version = relationship(
+        "NegotiationStandardVersion",
+        back_populates="sessions",
+        lazy="selectin",
+    )
     coaching_report = relationship(
         "CoachingReport", back_populates="session", uselist=False
     )
@@ -129,6 +141,16 @@ class Evaluation(Base):
     category_scores = Column(JSONVariant, nullable=False)
     strengths = Column(JSONVariant, nullable=False)
     weaknesses = Column(JSONVariant, nullable=False)
+    negotiation_standard_version_id = Column(
+        Uuid,
+        ForeignKey("negotiation_standard_versions.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
+    standard_snapshot = Column(JSONVariant, nullable=True)
+    weighted_total = Column(Float, nullable=True)
+    passing_score = Column(Integer, nullable=True)
+    passed = Column(Boolean, nullable=True)
+    rubric_result = Column(JSONVariant, nullable=True)
     is_too_short = Column(Boolean, default=False, nullable=False)
     created_at = Column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
@@ -136,8 +158,10 @@ class Evaluation(Base):
 
     # Relationships
     session = relationship("Session", back_populates="evaluation")
-
-
+    negotiation_standard_version = relationship(
+        "NegotiationStandardVersion",
+        back_populates="evaluations",
+    )
 class CoachingReport(Base):
     """Coaching report identifying mistakes and recommended alternatives."""
 

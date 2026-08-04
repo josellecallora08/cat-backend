@@ -30,6 +30,7 @@ from app.schemas import (
     WeaknessItem,
     MistakeItem,
     LearningPlanItem,
+    RubricRecommendation,
     EvaluationCategory,
 )
 from app.services.auth import get_current_user, require_auth
@@ -42,6 +43,7 @@ from app.services.evaluation_pipeline import EvaluationPipeline
 from app.services.llm_service import LLMService
 from app.services.script_content_loader import load_script_content
 from app.services.session_service import (
+    PublishedStandardRequiredError,
     create_session as create_session_service,
     get_session as get_session_service,
     end_session as end_session_service,
@@ -236,9 +238,10 @@ def _build_persona_summary(persona_context: dict | None) -> PersonaSummary | Non
 
 
 def _session_to_response(session: Session) -> SessionResponse:
-    """Convert a Session model to a SessionResponse schema."""
-    campaign = getattr(session, "campaign", None)
-    return SessionResponse(
+    """Convert a Session model to a response with pinned standard metadata."""
+    version = session.negotiation_standard_version
+    standard = version.standard if version is not None else None
+     return SessionResponse(
         id=session.id,
         scenario_id=session.scenario_id,
         campaign_id=session.campaign_id,
@@ -247,6 +250,10 @@ def _session_to_response(session: Session) -> SessionResponse:
         status=SessionStatus(session.status),
         created_at=session.created_at,
         ended_at=session.ended_at,
+        standard_id=standard.id if standard is not None else None,
+        standard_version_id=version.id if version is not None else None,
+        standard_version_number=version.version_number if version is not None else None,
+        standard_name=standard.name if standard is not None else None,
     )
 
 
@@ -299,8 +306,17 @@ async def create_session(
             debtor_simulator=debtor_simulator,
             campaign_id=body.campaign_id,
         )
+    except PublishedStandardRequiredError as error:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "published_standard_required",
+                "campaign_id": str(error.campaign_id),
+                "message": str(error),
+            },
+        ) from error
     except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        raise HTTPException(status_code=404, detail=str(e)) from e
 
     return _session_to_response(session)
 
@@ -442,12 +458,41 @@ async def get_session_evaluation(
             detail=f"No evaluation found for session {session_id}",
         )
 
-    # Parse stored JSON into schema objects
-    category_scores = [
-        CompetencyScore(**cs) for cs in (evaluation.category_scores or [])
-    ]
+    # Canonical rubric category scores use a different shape than the legacy
+    # competency contract. The canonical result is returned separately and
+    # legacy category scores remain available for historical evaluations.
+    rubric_result = evaluation.rubric_result or None
+    if rubric_result and rubric_result.get("categories"):
+        category_scores = []
+    else:
+        category_scores = [
+            CompetencyScore(**cs) for cs in (evaluation.category_scores or [])
+        ]
     strengths = [StrengthItem(**s) for s in (evaluation.strengths or [])]
     weaknesses = [WeaknessItem(**w) for w in (evaluation.weaknesses or [])]
+    if rubric_result and rubric_result.get("categories"):
+        # Canonical rubric evaluations may not have legacy finding arrays. Keep
+        # the historical response contract valid without altering canonical data.
+        fallback_excerpt = "See the canonical rubric evidence."
+        if not strengths:
+            strengths = [
+                StrengthItem(
+                    description="Canonical rubric result available.",
+                    category=EvaluationCategory.CALL_OPENING,
+                    transcript_excerpt=fallback_excerpt,
+                )
+            ]
+        if not weaknesses:
+            weaknesses = [
+                WeaknessItem(
+                    description="Review the canonical rubric findings.",
+                    category=EvaluationCategory.CALL_OPENING,
+                    transcript_excerpt=fallback_excerpt,
+                )
+            ]
+
+    version = getattr(evaluation, "negotiation_standard_version", None)
+    standard = getattr(version, "standard", None) if version is not None else None
 
     return EvaluationResult(
         session_id=evaluation.session_id,
@@ -456,6 +501,14 @@ async def get_session_evaluation(
         strengths=strengths,
         weaknesses=weaknesses,
         is_too_short=evaluation.is_too_short,
+        negotiation_standard_version_id=evaluation.negotiation_standard_version_id,
+        standard_name=getattr(standard, "name", None),
+        standard_version_number=getattr(version, "version_number", None),
+        weighted_total=evaluation.weighted_total,
+        passing_score=evaluation.passing_score,
+        passed=evaluation.passed,
+        standard_snapshot=evaluation.standard_snapshot,
+        rubric_result=rubric_result,
     )
 
 
@@ -480,10 +533,24 @@ async def get_session_coaching(
             detail=f"No coaching report found for session {session_id}",
         )
 
-    # Parse stored JSON into schema objects
+    # Parse legacy mistakes separately from rubric recommendation metadata.
+    raw_mistakes = report.mistakes_by_category or {}
+    recommendations = [
+        RubricRecommendation.model_validate(item)
+        for item in raw_mistakes.get("_rubric_recommendations", [])
+    ]
+    recommendations_by_block = {
+        block_id: [RubricRecommendation.model_validate(item) for item in items]
+        for block_id, items in raw_mistakes.get("_rubric_recommendations_by_block", {}).items()
+    }
     mistakes_by_category = {}
-    for category_key, mistakes in (report.mistakes_by_category or {}).items():
-        cat = EvaluationCategory(category_key)
+    for category_key, mistakes in raw_mistakes.items():
+        if category_key.startswith("_"):
+            continue
+        try:
+            cat = EvaluationCategory(category_key)
+        except ValueError:
+            continue
         mistakes_by_category[cat] = [MistakeItem(**m) for m in mistakes]
 
     return CoachingReportSchema(
@@ -491,6 +558,8 @@ async def get_session_coaching(
         mistakes_by_category=mistakes_by_category,
         total_mistakes=report.total_mistakes,
         no_mistakes=report.no_mistakes,
+        rubric_recommendations=recommendations,
+        rubric_recommendations_by_block=recommendations_by_block,
     )
 
 
@@ -524,6 +593,7 @@ async def get_session_learning_plan(
         session_id=plan.session_id,
         weak_competencies=weak_competencies,
         all_passing=plan.all_passing,
+        standard_version_id=session.negotiation_standard_version_id,
     )
 
 

@@ -18,14 +18,16 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Transcript
-from app.schemas import CoachingReportSchema, EvaluationResult, LearningPlanSchema
+from app.models import Session, Transcript
+from app.schemas import CoachingReportSchema, EvaluationCategory, EvaluationResult, LearningPlanSchema
 from app.schemas.event import EventMetadata
+from app.schemas.rubric_evaluation import CanonicalEvaluationResult
 from app.services.coaching_engine import CoachingEngine
 from app.services.evaluation_engine import EvaluationEngine
-from app.services.event_instances import event_broadcaster
+from app.services.evaluation_compatibility import build_rubric_recommendations
 from app.services.learning_plan_generator import LearningPlanGenerator
 from app.services.llm_service import LLMServiceProtocol
+from app.services.event_instances import event_broadcaster
 
 logger = logging.getLogger(__name__)
 
@@ -96,20 +98,95 @@ class EvaluationPipeline:
     async def run_evaluation(
         self, session_id: UUID, transcript: list[dict], db: AsyncSession
     ) -> EvaluationResult:
-        """Run the evaluation engine on the transcript.
+        """Run legacy-compatible or pinned rubric evaluation for a session."""
+        if isinstance(db, AsyncSession):
+            result = await db.execute(select(Session).where(Session.id == session_id))
+            session = result.scalar_one_or_none()
+            if session is None or session.negotiation_standard_version is None:
+                raise ValueError("Session has no pinned published negotiation standard version")
+            rubric_transcript = [
+                {**entry, "sequence_number": entry.get("sequence_number", index)}
+                for index, entry in enumerate(transcript)
+            ]
+            canonical = await self._evaluation_engine.evaluate_rubric(
+                session_id=session_id,
+                transcript=rubric_transcript,
+                standard_version=session.negotiation_standard_version,
+                db=None,
+            )
+            return self._canonical_to_legacy_result(
+                session_id, canonical, session.negotiation_standard_version
+            )
 
-        Args:
-            session_id: The UUID of the session.
-            transcript: List of transcript entry dicts.
-            db: Async database session for persistence.
-
-        Returns:
-            EvaluationResult with scores, strengths, and weaknesses.
-        """
+        # Existing unit callers use lightweight mocks and the legacy contract.
         return await self._evaluation_engine.evaluate(
             session_id=session_id,
             transcript=transcript,
             db=db,
+        )
+
+    @staticmethod
+    def _canonical_to_legacy_result(
+        session_id: UUID,
+        canonical: CanonicalEvaluationResult,
+        version,
+    ) -> EvaluationResult:
+        """Expose a safe compatibility view while canonical data remains authoritative."""
+        canonical = canonical.model_copy(
+            update={
+                "recommendations": build_rubric_recommendations(
+                    canonical, version.snapshot
+                )
+            }
+        )
+        def legacy_category(value: str) -> EvaluationCategory:
+            try:
+                return EvaluationCategory(value)
+            except ValueError:
+                return EvaluationCategory.CALL_OPENING
+
+        evidence_by_sequence = {
+            item.sequence_number: item.excerpt
+            for category in canonical.categories
+            for item in category.evidence
+        }
+        strengths = [
+            {
+                "description": item.explanation,
+                "category": legacy_category(category.category.lower().replace(" ", "_")),
+                "transcript_excerpt": evidence_by_sequence.get(
+                    item.evidence_sequence_numbers[0], "Evidence-backed finding"
+                ),
+            }
+            for category in canonical.categories
+            for item in category.strengths
+        ][:5]
+        weaknesses = [
+            {
+                "description": item.explanation,
+                "category": legacy_category(category.category.lower().replace(" ", "_")),
+                "transcript_excerpt": evidence_by_sequence.get(
+                    item.evidence_sequence_numbers[0], "Evidence-backed finding"
+                ),
+            }
+            for category in canonical.categories
+            for item in category.violations
+        ][:5]
+        if not strengths:
+            strengths = [{"description": canonical.summary, "category": EvaluationCategory.CALL_OPENING, "transcript_excerpt": canonical.summary}]
+        if not weaknesses:
+            weaknesses = [{"description": canonical.summary, "category": EvaluationCategory.CALL_OPENING, "transcript_excerpt": canonical.summary}]
+
+        return EvaluationResult(
+            session_id=session_id,
+            category_scores=[],
+            overall_score=float(canonical.weighted_total),
+            strengths=strengths,
+            weaknesses=weaknesses,
+            is_too_short=canonical.status == "not_applicable",
+            negotiation_standard_version_id=version.id,
+            standard_snapshot=version.snapshot,
+            rubric_result=canonical.model_dump(mode="json"),
         )
 
     async def run_coaching(
@@ -162,6 +239,82 @@ class EvaluationPipeline:
             db=db,
         )
 
+    async def _persist_rubric_artifacts(
+        self,
+        evaluation: EvaluationResult,
+        coaching_report: CoachingReportSchema,
+        learning_plan: LearningPlanSchema,
+        agent_id: UUID,
+        db: AsyncSession,
+    ) -> None:
+        """Commit canonical evaluation and derived artifacts as one unit."""
+        from app.models import CoachingReport, Evaluation, LearningPlan
+        from app.services.db_retry import retry_db_operation
+
+        if evaluation.rubric_result is None or evaluation.standard_snapshot is None:
+            raise ValueError("Pinned rubric evaluation is missing canonical persistence data")
+
+        canonical = CanonicalEvaluationResult.model_validate(evaluation.rubric_result)
+        serialized_coaching = {
+            category.value: [item.model_dump(mode="json") for item in items]
+            for category, items in coaching_report.mistakes_by_category.items()
+        }
+
+        if coaching_report.rubric_recommendations:
+            serialized_coaching["_rubric_recommendations"] = [
+                item.model_dump(mode="json")
+                for item in coaching_report.rubric_recommendations
+            ]
+            serialized_coaching["_rubric_recommendations_by_block"] = {
+                block_id: [item.model_dump(mode="json") for item in items]
+                for block_id, items in coaching_report.rubric_recommendations_by_block.items()
+            }
+
+        async def _do_persist() -> None:
+            db.add(
+                Evaluation(
+                    session_id=evaluation.session_id,
+                    overall_score=evaluation.overall_score,
+                    category_scores=[item.model_dump(mode="json") for item in canonical.categories],
+                    strengths=[item.model_dump(mode="json") for item in evaluation.strengths],
+                    weaknesses=[item.model_dump(mode="json") for item in evaluation.weaknesses],
+                    negotiation_standard_version_id=evaluation.negotiation_standard_version_id,
+                    standard_snapshot=evaluation.standard_snapshot,
+                    weighted_total=float(canonical.weighted_total),
+                    passing_score=canonical.passing_score,
+                    passed=canonical.passed,
+                    rubric_result=canonical.model_dump(mode="json"),
+                    is_too_short=evaluation.is_too_short,
+                )
+            )
+            db.add(
+                CoachingReport(
+                    session_id=evaluation.session_id,
+                    mistakes_by_category=serialized_coaching,
+                    total_mistakes=coaching_report.total_mistakes,
+                    no_mistakes=coaching_report.no_mistakes,
+                )
+            )
+            db.add(
+                LearningPlan(
+                    session_id=evaluation.session_id,
+                    agent_id=agent_id,
+                    weak_competencies=[item.model_dump(mode="json") for item in learning_plan.weak_competencies],
+                    all_passing=learning_plan.all_passing,
+                )
+            )
+            await db.commit()
+
+        try:
+            await retry_db_operation(
+                _do_persist,
+                session_id=str(evaluation.session_id),
+                data={"rubric_result": canonical.model_dump(mode="json")},
+            )
+        except Exception:
+            await db.rollback()
+            raise
+
     async def run(
         self, session_id: UUID, agent_id: UUID, db: AsyncSession
     ) -> PipelineResult:
@@ -192,8 +345,14 @@ class EvaluationPipeline:
                 session_id,
             )
 
+        rubric_transaction = isinstance(db, AsyncSession)
+
         # Step 2: Run evaluation
-        evaluation = await self.run_evaluation(session_id, transcript, db)
+        evaluation = await self.run_evaluation(
+            session_id,
+            transcript,
+            db,
+        )
         logger.info(
             "Evaluation complete for session %s: overall_score=%.1f, is_too_short=%s",
             session_id,
@@ -203,7 +362,10 @@ class EvaluationPipeline:
 
         # Step 3: Run coaching (even for too-short sessions, produces empty report)
         coaching_report = await self.run_coaching(
-            session_id, transcript, evaluation, db
+            session_id,
+            transcript,
+            evaluation,
+            None if rubric_transaction else db,
         )
         logger.info(
             "Coaching complete for session %s: %d mistakes identified",
@@ -213,7 +375,10 @@ class EvaluationPipeline:
 
         # Step 4: Generate learning plan
         learning_plan = await self.run_learning_plan(
-            session_id, agent_id, evaluation, db
+            session_id,
+            agent_id,
+            evaluation,
+            None if rubric_transaction else db,
         )
         logger.info(
             "Learning plan generated for session %s: all_passing=%s",
@@ -222,6 +387,11 @@ class EvaluationPipeline:
         )
 
         logger.info("Evaluation pipeline completed for session %s", session_id)
+
+        if rubric_transaction:
+            await self._persist_rubric_artifacts(
+                evaluation, coaching_report, learning_plan, agent_id, db
+            )
 
         # Emit real-time events after pipeline completes
         await event_broadcaster.emit(

@@ -98,3 +98,8 @@ class Campaign(Base):
     agent_assignments = relationship(
         "CampaignAgent", lazy="selectin", cascade="all, delete-orphan"
     )
+    negotiation_standard = relationship(
+        "NegotiationStandard",
+        back_populates="campaign",
+        uselist=False,
+    )

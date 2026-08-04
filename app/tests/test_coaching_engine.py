@@ -388,3 +388,44 @@ class TestGenerateReport:
 
         assert report.total_mistakes == 2
         assert len(report.mistakes_by_category[EvaluationCategory.COMPLIANCE]) == 2
+
+
+@pytest.mark.asyncio
+async def test_rubric_coaching_uses_validated_recommendations_without_calling_llm(
+    engine, mock_llm_service
+):
+    """Rubric coaching must be grounded and grouped without legacy LLM invention."""
+    session_id = uuid4()
+    evaluation = EvaluationResult(
+        session_id=session_id,
+        category_scores=[],
+        overall_score=55,
+        strengths=[StrengthItem(description="Grounded", category=EvaluationCategory.CALL_OPENING, transcript_excerpt="Evidence")],
+        weaknesses=[WeaknessItem(description="Needs work", category=EvaluationCategory.CALL_OPENING, transcript_excerpt="Evidence")],
+        rubric_result={
+            "status": "evaluated",
+            "summary": "Grounded.",
+            "categories": [],
+            "weighted_total": "55.00",
+            "passing_score": 70,
+            "passed": False,
+            "applied_techniques": {"techniques_used": [], "reason_if_empty": "None."},
+            "missed_opportunities": {"missed_techniques": [], "reason_if_empty": "None."},
+            "recommendations": [{
+                "rubric_block_id": "opening",
+                "criterion_id": "greeting",
+                "evidence_sequence_number": 4,
+                "explanation": "The evidence shows a missing greeting.",
+                "recommended_response": "I understand your concern. Let us review options.",
+                "coaching_advice": "Use a clear greeting before discussing the account.",
+            }],
+        },
+        standard_snapshot={"blocks": [{"id": "opening", "category": "Call Opening"}]},
+    )
+
+    report = await engine.generate_report(session_id, [], evaluation)
+
+    assert report.total_mistakes == 1
+    assert report.rubric_recommendations[0].evidence_sequence_number == 4
+    assert report.mistakes_by_category[EvaluationCategory.CALL_OPENING][0].transcript_position == 4
+    mock_llm_service.chat_completion.assert_not_called()
