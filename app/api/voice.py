@@ -17,7 +17,9 @@ import base64
 from uuid import UUID
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from jose import JWTError, jwt
 
+from app.config import settings
 from app.database import async_session_factory
 from app.models import Session
 from app.services.script_content_loader import load_script_content
@@ -61,6 +63,23 @@ async def voice_signaling_websocket(websocket: WebSocket, session_id: UUID) -> N
       Payload: {"type": "error", "message": "<error description>"}
     """
     await websocket.accept()
+
+    # --- JWT Authentication ---
+    token = websocket.query_params.get("token")
+    if not token:
+        await websocket.close(code=4401)
+        return
+
+    try:
+        payload = jwt.decode(token, settings.jwt_secret, algorithms=["HS256"])
+        user_id_str = payload.get("sub")
+        if not user_id_str:
+            await websocket.close(code=4401)
+            return
+    except JWTError:
+        await websocket.close(code=4401)
+        return
+
     manager = get_peer_connection_manager()
     db_context = async_session_factory()
     db = await db_context.__aenter__()
@@ -84,7 +103,10 @@ async def voice_signaling_websocket(websocket: WebSocket, session_id: UUID) -> N
 
     if not AIORTC_AVAILABLE:
         await websocket.send_json(
-            {"type": "error", "message": "WebRTC is not available: aiortc is not installed on the server."}
+            {
+                "type": "error",
+                "message": "WebRTC is not available: aiortc is not installed on the server.",
+            }
         )
         await websocket.close(code=1011, reason="aiortc not available")
         await db_context.__aexit__(None, None, None)
@@ -99,7 +121,9 @@ async def voice_signaling_websocket(websocket: WebSocket, session_id: UUID) -> N
             persona=PersonaContext(
                 persona_id=session_id,
                 name=persona_data.get("name", "Debtor"),
-                communication_style=persona_data.get("communication_style", "cooperative"),
+                communication_style=persona_data.get(
+                    "communication_style", "cooperative"
+                ),
                 financial_circumstances=persona_data.get("financial_circumstances", {}),
                 emotional_state=EmotionalState(persona_data.get("emotional_state", 3)),
                 language=persona_data.get("language", "TAGLISH"),
@@ -118,15 +142,20 @@ async def voice_signaling_websocket(websocket: WebSocket, session_id: UUID) -> N
                     continue
                 if isinstance(item, CallEndSignal):
                     await websocket.send_json(
-                        {"type": "call_ended", "reason": item.reason,
-                         "target_outcome": item.target_outcome}
+                        {
+                            "type": "call_ended",
+                            "reason": item.reason,
+                            "target_outcome": item.target_outcome,
+                        }
                     )
                     await websocket.close()
                     return
-                await websocket.send_json({
-                    "type": "audio",
-                    "audio": base64.b64encode(item).decode("ascii"),
-                })
+                await websocket.send_json(
+                    {
+                        "type": "audio",
+                        "audio": base64.b64encode(item).decode("ascii"),
+                    }
+                )
 
         output_task = asyncio.create_task(forward_output())
 
@@ -163,16 +192,12 @@ async def voice_signaling_websocket(websocket: WebSocket, session_id: UUID) -> N
                         sdp_type="offer",
                         on_track=pipeline.handle_audio_track if pipeline else None,
                     )
-                    await websocket.send_json(
-                        {"type": "answer", "sdp": answer["sdp"]}
-                    )
+                    await websocket.send_json({"type": "answer", "sdp": answer["sdp"]})
                     logger.info(
                         f"Session {session_id}: SDP offer processed, answer sent"
                     )
                 except Exception as e:
-                    logger.error(
-                        f"Session {session_id}: error handling offer: {e}"
-                    )
+                    logger.error(f"Session {session_id}: error handling offer: {e}")
                     await websocket.send_json(
                         {
                             "type": "error",
@@ -181,13 +206,33 @@ async def voice_signaling_websocket(websocket: WebSocket, session_id: UUID) -> N
                     )
 
             elif msg_type == "ice_candidate":
-                # Handle ICE candidate
-                candidate = message.get("candidate")
-                if not candidate:
+                raw_candidate = message.get("candidate")
+
+                if isinstance(raw_candidate, dict):
+                    # Nested format: RTCIceCandidate.toJSON() output
+                    candidate_str = raw_candidate.get("candidate")
+                    sdp_mid = raw_candidate.get("sdpMid")
+                    sdp_mline_index = raw_candidate.get("sdpMLineIndex")
+                elif isinstance(raw_candidate, str):
+                    # Flat format: backward-compatible plain string
+                    candidate_str = raw_candidate
+                    sdp_mid = message.get("sdpMid")
+                    sdp_mline_index = message.get("sdpMLineIndex")
+                else:
                     await websocket.send_json(
                         {
                             "type": "error",
-                            "message": "Missing 'candidate' in ice_candidate message",
+                            "message": "Invalid ICE candidate format: "
+                            "'candidate' must be a string or object",
+                        }
+                    )
+                    continue
+
+                if not candidate_str:
+                    await websocket.send_json(
+                        {
+                            "type": "error",
+                            "message": "Missing 'candidate' value in ice_candidate message",
                         }
                     )
                     continue
@@ -195,9 +240,9 @@ async def voice_signaling_websocket(websocket: WebSocket, session_id: UUID) -> N
                 try:
                     await manager.add_ice_candidate(
                         session_id=session_id,
-                        candidate=candidate,
-                        sdp_mid=message.get("sdpMid"),
-                        sdp_mline_index=message.get("sdpMLineIndex"),
+                        candidate=candidate_str,
+                        sdp_mid=sdp_mid,
+                        sdp_mline_index=sdp_mline_index,
                     )
                     await websocket.send_json(
                         {"type": "ice_candidate_ack", "status": "added"}

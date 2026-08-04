@@ -1,6 +1,6 @@
 """In-memory event store with ring buffer and TTL-based eviction."""
 
-import threading
+import asyncio
 from collections import deque
 from datetime import datetime, timedelta, timezone
 
@@ -24,16 +24,19 @@ class EventStore:
         """
         self._ttl = timedelta(seconds=ttl_seconds)
         self._buffer: deque[tuple[datetime, EventPayload]] = deque()
-        self._lock = threading.Lock()
+        self._lock = asyncio.Lock()
         self._seq: int = 0
 
-    def next_seq(self) -> int:
+    async def next_seq(self) -> int:
         """Return and increment the global sequence counter.
+
+        Acquires the asyncio lock to guarantee monotonically increasing
+        sequence numbers across concurrent coroutines.
 
         Returns:
             The next sequence number (monotonically increasing).
         """
-        with self._lock:
+        async with self._lock:
             self._seq += 1
             return self._seq
 
