@@ -388,3 +388,88 @@ class TestFormatTranscript:
         assert lines[0] == "AGENT: First"
         assert lines[1] == "DEBTOR: Second"
         assert lines[2] == "AGENT: Third"
+
+
+class TestPinnedRubricEvaluation:
+    """Coverage for the TASK-032 protected observation path."""
+
+    @staticmethod
+    def snapshot() -> dict:
+        return {
+            "schema_version": 1,
+            "overall_passing_score": 70,
+            "blocks": [
+                {
+                    "id": "opening",
+                    "category": "Call Opening",
+                    "weight": 100,
+                    "passing_score": 70,
+                    "scoring_instructions": "Use evidence.",
+                    "positive_behaviors": [],
+                    "violations": [{
+                        "id": "rude-tone",
+                        "name": "Rude tone",
+                        "description": "Uses a rude tone.",
+                        "evidence_instructions": "Quote it.",
+                    }],
+                    "penalties": [{"violation_id": "rude-tone", "deduction": 20, "max_occurrences": 1}],
+                    "recommendation_guidance": "Use a respectful tone.",
+                    "display_order": 0,
+                }
+            ],
+        }
+
+    @staticmethod
+    def response() -> dict:
+        return {
+            "status": "evaluated",
+            "summary": "The agent used a grounded opening.",
+            "categories": [{
+                "rubric_block_id": "opening",
+                "raw_score": 80,
+                "evidence": [{"sequence_number": 0, "speaker": "agent", "excerpt": "Hello", "explanation": "Greeting."}],
+                "strengths": [],
+                "violations": [{"violation_id": "rude-tone", "explanation": "Tone issue.", "evidence_sequence_numbers": [0]}],
+                "failed_criteria": [],
+                "recommendation_inputs": [],
+            }],
+            "applied_techniques": {"techniques_used": [], "reason_if_empty": "None."},
+            "missed_opportunities": {"missed_techniques": [], "reason_if_empty": "None."},
+        }
+
+    async def test_pinned_path_returns_deterministic_canonical_result(self):
+        response = MockLLMService(json.dumps(self.response()))
+        engine = EvaluationEngine(llm_service=response)
+        result = await engine.evaluate_rubric(
+            uuid.uuid4(),
+            [{"sequence_number": i, "speaker": "agent", "text": "Hello"} for i in range(4)],
+            {"id": uuid.uuid4(), "snapshot": self.snapshot()},
+        )
+        assert result.weighted_total == 60.0
+        assert result.categories[0].penalty_total == 20
+        assert result.categories[0].penalized_score == 60
+        assert response.call_count == 1
+
+    async def test_invalid_output_retries_at_most_three_times_and_does_not_persist(self):
+        class InvalidLLM:
+            call_count = 0
+
+            async def chat_completion(self, messages, **kwargs):
+                self.call_count += 1
+                return LLMResponse(content="{not-json", model="test")
+
+        llm = InvalidLLM()
+        db = AsyncMock()
+        db.add = MagicMock()
+        engine = EvaluationEngine(llm_service=llm)
+        from app.services.evaluation_engine import RubricEvaluationError
+
+        with pytest.raises(RubricEvaluationError):
+            await engine.evaluate_rubric(
+                uuid.uuid4(),
+                [{"sequence_number": i, "speaker": "agent", "text": "Hello"} for i in range(4)],
+                {"id": uuid.uuid4(), "snapshot": self.snapshot()},
+                db=db,
+            )
+        assert llm.call_count == 3
+        db.add.assert_not_called()

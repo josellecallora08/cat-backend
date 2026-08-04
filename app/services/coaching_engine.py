@@ -18,7 +18,9 @@ from app.schemas import (
     EvaluationResult,
     MistakeItem,
 )
+from app.schemas.rubric_evaluation import CanonicalEvaluationResult
 from app.services.db_retry import retry_db_operation
+from app.services.evaluation_compatibility import build_rubric_recommendations
 from app.services.llm_service import LLMMessage, LLMServiceProtocol
 
 logger = logging.getLogger(__name__)
@@ -103,6 +105,12 @@ class CoachingEngine:
         Returns:
             CoachingReportSchema with mistakes grouped by category.
         """
+        if evaluation.rubric_result is not None and evaluation.standard_snapshot is not None:
+            report = self._generate_rubric_report(evaluation)
+            if db is not None:
+                await self._persist_report(session_id, report, db)
+            return report
+
         # Build user prompt with transcript + evaluation context
         user_prompt = self._build_user_prompt(transcript, evaluation)
 
@@ -162,6 +170,45 @@ class CoachingEngine:
             await self._persist_report(session_id, report, db)
 
         return report
+
+    def _generate_rubric_report(self, evaluation: EvaluationResult) -> CoachingReportSchema:
+        """Create deterministic coaching from validated canonical findings."""
+        canonical = CanonicalEvaluationResult.model_validate(evaluation.rubric_result)
+        recommendations = canonical.recommendations or build_rubric_recommendations(
+            canonical, evaluation.standard_snapshot
+        )
+        mistakes_by_category: Dict[EvaluationCategory, List[MistakeItem]] = {}
+        recommendations_by_block: Dict[str, list] = {}
+        for recommendation in recommendations:
+            recommendations_by_block.setdefault(
+                recommendation.rubric_block_id, []
+            ).append(recommendation)
+            category = EvaluationCategory.CALL_OPENING
+            for block in evaluation.standard_snapshot.get("blocks", []):
+                if block.get("id") == recommendation.rubric_block_id:
+                    try:
+                        category = EvaluationCategory(
+                            block.get("category", "").lower().replace(" ", "_")
+                        )
+                    except ValueError:
+                        pass
+                    break
+            item = MistakeItem(
+                transcript_position=recommendation.evidence_sequence_number,
+                transcript_excerpt=f"Evidence sequence {recommendation.evidence_sequence_number}",
+                category=category,
+                explanation=recommendation.explanation,
+                recommended_alternative=recommendation.recommended_response,
+            )
+            mistakes_by_category.setdefault(category, []).append(item)
+        return CoachingReportSchema(
+            session_id=evaluation.session_id,
+            mistakes_by_category=mistakes_by_category,
+            total_mistakes=len(recommendations),
+            no_mistakes=not recommendations,
+            rubric_recommendations=recommendations,
+            rubric_recommendations_by_block=recommendations_by_block,
+        )
 
     def _build_user_prompt(
         self, transcript: list[dict], evaluation: EvaluationResult
@@ -225,6 +272,15 @@ class CoachingEngine:
                 category.value: [item.model_dump() for item in items]
                 for category, items in report.mistakes_by_category.items()
             }
+            if report.rubric_recommendations:
+                serialized_mistakes["_rubric_recommendations"] = [
+                    item.model_dump(mode="json")
+                    for item in report.rubric_recommendations
+                ]
+                serialized_mistakes["_rubric_recommendations_by_block"] = {
+                    block_id: [item.model_dump(mode="json") for item in items]
+                    for block_id, items in report.rubric_recommendations_by_block.items()
+                }
 
             coaching_report = CoachingReport(
                 session_id=session_id,

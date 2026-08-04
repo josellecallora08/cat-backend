@@ -16,7 +16,9 @@ from app.schemas import (
     LearningPlanItem,
     LearningPlanSchema,
 )
+from app.schemas.rubric_evaluation import CanonicalEvaluationResult
 from app.services.db_retry import retry_db_operation
+from app.services.evaluation_compatibility import redact_recommendation_text
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +61,9 @@ class LearningPlanGenerator:
         Returns:
             LearningPlanSchema with weak competencies and all_passing flag.
         """
+        if evaluation.rubric_result is not None and evaluation.standard_snapshot is not None:
+            return self._generate_rubric_plan(evaluation, session_id)
+
         weak_competencies: list[LearningPlanItem] = []
 
         for competency_score in evaluation.category_scores:
@@ -80,6 +85,59 @@ class LearningPlanGenerator:
             session_id=session_id,
             weak_competencies=weak_competencies,
             all_passing=all_passing,
+        )
+
+    def _generate_rubric_plan(
+        self, evaluation: EvaluationResult, session_id: UUID
+    ) -> LearningPlanSchema:
+        """Create criterion-linked practice items from canonical rubric results."""
+        canonical = CanonicalEvaluationResult.model_validate(evaluation.rubric_result)
+        display_order = {
+            block.get("id"): block.get("display_order", 0)
+            for block in evaluation.standard_snapshot.get("blocks", [])
+        }
+        ranked = sorted(
+            canonical.categories,
+            key=lambda category: (
+                -(max(0, category.passing_score - (category.penalized_score or 0))),
+                -category.penalty_total,
+                display_order.get(category.rubric_block_id, 0),
+            ),
+        )
+        items: list[LearningPlanItem] = []
+        for category in ranked:
+            criteria = list(dict.fromkeys(
+                category.failed_criteria
+                + [item.violation_id for item in category.violations]
+            ))
+            if category.passed and not criteria:
+                continue
+            targets = criteria or [None]
+            score = category.penalized_score or 0
+            for criterion_id in targets:
+                focus = (
+                    f"Practice criterion {criterion_id} using the pinned rubric guidance."
+                    if criterion_id
+                    else "Practice this rubric category using the pinned rubric guidance."
+                )
+                focus = redact_recommendation_text(focus)
+                items.append(
+                    LearningPlanItem(
+                        category=EvaluationCategory.CALL_OPENING,
+                        score=score,
+                        recommended_scenario=redact_recommendation_text(
+                            f"Rubric practice: {category.category}"
+                        ),
+                        rubric_block_id=category.rubric_block_id,
+                        criterion_id=criterion_id,
+                        practice_focus=focus,
+                    )
+                )
+        return LearningPlanSchema(
+            session_id=session_id,
+            weak_competencies=items,
+            all_passing=not items,
+            standard_version_id=evaluation.negotiation_standard_version_id,
         )
 
     async def generate_and_persist(

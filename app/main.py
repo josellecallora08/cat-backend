@@ -22,6 +22,7 @@ from app.api import (
     scripts,
     uploads,
     review,
+    negotiation_standards,
 )
 from app.config import settings
 from app.database import async_session_factory, get_session
@@ -224,6 +225,7 @@ def create_app() -> FastAPI:
     app.include_router(events.router, tags=["events"])
     app.include_router(uploads.router, prefix="/api/scripts", tags=["uploads"])
     app.include_router(review.router, prefix="/api/scripts", tags=["review"])
+    app.include_router(negotiation_standards.router, prefix="/api/campaigns/{campaign_id}/negotiation-standard", tags=["negotiation-standards"])
     app.include_router(scripts.router, prefix="/api/scripts", tags=["scripts"])
 
     @app.get("/health")

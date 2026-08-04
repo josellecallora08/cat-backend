@@ -336,3 +336,52 @@ class TestWeaknessThreshold:
         """The mapping should cover all evaluation categories."""
         for category in EvaluationCategory:
             assert category in COMPETENCY_SCENARIO_MAP
+
+
+def test_rubric_learning_plan_retains_version_and_failed_criterion(
+    generator, session_id, agent_id
+):
+    """Rubric plans target failed criteria and retain the pinned version."""
+    evaluation = EvaluationResult(
+        session_id=session_id,
+        category_scores=[],
+        overall_score=40,
+        strengths=[StrengthItem(description="Grounded", category=EvaluationCategory.CALL_OPENING, transcript_excerpt="Evidence")],
+        weaknesses=[WeaknessItem(description="Needs work", category=EvaluationCategory.CALL_OPENING, transcript_excerpt="Evidence")],
+        negotiation_standard_version_id=uuid.UUID("11111111-1111-1111-1111-111111111111"),
+        rubric_result={
+            "status": "evaluated",
+            "summary": "Grounded.",
+            "categories": [{
+                "rubric_block_id": "negotiation",
+                "category": "Negotiation",
+                "raw_score": 60,
+                "penalty_total": 20,
+                "penalized_score": 40,
+                "weight": 100,
+                "weighted_contribution": "40.00",
+                "passing_score": 70,
+                "passed": False,
+                "evidence": [],
+                "strengths": [],
+                "violations": [{"violation_id": "legal-threat", "explanation": "Threat.", "evidence_sequence_numbers": [2]}],
+                "failed_criteria": ["legal-threat"],
+                "recommendation_inputs": [],
+            }],
+            "weighted_total": "40.00",
+            "passing_score": 70,
+            "passed": False,
+            "applied_techniques": {"techniques_used": [], "reason_if_empty": "None."},
+            "missed_opportunities": {"missed_techniques": [], "reason_if_empty": "None."},
+            "recommendations": [],
+        },
+        standard_snapshot={"blocks": [{"id": "negotiation", "category": "Negotiation"}]},
+    )
+
+    plan = generator.generate(evaluation, session_id, agent_id)
+
+    assert plan.all_passing is False
+    assert plan.standard_version_id == evaluation.negotiation_standard_version_id
+    assert plan.weak_competencies[0].rubric_block_id == "negotiation"
+    assert plan.weak_competencies[0].criterion_id == "legal-threat"
+    assert plan.weak_competencies[0].practice_focus

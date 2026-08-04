@@ -43,6 +43,7 @@ from app.services.auth import get_current_user
 from app.models.user import User
 from app.services.script_content_loader import load_script_content
 from app.services.session_service import (
+    PublishedStandardRequiredError,
     create_session as create_session_service,
     get_session as get_session_service,
     end_session as end_session_service,
@@ -229,14 +230,21 @@ def _build_persona_summary(persona_context: dict | None) -> PersonaSummary | Non
 
 
 def _session_to_response(session: Session) -> SessionResponse:
-    """Convert a Session model to a SessionResponse schema."""
+    """Convert a Session model to a response with pinned standard metadata."""
+    version = session.negotiation_standard_version
+    standard = version.standard if version is not None else None
     return SessionResponse(
         id=session.id,
         scenario_id=session.scenario_id,
+        campaign_id=standard.campaign_id if standard is not None else None,
         persona=_build_persona_summary(session.persona_context),
         status=SessionStatus(session.status),
         created_at=session.created_at,
         ended_at=session.ended_at,
+        standard_id=standard.id if standard is not None else None,
+        standard_version_id=version.id if version is not None else None,
+        standard_version_number=version.version_number if version is not None else None,
+        standard_name=standard.name if standard is not None else None,
     )
 
 
@@ -275,9 +283,19 @@ async def create_session(
             scenario_id=body.scenario_id,
             agent_id=agent_id,
             debtor_simulator=debtor_simulator,
+            campaign_id=body.campaign_id,
         )
+    except PublishedStandardRequiredError as error:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "published_standard_required",
+                "campaign_id": str(error.campaign_id),
+                "message": str(error),
+            },
+        ) from error
     except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        raise HTTPException(status_code=404, detail=str(e)) from e
 
     return _session_to_response(session)
 
