@@ -157,7 +157,7 @@ class TranscriptEntry(BaseModel):
     sequence_number: int = Field(ge=0)
 
 
-from app.schemas.rubric_evaluation import RubricRecommendation
+from app.schemas.rubric_evaluation import CanonicalEvaluationResult, RubricRecommendation
 
 
 class StrengthItem(BaseModel):
@@ -191,12 +191,17 @@ class EvaluationResult(BaseModel):
     session_id: UUID
     category_scores: List[CompetencyScore]
     overall_score: float = Field(ge=0, le=100)
-    strengths: List[StrengthItem] = Field(min_length=1, max_length=5)
-    weaknesses: List[WeaknessItem] = Field(min_length=1, max_length=5)
+    strengths: List[StrengthItem] = Field(default_factory=list)
+    weaknesses: List[WeaknessItem] = Field(default_factory=list)
     is_too_short: bool = False
     negotiation_standard_version_id: Optional[UUID] = None
+    standard_name: Optional[str] = None
+    standard_version_number: Optional[int] = None
+    weighted_total: Optional[float] = Field(default=None, ge=0, le=100)
+    passing_score: Optional[int] = Field(default=None, ge=0, le=100)
+    passed: Optional[bool] = None
     standard_snapshot: Optional[dict] = None
-    rubric_result: Optional[dict] = None
+    rubric_result: Optional[CanonicalEvaluationResult] = None
 
 
 # --- Coaching Schemas ---

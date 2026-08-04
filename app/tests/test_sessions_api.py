@@ -18,6 +18,8 @@ from app.models import (
     CoachingReport,
     Evaluation,
     LearningPlan,
+    NegotiationStandard,
+    NegotiationStandardVersion,
     Session,
     Transcript,
 )
@@ -447,6 +449,87 @@ class TestGetEvaluation:
         assert len(data["strengths"]) == 1
         assert len(data["weaknesses"]) == 1
         assert data["is_too_short"] is False
+
+    async def test_returns_canonical_rubric_result_and_pinned_standard_metadata(self, client):
+        session = _make_session()
+        version_id = uuid.uuid4()
+        standard = NegotiationStandard(
+            id=uuid.uuid4(),
+            campaign_id=uuid.uuid4(),
+            name="Compliance Standard",
+            status="published",
+            revision=2,
+            created_by=uuid.uuid4(),
+            updated_by=uuid.uuid4(),
+        )
+        version = NegotiationStandardVersion(
+            id=version_id,
+            standard_id=standard.id,
+            version_number=3,
+            schema_version=1,
+            snapshot={"schema_version": 1, "blocks": []},
+            content_hash="a" * 64,
+            created_by=uuid.uuid4(),
+            published_by=uuid.uuid4(),
+        )
+        version.standard = standard
+        canonical = {
+            "status": "evaluated",
+            "summary": "Evidence-grounded result.",
+            "categories": [{
+                "rubric_block_id": "compliance",
+                "category": "Compliance",
+                "raw_score": 80,
+                "penalty_total": 5,
+                "penalized_score": 75,
+                "weight": 100,
+                "weighted_contribution": 75,
+                "passing_score": 70,
+                "passed": True,
+                "evidence": [{"sequence_number": 1, "speaker": "agent", "excerpt": "Offer", "explanation": "Clear option."}],
+                "strengths": [],
+                "violations": [],
+                "failed_criteria": [],
+                "recommendation_inputs": [],
+            }],
+            "weighted_total": 75,
+            "passing_score": 70,
+            "passed": True,
+            "applied_techniques": {"techniques_used": [], "reason_if_empty": "None observed."},
+            "missed_opportunities": {"missed_techniques": [], "reason_if_empty": "None missed."},
+            "recommendations": [],
+        }
+        evaluation = Evaluation(
+            id=uuid.uuid4(),
+            session_id=session.id,
+            overall_score=75,
+            category_scores=[canonical["categories"][0]],
+            strengths=[],
+            weaknesses=[],
+            negotiation_standard_version_id=version_id,
+            standard_snapshot=version.snapshot,
+            weighted_total=75,
+            passing_score=70,
+            passed=True,
+            rubric_result=canonical,
+            is_too_short=False,
+        )
+        evaluation.negotiation_standard_version = version
+        mock_db = _mock_db_returning_scalar(evaluation)
+        app.dependency_overrides[get_db_session] = _override_db(mock_db)
+
+        with patch("app.api.sessions.get_session_service", new_callable=AsyncMock, return_value=session):
+            response = await client.get(f"/api/sessions/{session.id}/evaluation")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["standard_name"] == "Compliance Standard"
+        assert data["standard_version_number"] == 3
+        assert data["weighted_total"] == 75
+        assert data["passing_score"] == 70
+        assert data["passed"] is True
+        assert data["category_scores"] == []
+        assert data["rubric_result"]["categories"][0]["weighted_contribution"] == 75
 
     async def test_returns_404_for_nonexistent_session(self, client):
         with patch(

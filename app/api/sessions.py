@@ -29,6 +29,7 @@ from app.schemas import (
     WeaknessItem,
     MistakeItem,
     LearningPlanItem,
+    RubricRecommendation,
     EvaluationCategory,
 )
 from app.services.auth import get_current_user, require_auth
@@ -437,12 +438,21 @@ async def get_session_evaluation(
             detail=f"No evaluation found for session {session_id}",
         )
 
-    # Parse stored JSON into schema objects
-    category_scores = [
-        CompetencyScore(**cs) for cs in (evaluation.category_scores or [])
-    ]
+    # Canonical rubric category scores use a different shape than the legacy
+    # competency contract. The canonical result is returned separately and
+    # legacy category scores remain available for historical evaluations.
+    rubric_result = evaluation.rubric_result or None
+    if rubric_result and rubric_result.get("categories"):
+        category_scores = []
+    else:
+        category_scores = [
+            CompetencyScore(**cs) for cs in (evaluation.category_scores or [])
+        ]
     strengths = [StrengthItem(**s) for s in (evaluation.strengths or [])]
     weaknesses = [WeaknessItem(**w) for w in (evaluation.weaknesses or [])]
+
+    version = getattr(evaluation, "negotiation_standard_version", None)
+    standard = getattr(version, "standard", None) if version is not None else None
 
     return EvaluationResult(
         session_id=evaluation.session_id,
@@ -451,6 +461,14 @@ async def get_session_evaluation(
         strengths=strengths,
         weaknesses=weaknesses,
         is_too_short=evaluation.is_too_short,
+        negotiation_standard_version_id=evaluation.negotiation_standard_version_id,
+        standard_name=getattr(standard, "name", None),
+        standard_version_number=getattr(version, "version_number", None),
+        weighted_total=evaluation.weighted_total,
+        passing_score=evaluation.passing_score,
+        passed=evaluation.passed,
+        standard_snapshot=evaluation.standard_snapshot,
+        rubric_result=rubric_result,
     )
 
 
@@ -475,10 +493,24 @@ async def get_session_coaching(
             detail=f"No coaching report found for session {session_id}",
         )
 
-    # Parse stored JSON into schema objects
+    # Parse legacy mistakes separately from rubric recommendation metadata.
+    raw_mistakes = report.mistakes_by_category or {}
+    recommendations = [
+        RubricRecommendation.model_validate(item)
+        for item in raw_mistakes.get("_rubric_recommendations", [])
+    ]
+    recommendations_by_block = {
+        block_id: [RubricRecommendation.model_validate(item) for item in items]
+        for block_id, items in raw_mistakes.get("_rubric_recommendations_by_block", {}).items()
+    }
     mistakes_by_category = {}
-    for category_key, mistakes in (report.mistakes_by_category or {}).items():
-        cat = EvaluationCategory(category_key)
+    for category_key, mistakes in raw_mistakes.items():
+        if category_key.startswith("_"):
+            continue
+        try:
+            cat = EvaluationCategory(category_key)
+        except ValueError:
+            continue
         mistakes_by_category[cat] = [MistakeItem(**m) for m in mistakes]
 
     return CoachingReportSchema(
@@ -486,6 +518,8 @@ async def get_session_coaching(
         mistakes_by_category=mistakes_by_category,
         total_mistakes=report.total_mistakes,
         no_mistakes=report.no_mistakes,
+        rubric_recommendations=recommendations,
+        rubric_recommendations_by_block=recommendations_by_block,
     )
 
 
@@ -519,6 +553,7 @@ async def get_session_learning_plan(
         session_id=plan.session_id,
         weak_competencies=weak_competencies,
         all_passing=plan.all_passing,
+        standard_version_id=session.negotiation_standard_version_id,
     )
 
 

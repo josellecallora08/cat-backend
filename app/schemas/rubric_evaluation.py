@@ -3,7 +3,7 @@
 from typing import Annotated, Literal
 from decimal import Decimal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_serializer, model_validator
 
 
 Slug = Annotated[str, Field(min_length=1, max_length=120, pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$")]
@@ -162,6 +162,10 @@ class RubricCategoryScore(BaseModel):
 
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
+    @field_serializer("weighted_contribution", when_used="json")
+    def serialize_weighted_contribution(self, value: Decimal) -> float:
+        return float(value)
+
     rubric_block_id: Slug
     category: NonEmptyText
     raw_score: int | None = Field(default=None, ge=0, le=100)
@@ -182,6 +186,10 @@ class CanonicalEvaluationResult(BaseModel):
     """Backend-owned canonical rubric result."""
 
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    @field_serializer("weighted_total", when_used="json")
+    def serialize_weighted_total(self, value: Decimal) -> float:
+        return float(value)
 
     status: Literal["evaluated", "not_applicable"]
     summary: NonEmptyText
