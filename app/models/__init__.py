@@ -15,6 +15,7 @@ from app.models.script import (
     ScriptStatus as ScriptStatus,
     ScriptVersion as ScriptVersion,
 )
+from app.models.script_upload import ScriptUpload as ScriptUpload, UploadStatus as UploadStatus
 from app.models.negotiation_standard import (
     ImmutableVersionError as ImmutableVersionError,
     NegotiationStandard as NegotiationStandard,

@@ -450,6 +450,26 @@ async def get_session_evaluation(
         ]
     strengths = [StrengthItem(**s) for s in (evaluation.strengths or [])]
     weaknesses = [WeaknessItem(**w) for w in (evaluation.weaknesses or [])]
+    if rubric_result and rubric_result.get("categories"):
+        # Canonical rubric evaluations may not have legacy finding arrays. Keep
+        # the historical response contract valid without altering canonical data.
+        fallback_excerpt = "See the canonical rubric evidence."
+        if not strengths:
+            strengths = [
+                StrengthItem(
+                    description="Canonical rubric result available.",
+                    category=EvaluationCategory.CALL_OPENING,
+                    transcript_excerpt=fallback_excerpt,
+                )
+            ]
+        if not weaknesses:
+            weaknesses = [
+                WeaknessItem(
+                    description="Review the canonical rubric findings.",
+                    category=EvaluationCategory.CALL_OPENING,
+                    transcript_excerpt=fallback_excerpt,
+                )
+            ]
 
     version = getattr(evaluation, "negotiation_standard_version", None)
     standard = getattr(version, "standard", None) if version is not None else None

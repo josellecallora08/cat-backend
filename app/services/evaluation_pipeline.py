@@ -27,6 +27,7 @@ from app.services.evaluation_engine import EvaluationEngine
 from app.services.evaluation_compatibility import build_rubric_recommendations
 from app.services.learning_plan_generator import LearningPlanGenerator
 from app.services.llm_service import LLMServiceProtocol
+from app.services.event_instances import event_broadcaster
 
 logger = logging.getLogger(__name__)
 
@@ -275,8 +276,8 @@ class EvaluationPipeline:
                     session_id=evaluation.session_id,
                     overall_score=evaluation.overall_score,
                     category_scores=[item.model_dump(mode="json") for item in canonical.categories],
-                    strengths=[],
-                    weaknesses=[],
+                    strengths=[item.model_dump(mode="json") for item in evaluation.strengths],
+                    weaknesses=[item.model_dump(mode="json") for item in evaluation.weaknesses],
                     negotiation_standard_version_id=evaluation.negotiation_standard_version_id,
                     standard_snapshot=evaluation.standard_snapshot,
                     weighted_total=float(canonical.weighted_total),

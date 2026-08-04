@@ -191,8 +191,8 @@ class EvaluationResult(BaseModel):
     session_id: UUID
     category_scores: List[CompetencyScore]
     overall_score: float = Field(ge=0, le=100)
-    strengths: List[StrengthItem] = Field(default_factory=list)
-    weaknesses: List[WeaknessItem] = Field(default_factory=list)
+    strengths: List[StrengthItem] = Field(default_factory=list, min_length=1, max_length=5)
+    weaknesses: List[WeaknessItem] = Field(default_factory=list, min_length=1, max_length=5)
     is_too_short: bool = False
     negotiation_standard_version_id: Optional[UUID] = None
     standard_name: Optional[str] = None
