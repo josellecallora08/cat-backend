@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.database import get_session as get_db_session
 from app.models import CoachingReport, Evaluation, LearningPlan, Session, Transcript
@@ -49,6 +50,7 @@ from app.services.session_service import (
     get_session as get_session_service,
     end_session as end_session_service,
 )
+from app.services.campaign_validation_service import validate_campaign_context
 from app.services.trainer_service import (
     get_trainer_campaign,
     get_trainer_campaign_agent_ids,
@@ -67,6 +69,8 @@ class SessionListEntry(BaseModel):
 
     id: str
     scenario_id: str
+    campaign_id: str | None = None
+    campaign_name: str | None = None
     agent_id: str
     status: str
     persona_name: str | None = None
@@ -178,8 +182,10 @@ async def list_sessions(
     total_pages = max(1, -(-total // page_size))
 
     # Fetch page of sessions with evaluation scores
-    stmt = select(Session, Evaluation).outerjoin(
-        Evaluation, Evaluation.session_id == Session.id
+    stmt = (
+        select(Session, Evaluation)
+        .options(selectinload(Session.campaign))
+        .outerjoin(Evaluation, Evaluation.session_id == Session.id)
     )
     for cond in conditions:
         stmt = stmt.where(cond)
@@ -195,10 +201,13 @@ async def list_sessions(
         if evaluation and not evaluation.is_too_short:
             score = round(evaluation.overall_score, 1)
 
+        campaign = getattr(session, "campaign", None)
         items.append(
             SessionListEntry(
                 id=str(session.id),
                 scenario_id=str(session.scenario_id),
+                campaign_id=(str(session.campaign_id) if session.campaign_id else None),
+                campaign_name=getattr(campaign, "name", None),
                 agent_id=str(session.agent_id),
                 status=session.status,
                 persona_name=persona_ctx.get("name"),
@@ -234,10 +243,11 @@ def _session_to_response(session: Session) -> SessionResponse:
     """Convert a Session model to a response with pinned standard metadata."""
     version = session.negotiation_standard_version
     standard = version.standard if version is not None else None
-    return SessionResponse(
+     return SessionResponse(
         id=session.id,
         scenario_id=session.scenario_id,
-        campaign_id=standard.campaign_id if standard is not None else None,
+        campaign_id=session.campaign_id,
+        campaign_name=getattr(campaign, "name", None),
         persona=_build_persona_summary(session.persona_context),
         status=SessionStatus(session.status),
         created_at=session.created_at,
@@ -276,6 +286,18 @@ async def create_session(
         logger.warning(
             "Creating session without authenticated user — using random agent_id: %s",
             agent_id,
+        )
+
+    if body.campaign_id is not None:
+        is_admin = (
+            current_user is not None and current_user.role == UserRole.ADMIN.value
+        )
+        await validate_campaign_context(
+            db=db,
+            campaign_id=body.campaign_id,
+            agent_id=agent_id,
+            scenario_id=body.scenario_id,
+            is_admin=is_admin,
         )
 
     try:
@@ -607,7 +629,6 @@ async def send_message(
     """
     from app.services.debtor_simulator import (
         DebtorSimulatorService,
-        EmotionalState,
         Message,
         PersonaContext,
         select_opening_response,
@@ -677,6 +698,7 @@ async def send_message(
             # turns, but this early opening-response path bypasses it.
             if not is_system_prompt:
                 from app.services.debtor_simulator import Message
+
                 persona.conversation_history.append(
                     Message(role="agent", content=body.text)
                 )
@@ -766,22 +788,6 @@ async def send_message(
                 interrupt=False,
             )
 
-    # Script-driven trigger phrase and payment condition evaluation (before LLM generation)
-    trigger_behavior: str | None = None
-    payment_match: tuple[str, bool] | None = None
-    if script_content is not None and not is_system_prompt:
-        from app.services.debtor_simulator import (
-            match_trigger_phrase,
-            match_payment_condition,
-        )
-
-        trigger_behavior = match_trigger_phrase(
-            body.text, script_content.get("trigger_phrases")
-        )
-        payment_match = match_payment_condition(
-            body.text, script_content.get("payment_conditions")
-        )
-
     # Generate debtor response via LLM
     llm_service = LLMService()
     simulator = DebtorSimulatorService(llm_service)
@@ -817,9 +823,14 @@ async def send_message(
     if script_content is None:
         # Fallback: detect if debtor wants to end the call via hardcoded signals
         hang_up_signals = [
-            "hangs up", "ends the call", "slams the phone",
-            "puts down the phone", "disconnects",
-            "*hangs up*", "*ends call*", "*click*",
+            "hangs up",
+            "ends the call",
+            "slams the phone",
+            "puts down the phone",
+            "disconnects",
+            "*hangs up*",
+            "*ends call*",
+            "*click*",
             "[end_call]",
         ]
         response_lower = response.text.lower()
@@ -827,12 +838,19 @@ async def send_message(
 
         # Detect if debtor is interrupting (short, sharp interjection)
         interrupt_signals = [
-            "wait", "teka", "sandali", "ano", "ha?", "huy",
-            "excuse me", "hold on", "saglit", "wait lang",
+            "wait",
+            "teka",
+            "sandali",
+            "ano",
+            "ha?",
+            "huy",
+            "excuse me",
+            "hold on",
+            "saglit",
+            "wait lang",
         ]
-        interrupt = (
-            len(response.text.split()) <= 8 and
-            any(signal in response_lower for signal in interrupt_signals)
+        interrupt = len(response.text.split()) <= 8 and any(
+            signal in response_lower for signal in interrupt_signals
         )
 
         if call_ended:
@@ -840,6 +858,7 @@ async def send_message(
             _active_personas.pop(session_id, None)
             # Strip hang-up action markers from the displayed text
             import re
+
             display_text = re.sub(
                 r"\s*\*(?:hangs up|ends call|click|slams the phone|puts down the phone|disconnects)\*\s*",
                 "",

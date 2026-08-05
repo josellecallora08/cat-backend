@@ -80,8 +80,11 @@ class Session(Base):
     agent_id = Column(Uuid, nullable=False)
     status = Column(String(20), default="pending", nullable=False)
     persona_context = Column(JSONVariant)
-    script_version_id = Column(
-        Uuid, ForeignKey("script_versions.id"), nullable=True
+    script_version_id = Column(Uuid, ForeignKey("script_versions.id"), nullable=True)
+    campaign_id = Column(
+        Uuid,
+        ForeignKey("campaigns.id", ondelete="SET NULL"),
+        nullable=True,
     )
     negotiation_standard_version_id = Column(
         Uuid,
@@ -95,6 +98,7 @@ class Session(Base):
 
     # Relationships
     scenario = relationship("Scenario", back_populates="sessions")
+    campaign = relationship("Campaign", lazy="selectin")
     transcripts = relationship("Transcript", back_populates="session")
     evaluation = relationship("Evaluation", back_populates="session", uselist=False)
     negotiation_standard_version = relationship(
