@@ -225,23 +225,16 @@ class EvaluationPipeline:
         agent_id: UUID,
         evaluation: EvaluationResult,
         db: AsyncSession,
+        *,
+        persist: bool = True,
     ) -> LearningPlanSchema:
-        """Generate and persist the learning plan from evaluation results.
-
-        Args:
-            session_id: The UUID of the session.
-            agent_id: The UUID of the agent.
-            evaluation: The evaluation result to derive weak competencies.
-            db: Async database session for persistence.
-
-        Returns:
-            LearningPlanSchema with weak competencies and scenario mappings.
-        """
+        """Generate and persist the learning plan from evaluation results."""
         return await self._learning_plan_generator.generate_and_persist(
             evaluation=evaluation,
             session_id=session_id,
             agent_id=agent_id,
             db=db,
+            persist=persist,
         )
 
     async def _persist_rubric_artifacts(
@@ -385,7 +378,8 @@ class EvaluationPipeline:
             session_id,
             agent_id,
             evaluation,
-            None if rubric_transaction else db,
+            db,
+            persist=not rubric_transaction,
         )
         logger.info(
             "Learning plan generated for session %s: all_passing=%s",

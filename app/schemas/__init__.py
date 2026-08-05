@@ -237,11 +237,17 @@ class CoachingReportSchema(BaseModel):
 
 
 class LearningPlanItem(BaseModel):
-    """A single weak competency with recommended scenario."""
+    """A legacy or rubric-linked practice recommendation.
 
-    category: EvaluationCategory
+    Legacy items retain enum categories and scenario names. Canonical rubric
+    items may use administrator-defined category strings and only expose a
+    scenario when it was resolved from an authorized active campaign.
+    """
+
+    category: EvaluationCategory | str
     score: int = Field(ge=0, le=100)
-    recommended_scenario: str = Field(min_length=1)
+    recommended_scenario: Optional[str] = Field(default=None, min_length=1)
+    scenario_id: Optional[UUID] = None
     rubric_block_id: Optional[str] = None
     criterion_id: Optional[str] = None
     practice_focus: Optional[str] = None

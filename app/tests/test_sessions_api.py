@@ -944,6 +944,44 @@ class TestGetLearningPlan:
         assert response.status_code == 404
         assert "no learning plan" in response.json()["detail"].lower()
 
+    async def test_returns_canonical_rubric_item_and_scenario_id(self, client):
+        session = _make_session()
+        scenario_id = uuid.uuid4()
+        plan = LearningPlan(
+            id=uuid.uuid4(),
+            session_id=session.id,
+            agent_id=session.agent_id,
+            weak_competencies=[
+                {
+                    "category": "De-escalation",
+                    "score": 55,
+                    "recommended_scenario": "Authorized Practice",
+                    "scenario_id": scenario_id,
+                    "rubric_block_id": "de-escalation",
+                    "criterion_id": "calm-tone",
+                    "practice_focus": "Practice calm tone (calm-tone).",
+                }
+            ],
+            all_passing=False,
+        )
+        mock_db = _mock_db_returning_scalar(plan)
+        app.dependency_overrides[get_db_session] = _override_db(mock_db)
+
+        with patch(
+            "app.api.sessions.get_session_service",
+            new_callable=AsyncMock,
+            return_value=session,
+        ):
+            response = await client.get(f"/api/sessions/{session.id}/learning-plan")
+
+        assert response.status_code == 200
+        item = response.json()["weak_competencies"][0]
+        assert item["category"] == "De-escalation"
+        assert item["rubric_block_id"] == "de-escalation"
+        assert item["criterion_id"] == "calm-tone"
+        assert item["practice_focus"] == "Practice calm tone (calm-tone)."
+        assert item["scenario_id"] == str(scenario_id)
+
 
 ARTIFACT_PATHS = (
     "transcript",
