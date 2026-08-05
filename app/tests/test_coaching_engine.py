@@ -405,7 +405,22 @@ async def test_rubric_coaching_uses_validated_recommendations_without_calling_ll
         rubric_result={
             "status": "evaluated",
             "summary": "Grounded.",
-            "categories": [],
+            "categories": [{
+                "rubric_block_id": "opening",
+                "category": "Call Opening",
+                "raw_score": 55,
+                "penalty_total": 0,
+                "penalized_score": 55,
+                "weight": 100,
+                "weighted_contribution": 55,
+                "passing_score": 70,
+                "passed": False,
+                "evidence": [{"sequence_number": 4, "speaker": "agent", "excerpt": "Evidence", "explanation": "The evidence shows a missing greeting."}],
+                "strengths": [{"criterion_id": "greeting", "explanation": "The evidence shows a missing greeting.", "evidence_sequence_numbers": [4]}],
+                "violations": [],
+                "failed_criteria": [],
+                "recommendation_inputs": [{"criterion_id": "greeting", "transcript_sequence_number": 4, "need": "Use a clear greeting."}],
+            }],
             "weighted_total": "55.00",
             "passing_score": 70,
             "passed": False,
@@ -420,7 +435,22 @@ async def test_rubric_coaching_uses_validated_recommendations_without_calling_ll
                 "coaching_advice": "Use a clear greeting before discussing the account.",
             }],
         },
-        standard_snapshot={"blocks": [{"id": "opening", "category": "Call Opening"}]},
+        standard_snapshot={
+            "schema_version": 1,
+            "overall_passing_score": 70,
+            "blocks": [{
+                "id": "opening",
+                "category": "Call Opening",
+                "weight": 100,
+                "passing_score": 70,
+                "scoring_instructions": "Use evidence.",
+                "positive_behaviors": [{"id": "greeting", "name": "Greeting", "description": "Greets clearly.", "evidence_instructions": "Cite the greeting."}],
+                "violations": [],
+                "penalties": [],
+                "recommendation_guidance": "Use a clear greeting before discussing the account.",
+                "display_order": 0,
+            }],
+        },
     )
 
     report = await engine.generate_report(session_id, [], evaluation)

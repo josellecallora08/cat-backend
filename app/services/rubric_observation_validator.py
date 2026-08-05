@@ -98,27 +98,49 @@ def validate_observation(
         evidence_sequences = {item.sequence_number for item in category.evidence}
         for evidence_index, evidence in enumerate(category.evidence):
             _validate_evidence(errors, evidence, evidence_index, transcript_by_sequence, category_index)
+        criterion_evidence: dict[str, set[int]] = {}
+        finding_ids: set[str] = set()
         for finding_index, finding in enumerate(category.strengths):
             path = f"categories[{category_index}].strengths[{finding_index}]"
             _validate_finding(errors, finding.criterion_id, valid_criteria, finding.evidence_sequence_numbers, evidence_sequences, path)
+            if finding.criterion_id in valid_criteria:
+                finding_ids.add(finding.criterion_id)
+                criterion_evidence.setdefault(finding.criterion_id, set()).update(finding.evidence_sequence_numbers)
         for finding_index, finding in enumerate(category.violations):
             path = f"categories[{category_index}].violations[{finding_index}]"
             if finding.violation_id not in valid_violations:
                 errors.append(_error("unknown_reference", f"{path}.violation_id", "Violation is not declared in this rubric block."))
+            else:
+                finding_ids.add(finding.violation_id)
+                criterion_evidence.setdefault(finding.violation_id, set()).update(finding.evidence_sequence_numbers)
             _validate_sequences(errors, finding.evidence_sequence_numbers, evidence_sequences, f"{path}.evidence_sequence_numbers")
+        failed_criteria = set(category.failed_criteria)
         for criterion_index, criterion_id in enumerate(category.failed_criteria):
             if criterion_id not in valid_criteria:
                 errors.append(_error("unknown_reference", f"categories[{category_index}].failed_criteria[{criterion_index}]", "Criterion is not declared in this rubric block."))
-            elif not any(criterion_id == strength.criterion_id for strength in category.strengths) and not any(criterion_id == violation.violation_id for violation in category.violations):
-                errors.append(_error("required", f"categories[{category_index}].failed_criteria[{criterion_index}]", "Failed criteria require evidence-backed findings."))
+        recommendation_criteria: set[str] = set()
         for recommendation_index, recommendation in enumerate(category.recommendation_inputs):
             path = f"categories[{category_index}].recommendation_inputs[{recommendation_index}]"
             if recommendation.criterion_id not in valid_criteria:
                 errors.append(_error("unknown_reference", f"{path}.criterion_id", "Criterion is not declared in this rubric block."))
-            if recommendation.transcript_sequence_number not in transcript_by_sequence:
+                continue
+            recommendation_criteria.add(recommendation.criterion_id)
+            sequence = recommendation.transcript_sequence_number
+            if sequence not in transcript_by_sequence:
                 errors.append(_error("unknown_reference", f"{path}.transcript_sequence_number", "Transcript sequence does not exist."))
-            elif recommendation.transcript_sequence_number not in evidence_sequences:
+            elif sequence not in evidence_sequences:
                 errors.append(_error("required", f"{path}.transcript_sequence_number", "Recommendation requires matching category evidence."))
+            elif recommendation.criterion_id in criterion_evidence and sequence not in criterion_evidence[recommendation.criterion_id]:
+                errors.append(_error("required", f"{path}.transcript_sequence_number", "Recommendation requires evidence belonging to the cited criterion."))
+            elif recommendation.criterion_id not in criterion_evidence and recommendation.criterion_id not in failed_criteria:
+                errors.append(_error("required", f"{path}.criterion_id", "Recommendation requires a finding or failed criterion."))
+        for criterion_id in sorted(failed_criteria - finding_ids - recommendation_criteria):
+            criterion_index = category.failed_criteria.index(criterion_id)
+            errors.append(_error(
+                "required",
+                f"categories[{category_index}].failed_criteria[{criterion_index}]",
+                "Failed criteria require a finding or validated recommendation input.",
+            ))
 
     valid_technique_names = {
         item.name.casefold()

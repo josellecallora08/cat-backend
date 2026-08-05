@@ -215,7 +215,7 @@ class CoachingEngine:
     def _generate_rubric_report(self, evaluation: EvaluationResult) -> CoachingReportSchema:
         """Create deterministic coaching grouped by the pinned rubric blocks."""
         canonical = CanonicalEvaluationResult.model_validate(evaluation.rubric_result)
-        recommendations = canonical.recommendations or build_rubric_recommendations(
+        recommendations = build_rubric_recommendations(
             canonical,
             evaluation.standard_snapshot,
             evaluation.negotiation_standard_version_id,
