@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from app.database import Base, get_session
 from app.main import app
 from app.models import Campaign, CampaignAgent, Evaluation, LearningPlan, CoachingReport, Scenario, Transcript, User
+from app.services.auth import require_auth
 from app.services.debtor_simulator import EmotionalState, PersonaContext
 from app.services.evaluation_compatibility import render_legacy_review, to_legacy_review
 from app.services.evaluation_pipeline import EvaluationPipeline
@@ -133,6 +134,7 @@ async def test_complete_campaign_to_pinned_evaluation_and_results_api(db_session
         yield db_session
 
     app.dependency_overrides[get_session] = override_session
+    app.dependency_overrides[require_auth] = lambda: admin
     try:
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
@@ -146,3 +148,4 @@ async def test_complete_campaign_to_pinned_evaluation_and_results_api(db_session
         assert plan_response.status_code == 200 and plan_response.json()["standard_version_id"] == str(version.id)
     finally:
         app.dependency_overrides.pop(get_session, None)
+        app.dependency_overrides.pop(require_auth, None)

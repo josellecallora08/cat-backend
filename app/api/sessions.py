@@ -13,7 +13,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_session as get_db_session
-from app.models import Session, Evaluation, CoachingReport, LearningPlan, Transcript
+from app.models import CoachingReport, Evaluation, LearningPlan, Session, Transcript
 from app.models.user import User, UserRole, UserType
 from app.schemas import (
     SessionCreate,
@@ -40,9 +40,8 @@ from app.services.debtor_simulator import (
 )
 from app.services.evaluation_pipeline import EvaluationPipeline
 from app.services.llm_service import LLMService
-from app.services.auth import get_current_user
-from app.models.user import User
 from app.services.script_content_loader import load_script_content
+from app.services.session_access import get_authorized_session
 from app.services.session_service import (
     PublishedStandardRequiredError,
     create_session as create_session_service,
@@ -314,29 +313,7 @@ async def get_session(
       - Trainer: Allowed only if session belongs to an agent in their campaign.
       - Agent: Allowed only if session belongs to them.
     """
-    session = await get_session_service(db, session_id)
-    if session is None:
-        raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
-
-    # Authorization check
-    is_admin = current_user.role == UserRole.ADMIN.value
-    if not is_admin:
-        is_trainer = (
-            current_user.role == UserRole.USER.value
-            and current_user.user_type == UserType.TRAINER.value
-        )
-        if is_trainer:
-            campaign = await get_trainer_campaign(db, current_user.id)
-            if not campaign:
-                raise HTTPException(status_code=403, detail="Access denied")
-            campaign_agent_ids = await get_trainer_campaign_agent_ids(db, campaign.id)
-            if session.agent_id not in campaign_agent_ids:
-                raise HTTPException(status_code=403, detail="Access denied")
-        else:
-            # Agent: can only view own sessions
-            if session.agent_id != current_user.id:
-                raise HTTPException(status_code=403, detail="Access denied")
-
+    session = await get_authorized_session(db, session_id, current_user)
     return _session_to_response(session)
 
 
@@ -391,16 +368,14 @@ async def end_session(
 async def get_session_transcript(
     session_id: UUID,
     db: AsyncSession = Depends(get_db_session),
+    current_user: User = Depends(require_auth),
 ):
-    """Return transcript entries for a session."""
-    # Verify session exists
-    session = await get_session_service(db, session_id)
-    if session is None:
-        raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
+    """Return transcript entries for an authorized session."""
+    session = await get_authorized_session(db, session_id, current_user)
 
     stmt = (
         select(Transcript)
-        .where(Transcript.session_id == session_id)
+        .where(Transcript.session_id == session.id)
         .order_by(Transcript.sequence_number.asc())
     )
     result = await db.execute(stmt)
@@ -421,14 +396,12 @@ async def get_session_transcript(
 async def get_session_evaluation(
     session_id: UUID,
     db: AsyncSession = Depends(get_db_session),
+    current_user: User = Depends(require_auth),
 ):
-    """Return evaluation result for a session."""
-    # Verify session exists
-    session = await get_session_service(db, session_id)
-    if session is None:
-        raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
+    """Return evaluation result for an authorized session."""
+    session = await get_authorized_session(db, session_id, current_user)
 
-    stmt = select(Evaluation).where(Evaluation.session_id == session_id)
+    stmt = select(Evaluation).where(Evaluation.session_id == session.id)
     result = await db.execute(stmt)
     evaluation = result.scalar_one_or_none()
 
@@ -496,14 +469,12 @@ async def get_session_evaluation(
 async def get_session_coaching(
     session_id: UUID,
     db: AsyncSession = Depends(get_db_session),
+    current_user: User = Depends(require_auth),
 ):
-    """Return coaching report for a session."""
-    # Verify session exists
-    session = await get_session_service(db, session_id)
-    if session is None:
-        raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
+    """Return coaching report for an authorized session."""
+    session = await get_authorized_session(db, session_id, current_user)
 
-    stmt = select(CoachingReport).where(CoachingReport.session_id == session_id)
+    stmt = select(CoachingReport).where(CoachingReport.session_id == session.id)
     result = await db.execute(stmt)
     report = result.scalar_one_or_none()
 
@@ -547,12 +518,10 @@ async def get_session_coaching(
 async def get_session_learning_plan(
     session_id: UUID,
     db: AsyncSession = Depends(get_db_session),
+    current_user: User = Depends(require_auth),
 ):
-    """Return learning plan for a session."""
-    # Verify session exists
-    session = await get_session_service(db, session_id)
-    if session is None:
-        raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
+    """Return learning plan for an authorized session."""
+    session = await get_authorized_session(db, session_id, current_user)
 
     stmt = select(LearningPlan).where(LearningPlan.session_id == session_id)
     result = await db.execute(stmt)
