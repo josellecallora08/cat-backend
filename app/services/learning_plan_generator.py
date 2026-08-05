@@ -95,6 +95,13 @@ class LearningPlanGenerator:
     ) -> LearningPlanSchema:
         """Create deterministic criterion-linked practice items."""
         canonical = CanonicalEvaluationResult.model_validate(evaluation.rubric_result)
+        if canonical.status == "not_applicable":
+            return LearningPlanSchema(
+                session_id=session_id,
+                weak_competencies=[],
+                all_passing=False,
+                standard_version_id=evaluation.negotiation_standard_version_id,
+            )
         snapshot = evaluation.standard_snapshot or {}
         blocks = {block.get("id"): block for block in snapshot.get("blocks", [])}
         display_order = {

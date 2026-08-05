@@ -155,6 +155,8 @@ def build_rubric_recommendations(
         else CanonicalEvaluationResult.model_validate(canonical_result)
     )
     rubric = NegotiationStandardContent.model_validate(snapshot)
+    if canonical.status == "not_applicable":
+        return []
     blocks = {block.id: block for block in rubric.blocks}
     candidates: list[tuple[int, int, int, str, str, int, RubricRecommendation]] = []
 
@@ -219,6 +221,14 @@ def build_rubric_recommendations(
                     f"Recommendation for '{item.criterion_id}' is not linked to criterion evidence"
                 )
             criterion = criteria[item.criterion_id]
+            source = next(
+                (
+                    evidence
+                    for evidence in category.evidence
+                    if evidence.sequence_number == item.transcript_sequence_number
+                ),
+                None,
+            )
             explanation = _safe_recommendation_text(
                 findings.get(item.criterion_id, item.need),
                 SAFE_EXPLANATION,
@@ -241,6 +251,8 @@ def build_rubric_recommendations(
                 criterion_name=criterion.name,
                 display_order=block.display_order,
                 evidence_sequence_number=item.transcript_sequence_number,
+                source_speaker=source.speaker if source else None,
+                source_excerpt=source.excerpt if source else None,
                 explanation=explanation,
                 recommended_response=response,
                 coaching_advice=advice,

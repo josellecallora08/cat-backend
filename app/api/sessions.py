@@ -498,21 +498,39 @@ async def get_session_coaching(
     rubric_coaching = None
     if raw_mistakes.get("_rubric_coaching") is not None:
         rubric_coaching = RubricCoaching.model_validate(raw_mistakes["_rubric_coaching"])
+    if rubric_coaching is not None and not recommendations:
+        recommendations = [
+            recommendation
+            for block in rubric_coaching.blocks
+            for recommendation in block.recommendations
+        ]
+    if rubric_coaching is not None and not recommendations_by_block:
+        recommendations_by_block = {
+            block.rubric_block_id: block.recommendations
+            for block in rubric_coaching.blocks
+        }
+    has_canonical_coaching = bool(
+        rubric_coaching is not None
+        or raw_mistakes.get("_rubric_recommendations")
+        or raw_mistakes.get("_rubric_recommendations_by_block")
+    )
     mistakes_by_category = {}
-    for category_key, mistakes in raw_mistakes.items():
-        if category_key.startswith("_"):
-            continue
-        try:
-            cat = EvaluationCategory(category_key)
-        except ValueError:
-            continue
-        mistakes_by_category[cat] = [MistakeItem(**m) for m in mistakes]
+    if not has_canonical_coaching:
+        for category_key, mistakes in raw_mistakes.items():
+            if category_key.startswith("_"):
+                continue
+            try:
+                cat = EvaluationCategory(category_key)
+            except ValueError:
+                continue
+            mistakes_by_category[cat] = [MistakeItem(**m) for m in mistakes]
 
+    canonical_total = len(recommendations)
     return CoachingReportSchema(
         session_id=report.session_id,
         mistakes_by_category=mistakes_by_category,
-        total_mistakes=report.total_mistakes,
-        no_mistakes=report.no_mistakes,
+        total_mistakes=canonical_total if has_canonical_coaching else report.total_mistakes,
+        no_mistakes=canonical_total == 0 if has_canonical_coaching else report.no_mistakes,
         rubric_coaching=rubric_coaching,
         rubric_recommendations=recommendations,
         rubric_recommendations_by_block=recommendations_by_block,

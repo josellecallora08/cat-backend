@@ -64,6 +64,8 @@ class RubricRecommendation(BaseModel):
     criterion_name: NonEmptyText | None = None
     display_order: int | None = Field(default=None, ge=0)
     evidence_sequence_number: SequenceNumber
+    source_speaker: Literal["agent", "debtor"] | None = None
+    source_excerpt: NonEmptyText | None = None
     explanation: NonEmptyText
     recommended_response: NonEmptyText
     coaching_advice: NonEmptyText

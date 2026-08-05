@@ -834,6 +834,53 @@ class TestGetCoaching:
         assert data["rubric_coaching"]["blocks"][0]["block_name"] == "Custom Block"
         assert data["rubric_coaching"]["blocks"][0]["recommendations"][0]["criterion_name"] == "Custom Criterion"
 
+    async def test_mixed_canonical_report_suppresses_legacy_mistakes(self, client):
+        session = _make_session()
+        version_id = uuid.uuid4()
+        recommendation = {
+            "rubric_block_id": "custom-block",
+            "criterion_id": "custom-criterion",
+            "evidence_sequence_number": 3,
+            "explanation": "Needs work.",
+            "recommended_response": "Try a clearer response.",
+            "coaching_advice": "Use the criterion guidance.",
+            "standard_version_id": str(version_id),
+            "standard_version_number": 7,
+        }
+        report = CoachingReport(
+            id=uuid.uuid4(),
+            session_id=session.id,
+            mistakes_by_category={
+                "compliance": [{
+                    "transcript_position": 1,
+                    "transcript_excerpt": "Legacy duplicate",
+                    "category": "compliance",
+                    "explanation": "Duplicate",
+                    "recommended_alternative": "Do not render this.",
+                }],
+                "_rubric_recommendations": [recommendation],
+                "_rubric_recommendations_by_block": {"custom-block": [recommendation]},
+            },
+            total_mistakes=99,
+            no_mistakes=False,
+        )
+        app.dependency_overrides[get_db_session] = _override_db(
+            _mock_db_returning_scalar(report)
+        )
+
+        with patch(
+            "app.api.sessions.get_session_service",
+            new_callable=AsyncMock,
+            return_value=session,
+        ):
+            response = await client.get(f"/api/sessions/{session.id}/coaching")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["mistakes_by_category"] == {}
+        assert data["total_mistakes"] == 1
+        assert data["no_mistakes"] is False
+
 
 class TestGetLearningPlan:
     """Tests for GET /api/sessions/{id}/learning-plan."""
