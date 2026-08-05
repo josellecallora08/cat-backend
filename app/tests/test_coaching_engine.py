@@ -427,5 +427,7 @@ async def test_rubric_coaching_uses_validated_recommendations_without_calling_ll
 
     assert report.total_mistakes == 1
     assert report.rubric_recommendations[0].evidence_sequence_number == 4
-    assert report.mistakes_by_category[EvaluationCategory.CALL_OPENING][0].transcript_position == 4
+    assert report.mistakes_by_category == {}
+    assert report.rubric_coaching is not None
+    assert report.rubric_coaching.blocks[0].rubric_block_id == "opening"
     mock_llm_service.chat_completion.assert_not_called()

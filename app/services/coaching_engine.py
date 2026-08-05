@@ -18,7 +18,12 @@ from app.schemas import (
     EvaluationResult,
     MistakeItem,
 )
-from app.schemas.rubric_evaluation import CanonicalEvaluationResult
+from app.schemas.rubric_evaluation import (
+    CanonicalEvaluationResult,
+    RubricCoaching,
+    RubricCoachingBlock,
+    RubricRecommendation,
+)
 from app.services.db_retry import retry_db_operation
 from app.services.evaluation_compatibility import build_rubric_recommendations
 from app.services.llm_service import LLMMessage, LLMServiceProtocol
@@ -171,42 +176,84 @@ class CoachingEngine:
 
         return report
 
+    @staticmethod
+    def _enrich_rubric_recommendation(
+        recommendation: RubricRecommendation,
+        block: dict,
+        evaluation: EvaluationResult,
+    ) -> RubricRecommendation:
+        """Restore friendly rubric metadata for generated or historical recommendations."""
+        criteria = {
+            item.get("id"): item
+            for item in block.get("positive_behaviors", []) + block.get("violations", [])
+        }
+        criterion = criteria.get(recommendation.criterion_id, {})
+        return recommendation.model_copy(
+            update={
+                "block_name": recommendation.block_name
+                or block.get("category")
+                or recommendation.rubric_block_id,
+                "criterion_name": recommendation.criterion_name
+                or criterion.get("name")
+                or recommendation.criterion_id,
+                "display_order": (
+                    recommendation.display_order
+                    if recommendation.display_order is not None
+                    else block.get("display_order", 0)
+                ),
+                "standard_version_id": (
+                    recommendation.standard_version_id
+                    or evaluation.negotiation_standard_version_id
+                ),
+                "standard_version_number": (
+                    recommendation.standard_version_number
+                    or evaluation.standard_version_number
+                ),
+            }
+        )
+
     def _generate_rubric_report(self, evaluation: EvaluationResult) -> CoachingReportSchema:
-        """Create deterministic coaching from validated canonical findings."""
+        """Create deterministic coaching grouped by the pinned rubric blocks."""
         canonical = CanonicalEvaluationResult.model_validate(evaluation.rubric_result)
         recommendations = canonical.recommendations or build_rubric_recommendations(
-            canonical, evaluation.standard_snapshot
+            canonical,
+            evaluation.standard_snapshot,
+            evaluation.negotiation_standard_version_id,
+            evaluation.standard_version_number,
         )
-        mistakes_by_category: Dict[EvaluationCategory, List[MistakeItem]] = {}
-        recommendations_by_block: Dict[str, list] = {}
+        blocks_by_id = {
+            block.get("id"): block
+            for block in evaluation.standard_snapshot.get("blocks", [])
+        }
+        recommendations_by_block: dict[str, list[RubricRecommendation]] = {}
         for recommendation in recommendations:
-            recommendations_by_block.setdefault(
-                recommendation.rubric_block_id, []
-            ).append(recommendation)
-            category = EvaluationCategory.CALL_OPENING
-            for block in evaluation.standard_snapshot.get("blocks", []):
-                if block.get("id") == recommendation.rubric_block_id:
-                    try:
-                        category = EvaluationCategory(
-                            block.get("category", "").lower().replace(" ", "_")
-                        )
-                    except ValueError:
-                        pass
-                    break
-            item = MistakeItem(
-                transcript_position=recommendation.evidence_sequence_number,
-                transcript_excerpt=f"Evidence sequence {recommendation.evidence_sequence_number}",
-                category=category,
-                explanation=recommendation.explanation,
-                recommended_alternative=recommendation.recommended_response,
+            block = blocks_by_id.get(recommendation.rubric_block_id, {})
+            enriched = self._enrich_rubric_recommendation(recommendation, block, evaluation)
+            recommendations_by_block.setdefault(enriched.rubric_block_id, []).append(enriched)
+
+        grouped_blocks = [
+            RubricCoachingBlock(
+                rubric_block_id=block_id,
+                block_name=items[0].block_name or block_id,
+                display_order=items[0].display_order or 0,
+                recommendations=items,
             )
-            mistakes_by_category.setdefault(category, []).append(item)
+            for block_id, items in recommendations_by_block.items()
+        ]
+        grouped_blocks.sort(key=lambda block: (block.display_order, block.rubric_block_id))
+        rubric_coaching = RubricCoaching(
+            standard_version_id=evaluation.negotiation_standard_version_id,
+            standard_version_number=evaluation.standard_version_number,
+            blocks=grouped_blocks,
+        )
+        flattened = [item for items in recommendations_by_block.values() for item in items]
         return CoachingReportSchema(
             session_id=evaluation.session_id,
-            mistakes_by_category=mistakes_by_category,
-            total_mistakes=len(recommendations),
-            no_mistakes=not recommendations,
-            rubric_recommendations=recommendations,
+            mistakes_by_category={},
+            total_mistakes=len(flattened),
+            no_mistakes=not flattened,
+            rubric_coaching=rubric_coaching,
+            rubric_recommendations=flattened,
             rubric_recommendations_by_block=recommendations_by_block,
         )
 
@@ -272,6 +319,8 @@ class CoachingEngine:
                 category.value: [item.model_dump() for item in items]
                 for category, items in report.mistakes_by_category.items()
             }
+            if report.rubric_coaching is not None:
+                serialized_mistakes["_rubric_coaching"] = report.rubric_coaching.model_dump(mode="json")
             if report.rubric_recommendations:
                 serialized_mistakes["_rubric_recommendations"] = [
                     item.model_dump(mode="json")

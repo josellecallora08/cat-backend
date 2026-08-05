@@ -30,6 +30,7 @@ from app.schemas import (
     MistakeItem,
     LearningPlanItem,
     RubricRecommendation,
+    RubricCoaching,
     EvaluationCategory,
 )
 from app.services.auth import get_current_user, require_auth
@@ -494,6 +495,9 @@ async def get_session_coaching(
         block_id: [RubricRecommendation.model_validate(item) for item in items]
         for block_id, items in raw_mistakes.get("_rubric_recommendations_by_block", {}).items()
     }
+    rubric_coaching = None
+    if raw_mistakes.get("_rubric_coaching") is not None:
+        rubric_coaching = RubricCoaching.model_validate(raw_mistakes["_rubric_coaching"])
     mistakes_by_category = {}
     for category_key, mistakes in raw_mistakes.items():
         if category_key.startswith("_"):
@@ -509,6 +513,7 @@ async def get_session_coaching(
         mistakes_by_category=mistakes_by_category,
         total_mistakes=report.total_mistakes,
         no_mistakes=report.no_mistakes,
+        rubric_coaching=rubric_coaching,
         rubric_recommendations=recommendations,
         rubric_recommendations_by_block=recommendations_by_block,
     )

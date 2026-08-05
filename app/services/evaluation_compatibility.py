@@ -1,11 +1,14 @@
 """Adapters from canonical rubric results to the legacy review/Jinja contract."""
 
+from uuid import UUID
+
 from pydantic import BaseModel, ConfigDict, model_validator
 
 from app.schemas.rubric_evaluation import (
     CanonicalEvaluationResult,
     RubricAppliedTechniques,
     RubricMissedOpportunities,
+    RubricRecommendation,
 )
 
 
@@ -105,10 +108,11 @@ class RecommendationValidationError(ValueError):
 def build_rubric_recommendations(
     canonical_result: CanonicalEvaluationResult | dict,
     snapshot: dict,
-):
+    standard_version_id: UUID | None = None,
+    standard_version_number: int | None = None,
+) -> list[RubricRecommendation]:
     """Build prioritized, evidence-sequence-linked recommendations from validated data."""
     from app.schemas.negotiation_standard import NegotiationStandardContent
-    from app.schemas.rubric_evaluation import RubricRecommendation
 
     canonical = (
         canonical_result
@@ -121,6 +125,10 @@ def build_rubric_recommendations(
 
     for category in canonical.categories:
         block = blocks[category.rubric_block_id]
+        criteria = {
+            item.id: item
+            for item in block.positive_behaviors + block.violations
+        }
         evidence_sequences = {item.sequence_number for item in category.evidence}
         findings = {
             item.criterion_id: item.explanation for item in category.strengths
@@ -149,9 +157,7 @@ def build_rubric_recommendations(
                     })
 
         gap = max(0, block.passing_score - (category.penalized_score or 0))
-        valid_criteria = {
-            item.id for item in block.positive_behaviors + block.violations
-        }
+        valid_criteria = set(criteria)
         for recommendation in inputs:
             item = recommendation if hasattr(recommendation, "criterion_id") else type("Input", (), recommendation)()
             if item.criterion_id not in valid_criteria:
@@ -162,16 +168,22 @@ def build_rubric_recommendations(
                 raise RecommendationValidationError(
                     f"Recommendation for '{item.criterion_id}' is not linked to category evidence"
                 )
+            criterion = criteria[item.criterion_id]
             explanation = findings.get(item.criterion_id, item.need)
             generated = RubricRecommendation(
                 rubric_block_id=block.id,
+                block_name=block.category,
                 criterion_id=item.criterion_id,
+                criterion_name=criterion.name,
+                display_order=block.display_order,
                 evidence_sequence_number=item.transcript_sequence_number,
                 explanation=redact_recommendation_text(explanation),
                 recommended_response="I understand your concern. Let us review the available options together.",
                 coaching_advice=redact_recommendation_text(
                     f"{block.recommendation_guidance} Focus on the validated evidence at this moment."
                 ),
+                standard_version_id=standard_version_id,
+                standard_version_number=standard_version_number,
             )
             candidates.append((gap, category.penalty_total, block.display_order, generated))
 

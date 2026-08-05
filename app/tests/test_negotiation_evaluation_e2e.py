@@ -116,13 +116,24 @@ async def test_complete_campaign_to_pinned_evaluation_and_results_api(db_session
     assert result.evaluation.overall_score == 70.0
     assert result.evaluation.rubric_result is not None
     assert result.coaching_report.total_mistakes == 1
-    assert result.learning_plan.standard_version_id == version.id
+    assert result.coaching_report.mistakes_by_category == {}
+    assert result.coaching_report.rubric_coaching is not None
+    assert result.coaching_report.rubric_coaching.standard_version_id == version.id
+    assert result.coaching_report.rubric_coaching.standard_version_number == version.version_number
+    recommendation = result.coaching_report.rubric_recommendations[0]
+    assert recommendation.block_name == "Opening"
+    assert recommendation.criterion_name == "Rude tone"
+    assert recommendation.display_order == 0
+    assert recommendation.standard_version_id == version.id
+    assert recommendation.standard_version_number == version.version_number
     assert result.learning_plan.weak_competencies[0].criterion_id == "rude-tone"
     assert llm.calls == 1
 
     stored = (await db_session.execute(select(Evaluation).where(Evaluation.session_id == session.id))).scalar_one()
     assert stored.negotiation_standard_version_id == version.id
-    assert (await db_session.execute(select(CoachingReport).where(CoachingReport.session_id == session.id))).scalar_one()
+    stored_coaching = (await db_session.execute(select(CoachingReport).where(CoachingReport.session_id == session.id))).scalar_one()
+    assert stored_coaching.mistakes_by_category["_rubric_coaching"]["standard_version_id"] == str(version.id)
+    assert stored_coaching.mistakes_by_category["_rubric_coaching"]["blocks"][0]["recommendations"][0]["criterion_name"] == "Rude tone"
     assert (await db_session.execute(select(LearningPlan).where(LearningPlan.session_id == session.id))).scalar_one()
 
     legacy = to_legacy_review(result.evaluation.rubric_result)
@@ -145,6 +156,11 @@ async def test_complete_campaign_to_pinned_evaluation_and_results_api(db_session
         assert evaluation_response.json()["standard_version_number"] == 1
         assert evaluation_response.json()["weighted_total"] == 70.0
         assert coaching_response.status_code == 200 and coaching_response.json()["rubric_recommendations"]
+        coaching_data = coaching_response.json()
+        assert coaching_data["mistakes_by_category"] == {}
+        assert coaching_data["rubric_coaching"]["standard_version_id"] == str(version.id)
+        assert coaching_data["rubric_coaching"]["blocks"][0]["block_name"] == "Opening"
+        assert coaching_data["rubric_coaching"]["blocks"][0]["recommendations"][0]["criterion_name"] == "Rude tone"
         assert plan_response.status_code == 200 and plan_response.json()["standard_version_id"] == str(version.id)
     finally:
         app.dependency_overrides.pop(get_session, None)

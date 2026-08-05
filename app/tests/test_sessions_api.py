@@ -785,6 +785,55 @@ class TestGetCoaching:
         assert response.status_code == 404
         assert "no coaching report" in response.json()["detail"].lower()
 
+    async def test_returns_canonical_rubric_coaching_without_legacy_category_duplicates(self, client):
+        session = _make_session()
+        version_id = uuid.uuid4()
+        report = CoachingReport(
+            id=uuid.uuid4(),
+            session_id=session.id,
+            mistakes_by_category={
+                "_rubric_coaching": {
+                    "standard_version_id": str(version_id),
+                    "standard_version_number": 7,
+                    "blocks": [{
+                        "rubric_block_id": "custom-block",
+                        "block_name": "Custom Block",
+                        "display_order": 0,
+                        "recommendations": [{
+                            "rubric_block_id": "custom-block",
+                            "block_name": "Custom Block",
+                            "criterion_id": "custom-criterion",
+                            "criterion_name": "Custom Criterion",
+                            "display_order": 0,
+                            "evidence_sequence_number": 3,
+                            "explanation": "Needs work.",
+                            "recommended_response": "Let us review this.",
+                            "coaching_advice": "Use the criterion guidance.",
+                            "standard_version_id": str(version_id),
+                            "standard_version_number": 7,
+                        }],
+                    }],
+                }
+            },
+            total_mistakes=1,
+            no_mistakes=False,
+        )
+        app.dependency_overrides[get_db_session] = _override_db(_mock_db_returning_scalar(report))
+
+        with patch(
+            "app.api.sessions.get_session_service",
+            new_callable=AsyncMock,
+            return_value=session,
+        ):
+            response = await client.get(f"/api/sessions/{session.id}/coaching")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["mistakes_by_category"] == {}
+        assert data["rubric_coaching"]["standard_version_id"] == str(version_id)
+        assert data["rubric_coaching"]["blocks"][0]["block_name"] == "Custom Block"
+        assert data["rubric_coaching"]["blocks"][0]["recommendations"][0]["criterion_name"] == "Custom Criterion"
+
 
 class TestGetLearningPlan:
     """Tests for GET /api/sessions/{id}/learning-plan."""

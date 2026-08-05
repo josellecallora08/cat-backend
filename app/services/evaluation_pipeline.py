@@ -135,7 +135,10 @@ class EvaluationPipeline:
         canonical = canonical.model_copy(
             update={
                 "recommendations": build_rubric_recommendations(
-                    canonical, version.snapshot
+                    canonical,
+                    version.snapshot,
+                    getattr(version, "id", None),
+                    getattr(version, "version_number", None),
                 )
             }
         )
@@ -185,6 +188,8 @@ class EvaluationPipeline:
             weaknesses=weaknesses,
             is_too_short=canonical.status == "not_applicable",
             negotiation_standard_version_id=version.id,
+            standard_name=getattr(getattr(version, "standard", None), "name", None),
+            standard_version_number=version.version_number,
             standard_snapshot=version.snapshot,
             rubric_result=canonical.model_dump(mode="json"),
         )
@@ -260,6 +265,8 @@ class EvaluationPipeline:
             for category, items in coaching_report.mistakes_by_category.items()
         }
 
+        if coaching_report.rubric_coaching is not None:
+            serialized_coaching["_rubric_coaching"] = coaching_report.rubric_coaching.model_dump(mode="json")
         if coaching_report.rubric_recommendations:
             serialized_coaching["_rubric_recommendations"] = [
                 item.model_dump(mode="json")
