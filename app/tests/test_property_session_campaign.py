@@ -7,6 +7,8 @@ Properties 1, 2, and 11: persistence, deletion nullification, and no-campaign cr
 """
 
 import uuid
+from datetime import datetime, timezone
+from types import SimpleNamespace
 
 import pytest
 from hypothesis import HealthCheck, given, settings
@@ -126,3 +128,54 @@ class TestSessionCampaignProperties:
 
         assert persisted.campaign_id is None
         assert persisted.scenario_id == scenario.id
+
+
+class TestCriteriaCoachingCampaignSerializerExploration:
+    """Property 1 probes for campaign-present and campaign-absent serialization."""
+
+    @given(
+        campaign_name=campaign_names,
+        campaign_id=st.uuids(version=4),
+    )
+    @settings(max_examples=25)
+    def test_loaded_campaign_relationship_is_serialized_safely(
+        self, campaign_name: str, campaign_id: uuid.UUID
+    ) -> None:
+        """**Validates: Requirements 2.1, 2.2**"""
+        from app.api.sessions import _session_to_response
+
+        campaign = SimpleNamespace(id=campaign_id, name=campaign_name)
+        session = SimpleNamespace(
+            id=uuid.uuid4(),
+            scenario_id=uuid.uuid4(),
+            campaign_id=campaign_id,
+            campaign=campaign,
+            persona_context=None,
+            status="completed",
+            created_at=datetime(2024, 1, 1, tzinfo=timezone.utc),
+            ended_at=None,
+            negotiation_standard_version=None,
+        )
+
+        response = _session_to_response(session)
+
+        assert response.campaign_id == campaign_id
+        assert response.campaign_name == campaign_name
+
+    def test_absent_campaign_relationship_serializes_null_name(self) -> None:
+        """**Validates: Requirements 2.2**"""
+        from app.api.sessions import _session_to_response
+
+        session = SimpleNamespace(
+            id=uuid.uuid4(),
+            scenario_id=uuid.uuid4(),
+            campaign_id=None,
+            campaign=None,
+            persona_context=None,
+            status="completed",
+            created_at=datetime(2024, 1, 1, tzinfo=timezone.utc),
+            ended_at=None,
+            negotiation_standard_version=None,
+        )
+
+        assert _session_to_response(session).campaign_name is None

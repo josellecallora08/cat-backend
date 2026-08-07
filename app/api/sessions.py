@@ -241,9 +241,10 @@ def _build_persona_summary(persona_context: dict | None) -> PersonaSummary | Non
 
 def _session_to_response(session: Session) -> SessionResponse:
     """Convert a Session model to a response with pinned standard metadata."""
-    version = session.negotiation_standard_version
+    version = getattr(session, "negotiation_standard_version", None)
     standard = version.standard if version is not None else None
-     return SessionResponse(
+    campaign = getattr(session, "campaign", None)
+    return SessionResponse(
         id=session.id,
         scenario_id=session.scenario_id,
         campaign_id=session.campaign_id,

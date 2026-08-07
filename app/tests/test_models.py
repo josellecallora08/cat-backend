@@ -277,7 +277,8 @@ async def test_migration_upgrade_downgrade_upgrade_smoke():
 
     Runs the full Alembic migration chain against a disposable PostgreSQL
     database (created on the same server configured for tests), then
-    downgrades one revision and upgrades back to head, asserting the
+    downgrades the campaign branch from the merge head and upgrades back
+    to head, asserting the
     script registry schema (scripts/script_versions tables and
     sessions.script_version_id) is present at the end.
 
@@ -293,7 +294,12 @@ async def test_migration_upgrade_downgrade_upgrade_smoke():
         result = _run_alembic(project_root, scratch_asyncpg_url, "upgrade", "head")
         assert result.returncode == 0, result.stderr
 
-        result = _run_alembic(project_root, scratch_asyncpg_url, "downgrade", "-1")
+        result = _run_alembic(
+            project_root,
+            scratch_asyncpg_url,
+            "downgrade",
+            "014_negotiation_linear",
+        )
         assert result.returncode == 0, result.stderr
 
         result = _run_alembic(project_root, scratch_asyncpg_url, "upgrade", "head")
