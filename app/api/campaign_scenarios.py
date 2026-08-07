@@ -164,6 +164,7 @@ async def create_scenario_for_campaign(
         is_active=True,
     )
     db.add(scenario)
+    await db.flush()
 
     # Link to campaign
     await db.execute(
