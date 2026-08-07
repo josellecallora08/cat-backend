@@ -10,6 +10,9 @@ Validates: Requirements 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 7.7, 7.8
 import logging
 from uuid import UUID
 
+from sqlalchemy import select
+
+from app.models import Campaign, CampaignAgent, Scenario, Session, campaign_scenarios
 from app.schemas import (
     EvaluationCategory,
     EvaluationResult,
@@ -90,44 +93,50 @@ class LearningPlanGenerator:
     def _generate_rubric_plan(
         self, evaluation: EvaluationResult, session_id: UUID
     ) -> LearningPlanSchema:
-        """Create criterion-linked practice items from canonical rubric results."""
+        """Create deterministic criterion-linked practice items."""
         canonical = CanonicalEvaluationResult.model_validate(evaluation.rubric_result)
+        if canonical.status == "not_applicable":
+            return LearningPlanSchema(
+                session_id=session_id,
+                weak_competencies=[],
+                all_passing=False,
+                standard_version_id=evaluation.negotiation_standard_version_id,
+            )
+        snapshot = evaluation.standard_snapshot or {}
+        blocks = {block.get("id"): block for block in snapshot.get("blocks", [])}
         display_order = {
-            block.get("id"): block.get("display_order", 0)
-            for block in evaluation.standard_snapshot.get("blocks", [])
+            block_id: block.get("display_order", 0)
+            for block_id, block in blocks.items()
         }
         ranked = sorted(
             canonical.categories,
             key=lambda category: (
-                -(max(0, category.passing_score - (category.penalized_score or 0))),
+                -max(0, category.passing_score - (category.penalized_score or 0)),
                 -category.penalty_total,
                 display_order.get(category.rubric_block_id, 0),
+                category.rubric_block_id,
             ),
         )
         items: list[LearningPlanItem] = []
         for category in ranked:
-            criteria = list(dict.fromkeys(
-                category.failed_criteria
-                + [item.violation_id for item in category.violations]
-            ))
+            criteria = sorted(
+                set(category.failed_criteria)
+                | {item.violation_id for item in category.violations}
+            )
             if category.passed and not criteria:
                 continue
             targets = criteria or [None]
             score = category.penalized_score or 0
+            block = blocks.get(category.rubric_block_id, {})
             for criterion_id in targets:
-                focus = (
-                    f"Practice criterion {criterion_id} using the pinned rubric guidance."
-                    if criterion_id
-                    else "Practice this rubric category using the pinned rubric guidance."
+                focus = self._build_practice_focus(
+                    category.category, criterion_id, block
                 )
-                focus = redact_recommendation_text(focus)
                 items.append(
                     LearningPlanItem(
-                        category=EvaluationCategory.CALL_OPENING,
+                        category=category.category,
                         score=score,
-                        recommended_scenario=redact_recommendation_text(
-                            f"Rubric practice: {category.category}"
-                        ),
+                        recommended_scenario=None,
                         rubric_block_id=category.rubric_block_id,
                         criterion_id=criterion_id,
                         practice_focus=focus,
@@ -140,30 +149,104 @@ class LearningPlanGenerator:
             standard_version_id=evaluation.negotiation_standard_version_id,
         )
 
+    @staticmethod
+    def _build_practice_focus(
+        category_name: str, criterion_id: str | None, block: dict
+    ) -> str:
+        """Build actionable focus from the pinned rubric, never from a CTA."""
+        if criterion_id:
+            criterion = next(
+                (
+                    item
+                    for field in ("positive_behaviors", "violations")
+                    for item in block.get(field, [])
+                    if item.get("id") == criterion_id
+                ),
+                {},
+            )
+            criterion_name = criterion.get("name", criterion_id)
+            detail = criterion.get("evidence_instructions") or criterion.get(
+                "description", ""
+            )
+            focus = f"Practice {criterion_name} ({criterion_id})."
+            if detail:
+                focus += f" Focus on {detail}"
+        else:
+            focus = f"Practice {category_name} using the pinned rubric guidance."
+            instructions = block.get("scoring_instructions") or block.get(
+                "recommendation_guidance", ""
+            )
+            if instructions:
+                focus += f" Focus on {instructions}"
+        return redact_recommendation_text(focus)
+
+    async def _resolve_authorized_scenario(
+        self, session_id: UUID, agent_id: UUID, db
+    ) -> Scenario | None:
+        """Resolve the session scenario only within an active assigned campaign."""
+        statement = (
+            select(Scenario)
+            .join(Session, Session.scenario_id == Scenario.id)
+            .join(campaign_scenarios, campaign_scenarios.c.scenario_id == Scenario.id)
+            .join(Campaign, Campaign.id == campaign_scenarios.c.campaign_id)
+            .join(CampaignAgent, CampaignAgent.campaign_id == Campaign.id)
+            .where(
+                Session.id == session_id,
+                Session.agent_id == agent_id,
+                Scenario.is_active.is_(True),
+                Campaign.status == "active",
+                CampaignAgent.agent_id == agent_id,
+                CampaignAgent.role.in_(("participant", "team_lead")),
+            )
+            .order_by(Campaign.id)
+            .limit(1)
+        )
+        try:
+            result = await db.execute(statement)
+            return result.scalar_one_or_none()
+        except Exception:
+            logger.warning(
+                "Unable to resolve an authorized practice scenario for session %s",
+                session_id,
+                exc_info=True,
+            )
+            return None
+
     async def generate_and_persist(
         self,
         evaluation: EvaluationResult,
         session_id: UUID,
         agent_id: UUID,
         db=None,
+        *,
+        persist: bool = True,
     ) -> LearningPlanSchema:
-        """Generate a learning plan and persist it to the database.
-
-        Calls generate() to build the plan, then persists with retry
-        wrapper when a database session is provided.
-
-        Args:
-            evaluation: The completed EvaluationResult with category_scores.
-            session_id: The UUID of the session this plan belongs to.
-            agent_id: The UUID of the agent this plan is for.
-            db: Optional database session for persistence.
-
-        Returns:
-            LearningPlanSchema with weak competencies and all_passing flag.
-        """
+        """Generate, optionally resolve, and optionally persist a learning plan."""
         plan = self.generate(evaluation, session_id, agent_id)
 
-        if db is not None:
+        if (
+            db is not None
+            and evaluation.rubric_result is not None
+            and evaluation.standard_snapshot is not None
+            and plan.weak_competencies
+        ):
+            scenario = await self._resolve_authorized_scenario(session_id, agent_id, db)
+            if scenario is not None:
+                plan = plan.model_copy(
+                    update={
+                        "weak_competencies": [
+                            item.model_copy(
+                                update={
+                                    "scenario_id": scenario.id,
+                                    "recommended_scenario": scenario.name,
+                                }
+                            )
+                            for item in plan.weak_competencies
+                        ]
+                    }
+                )
+
+        if db is not None and persist:
             await self._persist_plan(session_id, agent_id, plan, db)
 
         return plan
@@ -186,7 +269,7 @@ class LearningPlanGenerator:
                 session_id=session_id,
                 agent_id=agent_id,
                 weak_competencies=[
-                    item.model_dump() for item in plan.weak_competencies
+                    item.model_dump(mode="json") for item in plan.weak_competencies
                 ],
                 all_passing=plan.all_passing,
             )
@@ -196,5 +279,5 @@ class LearningPlanGenerator:
         await retry_db_operation(
             _do_persist,
             session_id=str(session_id),
-            data=plan.model_dump(),
+            data=plan.model_dump(mode="json"),
         )

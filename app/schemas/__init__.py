@@ -158,7 +158,11 @@ class TranscriptEntry(BaseModel):
     sequence_number: int = Field(ge=0)
 
 
-from app.schemas.rubric_evaluation import CanonicalEvaluationResult, RubricRecommendation
+from app.schemas.rubric_evaluation import (
+    CanonicalEvaluationResult,
+    RubricCoaching,
+    RubricRecommendation,
+)
 
 
 class StrengthItem(BaseModel):
@@ -219,12 +223,13 @@ class MistakeItem(BaseModel):
 
 
 class CoachingReportSchema(BaseModel):
-    """Coaching report with mistakes grouped by evaluation category."""
+    """Coaching report with legacy and canonical rubric coaching contracts."""
 
     session_id: UUID
     mistakes_by_category: Dict[EvaluationCategory, List[MistakeItem]]
     total_mistakes: int = Field(ge=0)
     no_mistakes: bool = False
+    rubric_coaching: RubricCoaching | None = None
     rubric_recommendations: List[RubricRecommendation] = Field(default_factory=list)
     rubric_recommendations_by_block: Dict[str, List[RubricRecommendation]] = Field(default_factory=dict)
 
@@ -233,11 +238,17 @@ class CoachingReportSchema(BaseModel):
 
 
 class LearningPlanItem(BaseModel):
-    """A single weak competency with recommended scenario."""
+    """A legacy or rubric-linked practice recommendation.
 
-    category: EvaluationCategory
+    Legacy items retain enum categories and scenario names. Canonical rubric
+    items may use administrator-defined category strings and only expose a
+    scenario when it was resolved from an authorized active campaign.
+    """
+
+    category: EvaluationCategory | str
     score: int = Field(ge=0, le=100)
-    recommended_scenario: str = Field(min_length=1)
+    recommended_scenario: Optional[str] = Field(default=None, min_length=1)
+    scenario_id: Optional[UUID] = None
     rubric_block_id: Optional[str] = None
     criterion_id: Optional[str] = None
     practice_focus: Optional[str] = None

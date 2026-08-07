@@ -135,7 +135,10 @@ class EvaluationPipeline:
         canonical = canonical.model_copy(
             update={
                 "recommendations": build_rubric_recommendations(
-                    canonical, version.snapshot
+                    canonical,
+                    version.snapshot,
+                    getattr(version, "id", None),
+                    getattr(version, "version_number", None),
                 )
             }
         )
@@ -185,6 +188,8 @@ class EvaluationPipeline:
             weaknesses=weaknesses,
             is_too_short=canonical.status == "not_applicable",
             negotiation_standard_version_id=version.id,
+            standard_name=getattr(getattr(version, "standard", None), "name", None),
+            standard_version_number=version.version_number,
             standard_snapshot=version.snapshot,
             rubric_result=canonical.model_dump(mode="json"),
         )
@@ -220,23 +225,16 @@ class EvaluationPipeline:
         agent_id: UUID,
         evaluation: EvaluationResult,
         db: AsyncSession,
+        *,
+        persist: bool = True,
     ) -> LearningPlanSchema:
-        """Generate and persist the learning plan from evaluation results.
-
-        Args:
-            session_id: The UUID of the session.
-            agent_id: The UUID of the agent.
-            evaluation: The evaluation result to derive weak competencies.
-            db: Async database session for persistence.
-
-        Returns:
-            LearningPlanSchema with weak competencies and scenario mappings.
-        """
+        """Generate and persist the learning plan from evaluation results."""
         return await self._learning_plan_generator.generate_and_persist(
             evaluation=evaluation,
             session_id=session_id,
             agent_id=agent_id,
             db=db,
+            persist=persist,
         )
 
     async def _persist_rubric_artifacts(
@@ -260,6 +258,8 @@ class EvaluationPipeline:
             for category, items in coaching_report.mistakes_by_category.items()
         }
 
+        if coaching_report.rubric_coaching is not None:
+            serialized_coaching["_rubric_coaching"] = coaching_report.rubric_coaching.model_dump(mode="json")
         if coaching_report.rubric_recommendations:
             serialized_coaching["_rubric_recommendations"] = [
                 item.model_dump(mode="json")
@@ -378,7 +378,8 @@ class EvaluationPipeline:
             session_id,
             agent_id,
             evaluation,
-            None if rubric_transaction else db,
+            db,
+            persist=not rubric_transaction,
         )
         logger.info(
             "Learning plan generated for session %s: all_passing=%s",

@@ -7,9 +7,11 @@ GET /api/sessions/{id}/coaching, GET /api/sessions/{id}/learning-plan.
 
 import uuid
 from datetime import datetime, timezone
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from fastapi import HTTPException
 from httpx import ASGITransport, AsyncClient
 
 from app.database import get_session as get_db_session
@@ -24,6 +26,7 @@ from app.models import (
     Transcript,
 )
 from app.services.auth import require_auth
+from app.services.session_access import get_authorized_session
 
 
 @pytest.fixture
@@ -94,6 +97,18 @@ def _mock_db_returning_scalars(values):
     mock_result.scalars.return_value = mock_scalars
     mock_db.execute = AsyncMock(return_value=mock_result)
     return mock_db
+
+
+@pytest.fixture(autouse=True)
+def route_session_lookup_compat(monkeypatch):
+    """Keep existing route tests pointed at the extracted lookup seam."""
+    from app.api import sessions as sessions_api
+    from app.services import session_access
+
+    async def lookup(db, session_id):
+        return await sessions_api.get_session_service(db, session_id)
+
+    monkeypatch.setattr(session_access, "get_session", lookup)
 
 
 def _override_db(mock_db):
@@ -172,7 +187,7 @@ class TestGetSession:
         session = _make_session(status="active")
 
         with patch(
-            "app.api.sessions.get_session_service",
+            "app.services.session_access.get_session",
             new_callable=AsyncMock,
             return_value=session,
         ):
@@ -261,6 +276,123 @@ class TestGetSession:
         assert data["id"] == str(session.id)
 
 
+class TestSessionAccess:
+    """Tests for the shared session artifact access policy."""
+
+    async def test_session_access_allows_administrator_for_existing_session(self):
+        session = _make_session()
+        admin = SimpleNamespace(id=uuid.uuid4(), role="admin", user_type=None)
+
+        with patch(
+            "app.services.session_access.get_session",
+            new_callable=AsyncMock,
+            return_value=session,
+        ):
+            result = await get_authorized_session(AsyncMock(), session.id, admin)
+
+        assert result is session
+
+    async def test_session_access_allows_agent_who_owns_session(self):
+        session = _make_session()
+        agent = SimpleNamespace(id=session.agent_id, role="user", user_type="agent")
+
+        with patch(
+            "app.services.session_access.get_session",
+            new_callable=AsyncMock,
+            return_value=session,
+        ):
+            result = await get_authorized_session(AsyncMock(), session.id, agent)
+
+        assert result is session
+
+    async def test_session_access_denies_agent_who_does_not_own_session(self):
+        session = _make_session()
+        agent = SimpleNamespace(id=uuid.uuid4(), role="user", user_type="agent")
+
+        with patch(
+            "app.services.session_access.get_session",
+            new_callable=AsyncMock,
+            return_value=session,
+        ):
+            with pytest.raises(HTTPException) as error:
+                await get_authorized_session(AsyncMock(), session.id, agent)
+
+        assert error.value.status_code == 403
+        assert error.value.detail == "Session access denied"
+
+    async def test_session_access_allows_trainer_for_agent_in_active_campaign(self):
+        session = _make_session()
+        trainer = SimpleNamespace(id=uuid.uuid4(), role="user", user_type="trainer")
+        campaign = SimpleNamespace(id=uuid.uuid4())
+
+        with (
+            patch(
+                "app.services.session_access.get_session",
+                new_callable=AsyncMock,
+                return_value=session,
+            ),
+            patch(
+                "app.services.session_access.get_trainer_campaign",
+                new_callable=AsyncMock,
+                return_value=campaign,
+            ),
+            patch(
+                "app.services.session_access.get_trainer_campaign_agent_ids",
+                new_callable=AsyncMock,
+                return_value=[session.agent_id],
+            ),
+        ):
+            result = await get_authorized_session(AsyncMock(), session.id, trainer)
+
+        assert result is session
+
+    @pytest.mark.parametrize("campaign", [None, SimpleNamespace(id=uuid.uuid4())])
+    async def test_session_access_denies_trainer_without_access(self, campaign):
+        session = _make_session()
+        trainer = SimpleNamespace(id=uuid.uuid4(), role="user", user_type="trainer")
+        campaign_agent_ids = [] if campaign is not None else None
+
+        with (
+            patch(
+                "app.services.session_access.get_session",
+                new_callable=AsyncMock,
+                return_value=session,
+            ),
+            patch(
+                "app.services.session_access.get_trainer_campaign",
+                new_callable=AsyncMock,
+                return_value=campaign,
+            ),
+            patch(
+                "app.services.session_access.get_trainer_campaign_agent_ids",
+                new_callable=AsyncMock,
+                return_value=campaign_agent_ids or [],
+            ) as get_agent_ids,
+        ):
+            with pytest.raises(HTTPException) as error:
+                await get_authorized_session(AsyncMock(), session.id, trainer)
+
+        assert error.value.status_code == 403
+        assert error.value.detail == "Session access denied"
+        if campaign is None:
+            get_agent_ids.assert_not_awaited()
+
+    async def test_session_access_returns_404_for_missing_session(self):
+        session_id = uuid.uuid4()
+        user = SimpleNamespace(id=uuid.uuid4(), role="admin", user_type=None)
+
+        with patch(
+            "app.services.session_access.get_session",
+            new_callable=AsyncMock,
+            return_value=None,
+        ):
+            with pytest.raises(HTTPException) as error:
+                await get_authorized_session(AsyncMock(), session_id, user)
+
+        assert error.value.status_code == 404
+        assert error.value.detail == f"Session {session_id} not found"
+
+
 class TestEndSession:
     """Tests for POST /api/sessions/{id}/end."""
 
@@ -307,6 +439,14 @@ class TestEndSession:
 
 class TestGetTranscript:
     """Tests for GET /api/sessions/{id}/transcript."""
+
+    @pytest.fixture(autouse=True)
+    def _auth_override(self):
+        """Use an admin identity for existing artifact contract tests."""
+        user = SimpleNamespace(id=uuid.uuid4(), role="admin", user_type=None)
+        app.dependency_overrides[require_auth] = lambda: user
+        yield
+        app.dependency_overrides.pop(require_auth, None)
 
     async def test_returns_transcript_entries(self, client):
         session = _make_session()
@@ -379,6 +519,14 @@ class TestGetTranscript:
 
 class TestGetEvaluation:
     """Tests for GET /api/sessions/{id}/evaluation."""
+
+    @pytest.fixture(autouse=True)
+    def _auth_override(self):
+        """Use an admin identity for existing artifact contract tests."""
+        user = SimpleNamespace(id=uuid.uuid4(), role="admin", user_type=None)
+        app.dependency_overrides[require_auth] = lambda: user
+        yield
+        app.dependency_overrides.pop(require_auth, None)
 
     async def test_returns_evaluation_result(self, client):
         session = _make_session()
@@ -561,6 +709,14 @@ class TestGetEvaluation:
 class TestGetCoaching:
     """Tests for GET /api/sessions/{id}/coaching."""
 
+    @pytest.fixture(autouse=True)
+    def _auth_override(self):
+        """Use an admin identity for existing artifact contract tests."""
+        user = SimpleNamespace(id=uuid.uuid4(), role="admin", user_type=None)
+        app.dependency_overrides[require_auth] = lambda: user
+        yield
+        app.dependency_overrides.pop(require_auth, None)
+
     async def test_returns_coaching_report(self, client):
         session = _make_session()
         session_id = session.id
@@ -629,9 +785,113 @@ class TestGetCoaching:
         assert response.status_code == 404
         assert "no coaching report" in response.json()["detail"].lower()
 
+    async def test_returns_canonical_rubric_coaching_without_legacy_category_duplicates(self, client):
+        session = _make_session()
+        version_id = uuid.uuid4()
+        report = CoachingReport(
+            id=uuid.uuid4(),
+            session_id=session.id,
+            mistakes_by_category={
+                "_rubric_coaching": {
+                    "standard_version_id": str(version_id),
+                    "standard_version_number": 7,
+                    "blocks": [{
+                        "rubric_block_id": "custom-block",
+                        "block_name": "Custom Block",
+                        "display_order": 0,
+                        "recommendations": [{
+                            "rubric_block_id": "custom-block",
+                            "block_name": "Custom Block",
+                            "criterion_id": "custom-criterion",
+                            "criterion_name": "Custom Criterion",
+                            "display_order": 0,
+                            "evidence_sequence_number": 3,
+                            "explanation": "Needs work.",
+                            "recommended_response": "Let us review this.",
+                            "coaching_advice": "Use the criterion guidance.",
+                            "standard_version_id": str(version_id),
+                            "standard_version_number": 7,
+                        }],
+                    }],
+                }
+            },
+            total_mistakes=1,
+            no_mistakes=False,
+        )
+        app.dependency_overrides[get_db_session] = _override_db(_mock_db_returning_scalar(report))
+
+        with patch(
+            "app.api.sessions.get_session_service",
+            new_callable=AsyncMock,
+            return_value=session,
+        ):
+            response = await client.get(f"/api/sessions/{session.id}/coaching")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["mistakes_by_category"] == {}
+        assert data["rubric_coaching"]["standard_version_id"] == str(version_id)
+        assert data["rubric_coaching"]["blocks"][0]["block_name"] == "Custom Block"
+        assert data["rubric_coaching"]["blocks"][0]["recommendations"][0]["criterion_name"] == "Custom Criterion"
+
+    async def test_mixed_canonical_report_suppresses_legacy_mistakes(self, client):
+        session = _make_session()
+        version_id = uuid.uuid4()
+        recommendation = {
+            "rubric_block_id": "custom-block",
+            "criterion_id": "custom-criterion",
+            "evidence_sequence_number": 3,
+            "explanation": "Needs work.",
+            "recommended_response": "Try a clearer response.",
+            "coaching_advice": "Use the criterion guidance.",
+            "standard_version_id": str(version_id),
+            "standard_version_number": 7,
+        }
+        report = CoachingReport(
+            id=uuid.uuid4(),
+            session_id=session.id,
+            mistakes_by_category={
+                "compliance": [{
+                    "transcript_position": 1,
+                    "transcript_excerpt": "Legacy duplicate",
+                    "category": "compliance",
+                    "explanation": "Duplicate",
+                    "recommended_alternative": "Do not render this.",
+                }],
+                "_rubric_recommendations": [recommendation],
+                "_rubric_recommendations_by_block": {"custom-block": [recommendation]},
+            },
+            total_mistakes=99,
+            no_mistakes=False,
+        )
+        app.dependency_overrides[get_db_session] = _override_db(
+            _mock_db_returning_scalar(report)
+        )
+
+        with patch(
+            "app.api.sessions.get_session_service",
+            new_callable=AsyncMock,
+            return_value=session,
+        ):
+            response = await client.get(f"/api/sessions/{session.id}/coaching")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["mistakes_by_category"] == {}
+        assert data["total_mistakes"] == 1
+        assert data["no_mistakes"] is False
+
 
 class TestGetLearningPlan:
     """Tests for GET /api/sessions/{id}/learning-plan."""
+
+    @pytest.fixture(autouse=True)
+    def _auth_override(self):
+        """Use an admin identity for existing artifact contract tests."""
+        user = SimpleNamespace(id=uuid.uuid4(), role="admin", user_type=None)
+        app.dependency_overrides[require_auth] = lambda: user
+        yield
+        app.dependency_overrides.pop(require_auth, None)
 
     async def test_returns_learning_plan(self, client):
         session = _make_session()
@@ -730,3 +990,190 @@ class TestGetLearningPlan:
 
         assert response.status_code == 404
         assert "no learning plan" in response.json()["detail"].lower()
+
+    async def test_returns_canonical_rubric_item_and_scenario_id(self, client):
+        session = _make_session()
+        scenario_id = uuid.uuid4()
+        plan = LearningPlan(
+            id=uuid.uuid4(),
+            session_id=session.id,
+            agent_id=session.agent_id,
+            weak_competencies=[
+                {
+                    "category": "De-escalation",
+                    "score": 55,
+                    "recommended_scenario": "Authorized Practice",
+                    "scenario_id": scenario_id,
+                    "rubric_block_id": "de-escalation",
+                    "criterion_id": "calm-tone",
+                    "practice_focus": "Practice calm tone (calm-tone).",
+                }
+            ],
+            all_passing=False,
+        )
+        mock_db = _mock_db_returning_scalar(plan)
+        app.dependency_overrides[get_db_session] = _override_db(mock_db)
+
+        with patch(
+            "app.api.sessions.get_session_service",
+            new_callable=AsyncMock,
+            return_value=session,
+        ):
+            response = await client.get(f"/api/sessions/{session.id}/learning-plan")
+
+        assert response.status_code == 200
+        item = response.json()["weak_competencies"][0]
+        assert item["category"] == "De-escalation"
+        assert item["rubric_block_id"] == "de-escalation"
+        assert item["criterion_id"] == "calm-tone"
+        assert item["practice_focus"] == "Practice calm tone (calm-tone)."
+        assert item["scenario_id"] == str(scenario_id)
+
+
+ARTIFACT_PATHS = (
+    "transcript",
+    "evaluation",
+    "coaching",
+    "learning-plan",
+)
+
+
+def _artifact_db(artifact_path: str, session_id: uuid.UUID):
+    """Build an artifact query mock with the existing response contract."""
+    if artifact_path == "transcript":
+        return _mock_db_returning_scalars([])
+    if artifact_path == "evaluation":
+        return _mock_db_returning_scalar(
+            Evaluation(
+                id=uuid.uuid4(),
+                session_id=session_id,
+                overall_score=75,
+                category_scores=[],
+                strengths=[
+                    {
+                        "description": "Clear opening",
+                        "category": "call_opening",
+                        "transcript_excerpt": "Hello",
+                    }
+                ],
+                weaknesses=[
+                    {
+                        "description": "Review the close",
+                        "category": "negotiation_resolution",
+                        "transcript_excerpt": "Let's discuss the next step.",
+                    }
+                ],
+                is_too_short=False,
+            )
+        )
+    if artifact_path == "coaching":
+        return _mock_db_returning_scalar(
+            CoachingReport(
+                id=uuid.uuid4(),
+                session_id=session_id,
+                mistakes_by_category={},
+                total_mistakes=0,
+                no_mistakes=True,
+            )
+        )
+    return _mock_db_returning_scalar(
+        LearningPlan(
+            id=uuid.uuid4(),
+            session_id=session_id,
+            agent_id=uuid.uuid4(),
+            weak_competencies=[],
+            all_passing=True,
+        )
+    )
+
+
+class TestSessionArtifactAuthorization:
+    """Authorization matrix for every protected session artifact endpoint."""
+
+    @pytest.mark.parametrize("artifact_path", ARTIFACT_PATHS)
+    async def test_session_artifacts_require_authentication(self, client, artifact_path):
+        session_id = uuid.uuid4()
+        mock_db = AsyncMock()
+        app.dependency_overrides[get_db_session] = _override_db(mock_db)
+        app.dependency_overrides.pop(require_auth, None)
+
+        response = await client.get(f"/api/sessions/{session_id}/{artifact_path}")
+
+        assert response.status_code == 401
+        mock_db.execute.assert_not_awaited()
+
+    @pytest.mark.parametrize("artifact_path", ARTIFACT_PATHS)
+    async def test_session_artifacts_deny_before_artifact_query(
+        self,
+        client,
+        artifact_path,
+    ):
+        session = _make_session()
+        user = SimpleNamespace(id=uuid.uuid4(), role="user", user_type="agent")
+        mock_db = AsyncMock()
+        app.dependency_overrides[require_auth] = lambda: user
+        app.dependency_overrides[get_db_session] = _override_db(mock_db)
+
+        with patch(
+            "app.api.sessions.get_authorized_session",
+            new_callable=AsyncMock,
+            side_effect=HTTPException(status_code=403, detail="Session access denied"),
+        ) as authorize:
+            response = await client.get(f"/api/sessions/{session.id}/{artifact_path}")
+
+        assert response.status_code == 403
+        assert response.json()["detail"] == "Session access denied"
+        authorize.assert_awaited_once()
+        mock_db.execute.assert_not_awaited()
+
+    @pytest.mark.parametrize("artifact_path", ARTIFACT_PATHS)
+    @pytest.mark.parametrize("role", ("owner", "trainer", "admin"))
+    async def test_session_artifacts_allow_authorized_roles(
+        self,
+        client,
+        artifact_path,
+        role,
+    ):
+        session = _make_session()
+        user = SimpleNamespace(
+            id=session.agent_id if role == "owner" else uuid.uuid4(),
+            role="admin" if role == "admin" else "user",
+            user_type="trainer" if role == "trainer" else "agent",
+        )
+        mock_db = _artifact_db(artifact_path, session.id)
+        app.dependency_overrides[require_auth] = lambda: user
+        app.dependency_overrides[get_db_session] = _override_db(mock_db)
+
+        with patch(
+            "app.api.sessions.get_authorized_session",
+            new_callable=AsyncMock,
+            return_value=session,
+        ):
+            response = await client.get(f"/api/sessions/{session.id}/{artifact_path}")
+
+        assert response.status_code == 200
+
+    @pytest.mark.parametrize("artifact_path", ARTIFACT_PATHS)
+    async def test_session_artifacts_return_404_for_missing_session(
+        self,
+        client,
+        artifact_path,
+    ):
+        session_id = uuid.uuid4()
+        user = SimpleNamespace(id=uuid.uuid4(), role="admin", user_type=None)
+        mock_db = AsyncMock()
+        app.dependency_overrides[require_auth] = lambda: user
+        app.dependency_overrides[get_db_session] = _override_db(mock_db)
+
+        with patch(
+            "app.api.sessions.get_authorized_session",
+            new_callable=AsyncMock,
+            side_effect=HTTPException(
+                status_code=404,
+                detail=f"Session {session_id} not found",
+            ),
+        ):
+            response = await client.get(f"/api/sessions/{session_id}/{artifact_path}")
+
+        assert response.status_code == 404
+        mock_db.execute.assert_not_awaited()

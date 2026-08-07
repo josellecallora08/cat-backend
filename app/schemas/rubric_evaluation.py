@@ -1,7 +1,8 @@
 """Strict schemas for AI-extracted rubric observations."""
 
-from typing import Annotated, Literal
 from decimal import Decimal
+from typing import Annotated, Literal
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_serializer, model_validator
 
@@ -58,11 +59,39 @@ class RubricRecommendation(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
     rubric_block_id: Slug
+    block_name: NonEmptyText | None = None
     criterion_id: Slug
+    criterion_name: NonEmptyText | None = None
+    display_order: int | None = Field(default=None, ge=0)
     evidence_sequence_number: SequenceNumber
+    source_speaker: Literal["agent", "debtor"] | None = None
+    source_excerpt: NonEmptyText | None = None
     explanation: NonEmptyText
     recommended_response: NonEmptyText
     coaching_advice: NonEmptyText
+    standard_version_id: UUID | None = None
+    standard_version_number: int | None = Field(default=None, ge=1)
+
+
+class RubricCoachingBlock(BaseModel):
+    """Canonical coaching recommendations grouped under one rubric block."""
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    rubric_block_id: Slug
+    block_name: NonEmptyText
+    display_order: int = Field(ge=0)
+    recommendations: list[RubricRecommendation]
+
+
+class RubricCoaching(BaseModel):
+    """Canonical coaching envelope retaining pinned rubric version metadata."""
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    standard_version_id: UUID | None = None
+    standard_version_number: int | None = Field(default=None, ge=1)
+    blocks: list[RubricCoachingBlock]
 
 
 class RubricCategoryObservation(BaseModel):
