@@ -21,6 +21,8 @@ from app.models import (
     LearningPlan,
     Scenario,
     Session,
+    SessionReport,
+    SessionReportStatus,
     Transcript,
 )
 
@@ -229,6 +231,167 @@ def test_learning_plan_model(db_session):
     assert result.all_passing is False
     assert len(result.weak_competencies) == 1
     assert result.weak_competencies[0]["category"] == "compliance"
+
+
+def test_session_report_model_creation(db_session):
+    """Test that a SessionReport can be created with all required fields."""
+    scenario_id = uuid.uuid4()
+    session_id = uuid.uuid4()
+    agent_id = uuid.uuid4()
+
+    db_session.add(Scenario(
+        id=scenario_id, name="Test", scenario_type="TEST",
+        debtor_profile={"name": "X", "outstanding_balance": "100",
+                        "days_past_due": 1, "personality_profile": "calm",
+                        "conversation_goal": "pay"},
+        is_active=True,
+    ))
+    db_session.add(Session(
+        id=session_id, scenario_id=scenario_id,
+        agent_id=agent_id, status="completed",
+    ))
+    db_session.commit()
+
+    report = SessionReport(
+        id=uuid.uuid4(),
+        session_id=session_id,
+        agent_id=agent_id,
+        status=SessionReportStatus.READY,
+        report_version=1,
+        payload={"summary": {"session_id": str(session_id)}},
+        content_hash="a" * 64,
+        generated_by=agent_id,
+    )
+    db_session.add(report)
+    db_session.commit()
+
+    result = db_session.execute(select(SessionReport)).scalar_one()
+    assert result.session_id == session_id
+    assert result.status == SessionReportStatus.READY
+    assert result.report_version == 1
+    assert result.payload["summary"]["session_id"] == str(session_id)
+    assert result.content_hash == "a" * 64
+    assert result.failure_reason is None
+
+
+def test_session_report_failed_status_has_no_payload(db_session):
+    """A failed generation records a reason and no payload."""
+    scenario_id = uuid.uuid4()
+    session_id = uuid.uuid4()
+    agent_id = uuid.uuid4()
+
+    db_session.add(Scenario(
+        id=scenario_id, name="Test", scenario_type="TEST",
+        debtor_profile={"name": "X", "outstanding_balance": "100",
+                        "days_past_due": 1, "personality_profile": "calm",
+                        "conversation_goal": "pay"},
+        is_active=True,
+    ))
+    db_session.add(Session(
+        id=session_id, scenario_id=scenario_id,
+        agent_id=agent_id, status="completed",
+    ))
+    db_session.commit()
+
+    report = SessionReport(
+        id=uuid.uuid4(),
+        session_id=session_id,
+        agent_id=agent_id,
+        status=SessionReportStatus.FAILED,
+        report_version=1,
+        payload=None,
+        failure_reason="Assembly failed: missing evaluation artifact",
+        reason_code="generation_failed",
+    )
+    db_session.add(report)
+    db_session.commit()
+
+    result = db_session.execute(select(SessionReport)).scalar_one()
+    assert result.status == SessionReportStatus.FAILED
+    assert result.payload is None
+    assert result.failure_reason == "Assembly failed: missing evaluation artifact"
+    assert result.reason_code == "generation_failed"
+
+
+def test_session_report_unique_session_version_constraint(db_session):
+    """The (session_id, report_version) pair must be unique."""
+    from sqlalchemy.exc import IntegrityError
+
+    scenario_id = uuid.uuid4()
+    session_id = uuid.uuid4()
+    agent_id = uuid.uuid4()
+
+    db_session.add(Scenario(
+        id=scenario_id, name="Test", scenario_type="TEST",
+        debtor_profile={"name": "X", "outstanding_balance": "100",
+                        "days_past_due": 1, "personality_profile": "calm",
+                        "conversation_goal": "pay"},
+        is_active=True,
+    ))
+    db_session.add(Session(
+        id=session_id, scenario_id=scenario_id,
+        agent_id=agent_id, status="completed",
+    ))
+    db_session.commit()
+
+    db_session.add(SessionReport(
+        id=uuid.uuid4(), session_id=session_id, agent_id=agent_id,
+        status=SessionReportStatus.READY, report_version=1,
+        payload={"a": 1}, content_hash="a" * 64,
+    ))
+    db_session.commit()
+
+    db_session.add(SessionReport(
+        id=uuid.uuid4(), session_id=session_id, agent_id=agent_id,
+        status=SessionReportStatus.READY, report_version=1,
+        payload={"a": 2}, content_hash="b" * 64,
+    ))
+    with pytest.raises(IntegrityError):
+        db_session.commit()
+    db_session.rollback()
+
+
+def test_session_report_multiple_versions_preserve_prior_payload(db_session):
+    """Regeneration adds a new version row; the prior payload is untouched."""
+    scenario_id = uuid.uuid4()
+    session_id = uuid.uuid4()
+    agent_id = uuid.uuid4()
+
+    db_session.add(Scenario(
+        id=scenario_id, name="Test", scenario_type="TEST",
+        debtor_profile={"name": "X", "outstanding_balance": "100",
+                        "days_past_due": 1, "personality_profile": "calm",
+                        "conversation_goal": "pay"},
+        is_active=True,
+    ))
+    db_session.add(Session(
+        id=session_id, scenario_id=scenario_id,
+        agent_id=agent_id, status="completed",
+    ))
+    db_session.commit()
+
+    db_session.add(SessionReport(
+        id=uuid.uuid4(), session_id=session_id, agent_id=agent_id,
+        status=SessionReportStatus.READY, report_version=1,
+        payload={"revision": "first"}, content_hash="a" * 64,
+    ))
+    db_session.add(SessionReport(
+        id=uuid.uuid4(), session_id=session_id, agent_id=agent_id,
+        status=SessionReportStatus.READY, report_version=2,
+        payload={"revision": "second"}, content_hash="b" * 64,
+    ))
+    db_session.commit()
+
+    results = db_session.execute(
+        select(SessionReport)
+        .where(SessionReport.session_id == session_id)
+        .order_by(SessionReport.report_version)
+    ).scalars().all()
+    assert len(results) == 2
+    assert results[0].report_version == 1
+    assert results[0].payload == {"revision": "first"}
+    assert results[1].report_version == 2
+    assert results[1].payload == {"revision": "second"}
 
 
 def _admin_dsn(database: str = "postgres") -> str:

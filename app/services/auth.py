@@ -81,7 +81,8 @@ async def get_current_user(
         user_id = payload.get("sub")
         if not user_id:
             return None
-    except JWTError:
+        user_id = UUID(str(user_id))
+    except (JWTError, ValueError):
         return None
 
     stmt = select(User).where(User.id == user_id, User.is_active.is_(True))
