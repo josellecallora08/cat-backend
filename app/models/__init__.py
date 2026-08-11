@@ -21,6 +21,10 @@ from app.models.negotiation_standard import (
     NegotiationStandard as NegotiationStandard,
     NegotiationStandardVersion as NegotiationStandardVersion,
 )
+from app.models.session_report import (
+    SessionReport as SessionReport,
+    SessionReportStatus as SessionReportStatus,
+)
 
 from sqlalchemy import (
     Boolean,
@@ -111,6 +115,9 @@ class Session(Base):
     )
     learning_plan = relationship(
         "LearningPlan", back_populates="session", uselist=False
+    )
+    reports = relationship(
+        "SessionReport", back_populates="session", cascade="all, delete-orphan"
     )
 
 

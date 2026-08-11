@@ -1177,3 +1177,42 @@ class TestSessionArtifactAuthorization:
 
         assert response.status_code == 404
         mock_db.execute.assert_not_awaited()
+
+
+class TestCriteriaCoachingCompletionExploration:
+    """Bug-condition probes retained until the session API repair is applied."""
+
+    def test_serializer_reads_loaded_campaign_or_returns_null(self):
+        from app.api.sessions import _session_to_response
+
+        campaign = SimpleNamespace(id=uuid.uuid4(), name="Campaign A")
+        with_campaign = SimpleNamespace(
+            id=uuid.uuid4(),
+            scenario_id=uuid.uuid4(),
+            campaign_id=campaign.id,
+            campaign=campaign,
+            persona_context=None,
+            status="completed",
+            created_at=datetime(2024, 1, 1, tzinfo=timezone.utc),
+            ended_at=None,
+            negotiation_standard_version=None,
+        )
+        without_campaign = SimpleNamespace(
+            id=uuid.uuid4(),
+            scenario_id=uuid.uuid4(),
+            campaign_id=None,
+            campaign=None,
+            persona_context=None,
+            status="completed",
+            created_at=datetime(2024, 1, 1, tzinfo=timezone.utc),
+            ended_at=None,
+            negotiation_standard_version=None,
+        )
+
+        campaign_response = _session_to_response(with_campaign)
+        empty_response = _session_to_response(without_campaign)
+
+        assert campaign_response.campaign_id == campaign.id
+        assert campaign_response.campaign_name == "Campaign A"
+        assert empty_response.campaign_id is None
+        assert empty_response.campaign_name is None

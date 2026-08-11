@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 
 import pytest
+from pydantic import TypeAdapter
 
 from app.schemas import (
     CoachingReportSchema,
@@ -610,3 +611,240 @@ class TestScriptContract:
 
         with pytest.raises(Exception):
             ScriptContract(**kwargs)
+
+
+# --- Session report typed contract tests ---
+
+from app.schemas.session_report import (
+    CoachingSection,
+    EvaluationSection,
+    LearningPlanSection,
+    LegacyEvaluationResult,
+    ReportReason,
+    ReportReasonCode,
+    ReportStatusEnvelope,
+    SessionReportPayload,
+    SessionReportSummary,
+    TranscriptSection,
+)
+
+
+def _report_summary() -> SessionReportSummary:
+    now = datetime.now(timezone.utc)
+    return SessionReportSummary(
+        session_id=uuid.uuid4(),
+        scenario_id=uuid.uuid4(),
+        agent_id=uuid.uuid4(),
+        status=SessionStatus.COMPLETED,
+        created_at=now,
+        ended_at=now,
+        duration_seconds=0,
+    )
+
+
+def _legacy_payload(*, empty_transcript: bool = False) -> SessionReportPayload:
+    summary = _report_summary()
+    return SessionReportPayload(
+        summary=summary,
+        transcript=TranscriptSection(
+            available=True,
+            entries=[]
+            if empty_transcript
+            else [
+                TranscriptEntry(
+                    speaker="agent",
+                    text="Hello",
+                    timestamp=summary.created_at,
+                    sequence_number=0,
+                )
+            ],
+        ),
+        evaluation=EvaluationSection(
+            available=True,
+            mode="legacy",
+            legacy=LegacyEvaluationResult(overall_score=80),
+        ),
+        coaching=CoachingSection(available=True, mode="legacy"),
+        learning_plan=LearningPlanSection(available=True, all_passing=True),
+    )
+
+
+def _ready_report(payload: SessionReportPayload):
+    from app.schemas.session_report import ReadyReport
+
+    return ReadyReport(
+        session_id=payload.summary.session_id,
+        report_version=1,
+        status="ready",
+        content_hash="a" * 64,
+        created_at=payload.summary.created_at,
+        payload=payload,
+    )
+
+
+class TestSessionReportTypedContracts:
+    """Examples for typed reasons, section matrices, and status variants."""
+
+    def test_reason_code_is_finite_and_string_compatible(self):
+        reason = ReportReason(code=ReportReasonCode.NO_COACHING, message="Not available")
+        assert reason.code == "no_coaching"
+        with pytest.raises(Exception):
+            ReportReason(code="made_up_reason")
+
+    @pytest.mark.parametrize(
+        "status,reason,extra",
+        [
+            ("missing", "artifact_missing", {"latest_attempt": None, "report": None}),
+            (
+                "incomplete",
+                "artifact_missing",
+                {"missing_sections": ["artifact_missing"], "report": None},
+            ),
+        ],
+    )
+    def test_valid_non_readable_status_variants(self, status, reason, extra):
+        value = {
+            "session_id": uuid.uuid4(),
+            "status": status,
+            "reason": {"code": reason},
+            **extra,
+        }
+        parsed = TypeAdapter(ReportStatusEnvelope).validate_python(value)
+        assert parsed.status == status
+        assert parsed.report is None
+
+    def test_valid_generating_and_failed_variants_have_no_payload(self):
+        now = datetime.now(timezone.utc)
+        for status, reason in (("pending", "generation_pending"), ("failed", "generation_failed")):
+            envelope = TypeAdapter(ReportStatusEnvelope).validate_python(
+                {
+                    "session_id": uuid.uuid4(),
+                    "status": "generating" if status == "pending" else "failed",
+                    "reason": {"code": reason},
+                    "latest_attempt": {
+                        "status": status,
+                        "report_version": 1,
+                        "reason": {"code": reason},
+                        "created_at": now,
+                        "updated_at": now,
+                    },
+                    "report": None,
+                }
+            )
+            assert envelope.report is None
+
+    def test_valid_ready_and_legacy_terminal_variants(self):
+        payload = _legacy_payload()
+        ready = TypeAdapter(ReportStatusEnvelope).validate_python(
+            {
+                "session_id": payload.summary.session_id,
+                "status": "ready",
+                "report": _ready_report(payload).model_dump(mode="json"),
+            }
+        )
+        assert ready.report.payload.summary.session_id == payload.summary.session_id
+
+        terminal = payload.model_copy(
+            update={
+                "evaluation": EvaluationSection(
+                    available=True,
+                    mode="legacy",
+                    reason_code="legacy_only",
+                    legacy=LegacyEvaluationResult(overall_score=80),
+                )
+            }
+        )
+        legacy_only = TypeAdapter(ReportStatusEnvelope).validate_python(
+            {
+                "session_id": terminal.summary.session_id,
+                "status": "legacy_only",
+                "reason": {"code": "legacy_only"},
+                "report": _ready_report(terminal).model_dump(mode="json"),
+            }
+        )
+        assert legacy_only.status == "legacy_only"
+
+    def test_valid_empty_transcript_terminal_variant(self):
+        payload = _legacy_payload(empty_transcript=True)
+        parsed = TypeAdapter(ReportStatusEnvelope).validate_python(
+            {
+                "session_id": payload.summary.session_id,
+                "status": "empty_transcript",
+                "reason": {"code": "empty_transcript"},
+                "report": _ready_report(payload).model_dump(mode="json"),
+            }
+        )
+        assert parsed.report.payload.transcript.reason_code == ReportReasonCode.EMPTY_TRANSCRIPT
+
+    def test_unavailable_sections_require_matrix_reason_and_have_no_content(self):
+        with pytest.raises(Exception):
+            CoachingSection(available=False)
+        with pytest.raises(Exception):
+            LearningPlanSection(available=False, reason_code="no_learning_plan", items=[{}])
+        with pytest.raises(Exception):
+            CoachingSection(available=True, mode="legacy", reason_code="no_coaching")
+
+    def test_transcript_order_and_duplicate_identity_are_rejected(self):
+        now = datetime.now(timezone.utc)
+        entry = TranscriptEntry(speaker="agent", text="Hello", timestamp=now, sequence_number=0)
+        with pytest.raises(Exception):
+            TranscriptSection(available=True, entries=[entry, entry])
+        with pytest.raises(Exception):
+            TranscriptSection(
+                available=True,
+                entries=[
+                    entry,
+                    TranscriptEntry(speaker="debtor", text="Hi", timestamp=now, sequence_number=0),
+                ],
+            )
+
+    def test_terminal_evaluation_rejects_scored_outcome_fields(self):
+        with pytest.raises(Exception):
+            EvaluationSection(
+                available=True,
+                mode="too_short",
+                reason_code="session_too_short",
+                weighted_total=1,
+            )
+
+    def test_ready_requires_version_hash_timestamp_and_payload_identity(self):
+        payload = _legacy_payload()
+        from app.schemas.session_report import ReadyReport
+
+        with pytest.raises(Exception):
+            ReadyReport(
+                session_id=payload.summary.session_id,
+                report_version=0,
+                status="ready",
+                content_hash="not-a-hash",
+                created_at=payload.summary.created_at,
+                payload=payload,
+            )
+        with pytest.raises(Exception):
+            ReadyReport(
+                session_id=uuid.uuid4(),
+                report_version=1,
+                status="ready",
+                content_hash="a" * 64,
+                created_at=payload.summary.created_at,
+                payload=payload,
+            )
+
+    def test_non_ready_statuses_reject_payload_bearing_variants(self):
+        payload = _legacy_payload()
+        with pytest.raises(Exception):
+            TypeAdapter(ReportStatusEnvelope).validate_python(
+                {
+                    "session_id": payload.summary.session_id,
+                    "status": "generating",
+                    "reason": {"code": "generation_pending"},
+                    "latest_attempt": {
+                        "status": "pending",
+                        "report_version": 1,
+                        "reason": {"code": "generation_pending"},
+                        "created_at": payload.summary.created_at,
+                        "updated_at": payload.summary.created_at,
+                    },
+                    "report": _ready_report(payload).model_dump(mode="json"),
+                }
+            )

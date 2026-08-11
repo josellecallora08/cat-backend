@@ -44,6 +44,7 @@ from app.services.evaluation_pipeline import EvaluationPipeline
 from app.services.llm_service import LLMService
 from app.services.script_content_loader import load_script_content
 from app.services.session_access import get_authorized_session
+from app.services.session_report_service import generate_report as generate_report_service
 from app.services.session_service import (
     PublishedStandardRequiredError,
     create_session as create_session_service,
@@ -241,9 +242,10 @@ def _build_persona_summary(persona_context: dict | None) -> PersonaSummary | Non
 
 def _session_to_response(session: Session) -> SessionResponse:
     """Convert a Session model to a response with pinned standard metadata."""
-    version = session.negotiation_standard_version
+    version = getattr(session, "negotiation_standard_version", None)
     standard = version.standard if version is not None else None
-     return SessionResponse(
+    campaign = getattr(session, "campaign", None)
+    return SessionResponse(
         id=session.id,
         scenario_id=session.scenario_id,
         campaign_id=session.campaign_id,
@@ -379,6 +381,19 @@ async def end_session(
         # Log the error; artifacts can be regenerated later.
         logger.error(
             "Evaluation pipeline failed for session %s: %s",
+            session_id,
+            exc,
+            exc_info=True,
+        )
+
+    # Generate the session report snapshot.
+    # NOTE: Mirrors the pipeline's failure isolation above — a report
+    # generation failure must never change session status or the response.
+    try:
+        await generate_report_service(db=db, session=session)
+    except Exception as exc:
+        logger.error(
+            "Session report generation failed for session %s: %s",
             session_id,
             exc,
             exc_info=True,

@@ -56,6 +56,46 @@ def log_reset_weak_password(user_id: str, ip: str, reason: str) -> None:
     )
 
 
+def log_session_report_generated(
+    session_id: str, report_version: int, generated_by: Optional[str]
+) -> None:
+    """Log successful session report generation."""
+    audit_logger.info(
+        "SESSION_REPORT_GENERATED session_id=%s report_version=%s generated_by=%s",
+        session_id,
+        report_version,
+        generated_by or "system",
+    )
+
+
+_SAFE_REPORT_FAILURE_CODES = frozenset(
+    {
+        "generation_failed",
+        "artifact_missing",
+        "empty_transcript",
+        "not_applicable",
+        "session_too_short",
+        "legacy_only",
+        "no_evidence",
+        "no_coaching",
+        "no_learning_plan",
+    }
+)
+
+
+def log_session_report_generation_failed(
+    session_id: str, report_version: int, reason: str
+) -> None:
+    """Log only a finite safe failure classification for report generation."""
+    safe_reason = reason if reason in _SAFE_REPORT_FAILURE_CODES else "generation_failed"
+    audit_logger.warning(
+        "SESSION_REPORT_GENERATION_FAILED session_id=%s report_version=%s reason=%s",
+        session_id,
+        report_version,
+        safe_reason,
+    )
+
+
 def _mask_email(email: str) -> str:
     """Mask email for logging: show first 2 chars + domain."""
     try:

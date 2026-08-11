@@ -12,6 +12,7 @@ from app.api import (
     campaigns,
     events,
     scenarios,
+    session_reports,
     sessions,
     voice,
     tts,
@@ -212,6 +213,9 @@ def create_app() -> FastAPI:
     )
     app.include_router(scenarios.router, prefix="/api/scenarios", tags=["scenarios"])
     app.include_router(sessions.router, prefix="/api/sessions", tags=["sessions"])
+    app.include_router(
+        session_reports.router, prefix="/api/sessions", tags=["session-reports"]
+    )
     app.include_router(voice.router, tags=["voice"])
     app.include_router(tts.router, prefix="/api", tags=["tts"])
     app.include_router(dashboard.router, prefix="/api", tags=["dashboard"])
