@@ -10,19 +10,21 @@ Validates: Requirements 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7, 4.1, 4.2, 4.4, 4.5, 4
 """
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from app.database import Base, get_session as get_db_session
+from app.database import Base
+from app.database import get_session as get_db_session
 from app.main import app
 from app.models import Campaign, CampaignAgent, Scenario, Session, SessionReport, Transcript
-from app.models.session_report import SessionReportReasonCode, SessionReportStatus
 from app.models.campaign import CampaignRole, CampaignStatus
+from app.models.session_report import SessionReportReasonCode, SessionReportStatus
 from app.models.user import User
 from app.services.auth import require_auth
 from app.services.session_report_service import generate_report
@@ -81,8 +83,10 @@ def _make_scenario() -> Scenario:
     )
 
 
-def _make_session(scenario_id: uuid.UUID, agent_id: uuid.UUID, status: str = "completed") -> Session:
-    created_at = datetime.now(timezone.utc)
+def _make_session(
+    scenario_id: uuid.UUID, agent_id: uuid.UUID, status: str = "completed"
+) -> Session:
+    created_at = datetime.now(UTC)
     return Session(
         id=uuid.uuid4(),
         scenario_id=scenario_id,
@@ -90,7 +94,11 @@ def _make_session(scenario_id: uuid.UUID, agent_id: uuid.UUID, status: str = "co
         status=status,
         created_at=created_at,
         ended_at=created_at if status == "completed" else None,
-        persona_context={"name": "Test Persona", "communication_style": "calm", "emotional_state": 3},
+        persona_context={
+            "name": "Test Persona",
+            "communication_style": "calm",
+            "emotional_state": 3,
+        },
     )
 
 
@@ -101,7 +109,9 @@ def _override_db(db: AsyncSession):
     return _override
 
 
-async def _seed_session_with_report(async_db: AsyncSession, *, status: str = "completed", agent_id=None):
+async def _seed_session_with_report(
+    async_db: AsyncSession, *, status: str = "completed", agent_id=None
+):
     scenario = _make_scenario()
     async_db.add(scenario)
     await async_db.flush()
@@ -222,11 +232,27 @@ async def test_get_report_trainer_in_campaign_success(client, async_db):
 
     trainer_id = uuid.uuid4()
     agent_id = uuid.uuid4()
-    async_db.add(User(id=trainer_id, email="trainer@test.com", full_name="Trainer", role="user", user_type="trainer"))
-    async_db.add(User(id=agent_id, email="agent@test.com", full_name="Agent", role="user", user_type="agent"))
+    async_db.add(
+        User(
+            id=trainer_id,
+            email="trainer@test.com",
+            full_name="Trainer",
+            role="user",
+            user_type="trainer",
+        )
+    )
+    async_db.add(
+        User(id=agent_id, email="agent@test.com", full_name="Agent", role="user", user_type="agent")
+    )
     await async_db.flush()
-    async_db.add(CampaignAgent(campaign_id=campaign.id, agent_id=trainer_id, role=CampaignRole.TRAINER.value))
-    async_db.add(CampaignAgent(campaign_id=campaign.id, agent_id=agent_id, role=CampaignRole.PARTICIPANT.value))
+    async_db.add(
+        CampaignAgent(campaign_id=campaign.id, agent_id=trainer_id, role=CampaignRole.TRAINER.value)
+    )
+    async_db.add(
+        CampaignAgent(
+            campaign_id=campaign.id, agent_id=agent_id, role=CampaignRole.PARTICIPANT.value
+        )
+    )
     await async_db.flush()
 
     session, report = await _seed_session_with_report(async_db, agent_id=agent_id)
@@ -304,7 +330,7 @@ async def test_export_json_returns_payload_with_correct_content_type(client, asy
     agent_id = uuid.uuid4()
     session, report = await _seed_session_with_report(async_db, agent_id=agent_id)
     app.dependency_overrides[get_db_session] = _override_db(async_db)
-    app.dependency_overrides[require_auth] = lambda: _agent_user(agent_id)
+    app.dependency_overrides[require_auth] = lambda: _admin_user()
 
     resp = await client.get(f"/api/sessions/{session.id}/report/export?format=json")
     assert resp.status_code == 200
@@ -327,29 +353,38 @@ async def test_export_csv_returns_flattened_body_with_neutralized_formula(client
 
     from sqlalchemy import select
     from sqlalchemy.orm import selectinload
+
     from app.models import CoachingReport
 
-    async_db.add(Transcript(
-        id=uuid.uuid4(),
-        session_id=session.id,
-        speaker="agent",
-        utterance_text="n/a",
-        timestamp_ms=datetime.now(timezone.utc),
-        sequence_number=0,
-    ))
-    async_db.add(CoachingReport(
-        id=uuid.uuid4(), session_id=session.id,
-        mistakes_by_category={
-            "compliance": [{
-                "transcript_position": 0,
-                "transcript_excerpt": "n/a",
-                "category": "compliance",
-                "explanation": "Missed disclosure",
-                "recommended_alternative": "=SUM(A1:A9)",
-            }],
-        },
-        total_mistakes=1, no_mistakes=False,
-    ))
+    async_db.add(
+        Transcript(
+            id=uuid.uuid4(),
+            session_id=session.id,
+            speaker="agent",
+            utterance_text="n/a",
+            timestamp_ms=datetime.now(UTC),
+            sequence_number=0,
+        )
+    )
+    async_db.add(
+        CoachingReport(
+            id=uuid.uuid4(),
+            session_id=session.id,
+            mistakes_by_category={
+                "compliance": [
+                    {
+                        "transcript_position": 0,
+                        "transcript_excerpt": "n/a",
+                        "category": "compliance",
+                        "explanation": "Missed disclosure",
+                        "recommended_alternative": "=SUM(A1:A9)",
+                    }
+                ],
+            },
+            total_mistakes=1,
+            no_mistakes=False,
+        )
+    )
     await async_db.commit()
 
     stmt = select(Session).options(selectinload(Session.campaign)).where(Session.id == session.id)
@@ -357,7 +392,7 @@ async def test_export_csv_returns_flattened_body_with_neutralized_formula(client
     await generate_report(async_db, reloaded)
 
     app.dependency_overrides[get_db_session] = _override_db(async_db)
-    app.dependency_overrides[require_auth] = lambda: _agent_user(agent_id)
+    app.dependency_overrides[require_auth] = lambda: _admin_user()
 
     resp = await client.get(f"/api/sessions/{session.id}/report/export?format=csv")
     assert resp.status_code == 200
@@ -372,7 +407,7 @@ async def test_export_pdf_returns_paginated_pdf(client, async_db):
     agent_id = uuid.uuid4()
     session, _ = await _seed_session_with_report(async_db, agent_id=agent_id)
     app.dependency_overrides[get_db_session] = _override_db(async_db)
-    app.dependency_overrides[require_auth] = lambda: _agent_user(agent_id)
+    app.dependency_overrides[require_auth] = lambda: _admin_user()
 
     resp = await client.get(f"/api/sessions/{session.id}/report/export?format=pdf")
     assert resp.status_code == 200
@@ -382,11 +417,13 @@ async def test_export_pdf_returns_paginated_pdf(client, async_db):
 
 
 @pytest.mark.asyncio
-async def test_export_unsupported_format_returns_400_with_no_partial_body(client, async_db, monkeypatch):
+async def test_export_unsupported_format_returns_400_with_no_partial_body(
+    client, async_db, monkeypatch
+):
     agent_id = uuid.uuid4()
     session, _ = await _seed_session_with_report(async_db, agent_id=agent_id)
     app.dependency_overrides[get_db_session] = _override_db(async_db)
-    app.dependency_overrides[require_auth] = lambda: _agent_user(agent_id)
+    app.dependency_overrides[require_auth] = lambda: _admin_user()
 
     from unittest.mock import Mock
 
@@ -396,6 +433,36 @@ async def test_export_unsupported_format_returns_400_with_no_partial_body(client
     assert resp.status_code == 400
     assert resp.content == b'{"detail":"Unsupported export format"}'
     renderer.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_export_csv_denies_non_admin_before_lookup(client, async_db, monkeypatch):
+    """CSV compatibility export denies users before session/report work."""
+    session, _ = await _seed_session_with_report(async_db)
+    app.dependency_overrides[get_db_session] = _override_db(async_db)
+    app.dependency_overrides[require_auth] = lambda: _agent_user(uuid.uuid4())
+
+    lookup = Mock(side_effect=AssertionError("report lookup must not run"))
+    monkeypatch.setattr("app.api.session_reports.get_current_report", lookup)
+
+    resp = await client.get(f"/api/sessions/{session.id}/report/export?format=csv")
+
+    assert resp.status_code == 403
+    assert resp.json() == {"detail": "Admin access required"}
+    assert "session_id" not in resp.text
+    lookup.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_export_csv_denies_non_admin_for_missing_session(client, async_db):
+    """CSV compatibility export does not reveal whether a session exists."""
+    app.dependency_overrides[get_db_session] = _override_db(async_db)
+    app.dependency_overrides[require_auth] = lambda: _agent_user(uuid.uuid4())
+
+    resp = await client.get(f"/api/sessions/{uuid.uuid4()}/report/export?format=csv")
+
+    assert resp.status_code == 403
+    assert resp.json() == {"detail": "Admin access required"}
 
 
 @pytest.mark.asyncio
@@ -432,7 +499,10 @@ def test_report_routes_do_not_collide_with_existing_session_routes():
     assert (frozenset({"GET"}), "/api/sessions/{session_id}/report/export") in paths
     assert (frozenset({"GET"}), "/api/sessions/{session_id}/report/status") in paths
     assert (frozenset({"GET"}), "/api/sessions/{session_id}") in paths
-    assert len([path for methods, path in paths if path == "/api/sessions/{session_id}/report/status"]) == 1
+    assert (
+        len([path for methods, path in paths if path == "/api/sessions/{session_id}/report/status"])
+        == 1
+    )
     assert "/api/sessions/{session_id}/report/status" not in {
         "/api/sessions/{session_id}",
         "/api/sessions/{session_id}/report",
@@ -450,7 +520,7 @@ async def _insert_report_attempt(
     status: str,
     version: int,
 ) -> SessionReport:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     attempt = SessionReport(
         id=uuid.uuid4(),
         session_id=session.id,
@@ -474,7 +544,9 @@ async def _insert_report_attempt(
 
 
 @pytest.mark.asyncio
-async def test_status_anonymous_and_invalid_token_return_401_without_report_content(client, async_db):
+async def test_status_anonymous_and_invalid_token_return_401_without_report_content(
+    client, async_db
+):
     session, _ = await _seed_session_with_report(async_db)
     app.dependency_overrides[get_db_session] = _override_db(async_db)
 
@@ -528,9 +600,7 @@ async def test_status_admin_no_report_returns_incomplete(client, async_db):
 async def test_status_pending_and_failed_never_include_report_payload(client, async_db):
     agent_id = uuid.uuid4()
     session, _ = await _seed_session_with_report(async_db, status="active", agent_id=agent_id)
-    await _insert_report_attempt(
-        async_db, session, status=SessionReportStatus.PENDING, version=1
-    )
+    await _insert_report_attempt(async_db, session, status=SessionReportStatus.PENDING, version=1)
     app.dependency_overrides[get_db_session] = _override_db(async_db)
     app.dependency_overrides[require_auth] = lambda: _agent_user(agent_id)
 
@@ -596,11 +666,33 @@ async def test_status_in_scope_trainer_and_admin_return_200(client, async_db):
     await async_db.flush()
     trainer_id = uuid.uuid4()
     agent_id = uuid.uuid4()
-    async_db.add(User(id=trainer_id, email="status-trainer@test.com", full_name="Trainer", role="user", user_type="trainer"))
-    async_db.add(User(id=agent_id, email="status-agent@test.com", full_name="Agent", role="user", user_type="agent"))
+    async_db.add(
+        User(
+            id=trainer_id,
+            email="status-trainer@test.com",
+            full_name="Trainer",
+            role="user",
+            user_type="trainer",
+        )
+    )
+    async_db.add(
+        User(
+            id=agent_id,
+            email="status-agent@test.com",
+            full_name="Agent",
+            role="user",
+            user_type="agent",
+        )
+    )
     await async_db.flush()
-    async_db.add(CampaignAgent(campaign_id=campaign.id, agent_id=trainer_id, role=CampaignRole.TRAINER.value))
-    async_db.add(CampaignAgent(campaign_id=campaign.id, agent_id=agent_id, role=CampaignRole.PARTICIPANT.value))
+    async_db.add(
+        CampaignAgent(campaign_id=campaign.id, agent_id=trainer_id, role=CampaignRole.TRAINER.value)
+    )
+    async_db.add(
+        CampaignAgent(
+            campaign_id=campaign.id, agent_id=agent_id, role=CampaignRole.PARTICIPANT.value
+        )
+    )
     await async_db.flush()
     session, _ = await _seed_session_with_report(async_db, agent_id=agent_id)
     session.campaign_id = campaign.id
@@ -634,9 +726,7 @@ async def test_status_nonexistent_session_returns_404(client, async_db):
 async def test_generation_conflict_returns_safe_409(client, async_db):
     agent_id = uuid.uuid4()
     session, _ = await _seed_session_with_report(async_db, status="active", agent_id=agent_id)
-    await _insert_report_attempt(
-        async_db, session, status=SessionReportStatus.PENDING, version=1
-    )
+    await _insert_report_attempt(async_db, session, status=SessionReportStatus.PENDING, version=1)
     app.dependency_overrides[get_db_session] = _override_db(async_db)
     app.dependency_overrides[require_auth] = lambda: _agent_user(agent_id)
 
@@ -661,6 +751,7 @@ async def test_denied_report_operations_do_not_execute_report_queries(
     client, async_db, monkeypatch, method, path, spy_name
 ):
     from unittest.mock import AsyncMock
+
     import app.api.session_reports as session_reports_api
 
     owner_id = uuid.uuid4()
