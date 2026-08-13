@@ -13,7 +13,7 @@ Endpoints are intentionally thin — business logic lives in review_service.
 
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -34,7 +34,6 @@ from app.schemas.review import (
     ReviewRejectResponse,
     ReviewRetryRequest,
     ReviewRetryResponse,
-    ReviewWarning,
 )
 from app.services.auth import require_admin
 from app.services.review_service import (
@@ -44,6 +43,7 @@ from app.services.review_service import (
     get_published_at,
     load_upload_with_script,
 )
+
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -324,19 +324,18 @@ async def retry_review(
     # 3. Dispatch by target
     if body.target == "conversion":
         return await _retry_conversion(db, upload, admin)
-    elif body.target == "scan":
+    if body.target == "scan":
         return await _retry_scan(db, upload, admin)
-    elif body.target == "extraction":
+    if body.target == "extraction":
         return await _retry_extraction(db, upload, admin)
-    else:
-        raise HTTPException(
-            status_code=422,
-            detail={
-                "error": "invalid_target",
-                "message": f"Unknown retry target: '{body.target}'. "
-                           "Valid: conversion, scan, extraction.",
-            },
-        )
+    raise HTTPException(
+        status_code=422,
+        detail={
+            "error": "invalid_target",
+            "message": f"Unknown retry target: '{body.target}'. "
+                       "Valid: conversion, scan, extraction.",
+        },
+    )
 
 
 async def _retry_conversion(
@@ -445,7 +444,6 @@ async def _retry_scan(
     db: AsyncSession, upload: ScriptUpload, admin: User
 ) -> ReviewRetryResponse:
     """Retry malware scan if quarantine source still exists."""
-    from pathlib import Path
     from app.services.upload_quarantine import get_quarantine_path
     from app.services.upload_scanner import scan_file
 
@@ -478,7 +476,7 @@ async def _retry_scan(
             upload.scan_signature = scan_result.signature
             upload.status = UploadStatus.FAILED.value
             source_path.unlink(missing_ok=True)
-            upload.deleted_at = datetime.now(timezone.utc)
+            upload.deleted_at = datetime.now(UTC)
         else:
             upload.scan_status = "error"
 
@@ -543,8 +541,9 @@ async def _retry_extraction(
 ) -> ReviewRetryResponse:
     """Retry content extraction if quarantine source still exists."""
     import os
+
+    from app.services.upload_extractor import compute_content_hash, extract_content
     from app.services.upload_quarantine import get_quarantine_path
-    from app.services.upload_extractor import extract_content, compute_content_hash, ExtractionError
 
     quarantine_dir = get_quarantine_path()
     source_path = quarantine_dir / upload.storage_key
@@ -679,12 +678,12 @@ async def reject_review(
             review_status="rejected",
             rejection_reason=upload.rejection_reason or body.reason,
             rejected_by=upload.rejected_by or admin.id,
-            rejected_at=upload.rejected_at or datetime.now(timezone.utc),
+            rejected_at=upload.rejected_at or datetime.now(UTC),
         )
 
     # 3. Mark upload as rejected with metadata. Keep the quarantine file until
     # the database commit succeeds so a rollback cannot lose the source.
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     upload.status = UploadStatus.REJECTED.value
     upload.rejected_at = now
     upload.rejected_by = admin.id

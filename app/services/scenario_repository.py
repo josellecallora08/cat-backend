@@ -1,6 +1,5 @@
 """Repository layer for Scenario CRUD operations."""
 
-from typing import List, Optional
 from uuid import UUID
 
 from sqlalchemy import select
@@ -10,7 +9,7 @@ from app.models import Scenario
 from app.schemas import ScenarioType
 
 
-async def list_active_scenarios(db: AsyncSession) -> List[Scenario]:
+async def list_active_scenarios(db: AsyncSession) -> list[Scenario]:
     """List all active scenarios ordered by name.
 
     Returns only scenarios where is_active is True, sorted alphabetically by name.
@@ -29,7 +28,7 @@ async def list_active_scenarios(db: AsyncSession) -> List[Scenario]:
 
 async def get_scenario_by_id(
     db: AsyncSession, scenario_id: UUID, include_inactive: bool = False
-) -> Optional[Scenario]:
+) -> Scenario | None:
     """Get a scenario by ID.
 
     Returns None if the scenario does not exist.

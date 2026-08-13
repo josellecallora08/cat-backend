@@ -23,6 +23,7 @@ from app.schemas.rubric_evaluation import CanonicalEvaluationResult
 from app.services.db_retry import retry_db_operation
 from app.services.evaluation_compatibility import redact_recommendation_text
 
+
 logger = logging.getLogger(__name__)
 
 # Threshold below which a competency is considered weak

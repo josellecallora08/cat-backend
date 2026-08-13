@@ -8,7 +8,7 @@ recommendations, coaching grouping, or learning-plan ranking).
 
 import hashlib
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from uuid import UUID
 
 from sqlalchemy import select
@@ -51,7 +51,7 @@ def _require_timestamp(value: object, name: str) -> datetime:
     # SQLite returns timezone-aware ORM values as naive datetimes.  Normalize
     # that dialect representation without accepting missing/non-datetime data.
     if value.tzinfo is None or value.utcoffset() is None:
-        return value.replace(tzinfo=timezone.utc)
+        return value.replace(tzinfo=UTC)
     return value
 
 

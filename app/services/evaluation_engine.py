@@ -36,6 +36,7 @@ from app.services.rubric_prompt_builder import (
 )
 from app.services.rubric_score_calculator import calculate_rubric_score
 
+
 logger = logging.getLogger(__name__)
 
 

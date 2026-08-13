@@ -1,7 +1,7 @@
 """Deterministic Decimal scoring for validated rubric observations."""
 
 from collections import Counter
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 
 from app.schemas.negotiation_standard import NegotiationStandardContent

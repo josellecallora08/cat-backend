@@ -12,6 +12,7 @@ from app.services.voice.tts_service import (
 from app.services.voice.vad import EnergyVADBackend, VADProcessor, VADResult
 from app.services.voice.voice_pipeline import VoicePipelineOrchestrator
 
+
 __all__ = [
     "AudioBuffer",
     "AudioStream",

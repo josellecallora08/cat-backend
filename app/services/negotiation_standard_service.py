@@ -4,7 +4,7 @@ import copy
 import hashlib
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from uuid import UUID
 
 from sqlalchemy import func, select
@@ -16,6 +16,7 @@ from app.schemas.negotiation_standard import (
     ValidationResult,
 )
 from app.services.negotiation_standard_validator import validate_standard
+
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +58,7 @@ def _audit(event_name: str, standard: NegotiationStandard, admin_id: UUID, **ext
         "admin_id": str(admin_id),
         "status": standard.status,
         "revision": standard.revision,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
     }
     fields.update({key: str(value) for key, value in extra.items()})
     logger.info(event_name, extra=fields)

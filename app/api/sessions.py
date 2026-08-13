@@ -3,7 +3,9 @@
 Validates: Requirements 4.1, 4.4, 5.1, 6.1, 7.8, 8.2
 """
 
+import asyncio
 import logging
+from collections import defaultdict
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
@@ -691,6 +693,7 @@ class ConversationResponse(BaseModel):
 
 # In-memory persona store for active conversations (keyed by session_id)
 _active_personas: dict[UUID, PersonaContext] = {}
+_session_message_locks: defaultdict[UUID, asyncio.Lock] = defaultdict(asyncio.Lock)
 
 
 @router.post("/{session_id}/message", response_model=ConversationResponse)
@@ -698,6 +701,16 @@ async def send_message(
     session_id: UUID,
     body: ConversationMessage,
     db: AsyncSession = Depends(get_db_session),
+):
+    """Serialize conversation turns so one session cannot process two at once."""
+    async with _session_message_locks[session_id]:
+        return await _send_message_locked(session_id, body, db)
+
+
+async def _send_message_locked(
+    session_id: UUID,
+    body: ConversationMessage,
+    db: AsyncSession,
 ):
     """Send a message in an active session and get the debtor's response.
 
@@ -774,13 +787,6 @@ async def send_message(
             # Keep the in-memory simulator state aligned with the persisted
             # transcript; the normal generate_response path appends both
             # turns, but this early opening-response path bypasses it.
-            if not is_system_prompt:
-                from app.services.debtor_simulator import Message
-
-                persona.conversation_history.append(Message(role="agent", content=body.text))
-                persona.conversation_history.append(
-                    Message(role="debtor", content=opening_response)
-                )
             # Record debtor opening response in transcript
             await transcript_manager.append_entry(
                 session_id=session_id,

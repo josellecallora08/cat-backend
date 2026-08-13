@@ -3,7 +3,6 @@
 Validates: Requirements 8.3, 8.5
 """
 
-import asyncio
 from unittest.mock import AsyncMock, patch
 
 import pytest

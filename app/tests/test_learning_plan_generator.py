@@ -4,7 +4,7 @@ Validates: Requirements 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 7.7, 7.8
 """
 
 import uuid
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -12,7 +12,6 @@ from app.schemas import (
     CompetencyScore,
     EvaluationCategory,
     EvaluationResult,
-    LearningPlanItem,
     StrengthItem,
     WeaknessItem,
 )

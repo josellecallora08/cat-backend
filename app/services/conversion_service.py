@@ -17,7 +17,6 @@ The FastAPI endpoint delegates to this service and translates outcomes to HTTP.
 import json
 import logging
 from dataclasses import dataclass
-from typing import Optional
 from uuid import UUID
 
 from sqlalchemy import select
@@ -25,7 +24,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.models.script import Script, ScriptStatus
+from app.models.script import Script
 from app.models.script_upload import ScriptUpload, UploadStatus
 from app.services.script_converter import ConversionError, convert_extracted_to_contract
 from app.services.script_registry import create_draft_in_transaction
@@ -35,6 +34,7 @@ from app.services.script_validator import (
     ScriptValidationError,
     validate_script,
 )
+
 
 logger = logging.getLogger(__name__)
 
@@ -109,7 +109,7 @@ class ConversionConflict:
     """Conflict: upload already converted or scenario already has a script."""
     error: str  # "already_converted" or "scenario_has_script"
     message: str
-    existing_script_id: Optional[UUID] = None
+    existing_script_id: UUID | None = None
 
 
 @dataclass
@@ -117,12 +117,11 @@ class ConversionRejection:
     """Eligibility or validation rejection."""
     error: str  # "upload_ineligible" or "conversion_failed"
     message: str
-    details: Optional[dict] = None
+    details: dict | None = None
 
 
 class ConversionInternalError(Exception):
     """Unrecoverable internal error during conversion."""
-    pass
 
 
 ConversionResult = ConversionSuccess | ConversionConflict | ConversionRejection
@@ -333,7 +332,7 @@ async def convert_upload_to_script_draft(
     )
 
 
-def _check_eligibility(upload: ScriptUpload) -> Optional[ConversionRejection]:
+def _check_eligibility(upload: ScriptUpload) -> ConversionRejection | None:
     """Check upload eligibility. Returns a rejection or None if eligible."""
     if upload.status == UploadStatus.DELETED.value:
         return ConversionRejection(error="upload_ineligible", message="Upload has been deleted.")

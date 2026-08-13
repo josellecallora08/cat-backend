@@ -5,7 +5,7 @@ import shutil
 import subprocess
 import sys
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import asyncpg
@@ -117,7 +117,7 @@ def test_transcript_model(db_session):
         session_id=session_id,
         speaker="agent",
         utterance_text="Hello, I'm calling about your account.",
-        timestamp_ms=datetime.now(timezone.utc),
+        timestamp_ms=datetime.now(UTC),
         sequence_number=1,
     )
     db_session.add(transcript)

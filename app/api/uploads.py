@@ -7,8 +7,7 @@ is handled separately by S1-09.
 import logging
 import os
 import uuid
-from datetime import datetime, timedelta, timezone
-from typing import Optional
+from datetime import UTC, datetime, timedelta
 from uuid import UUID as PyUUID
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request, UploadFile
@@ -44,6 +43,7 @@ from app.services.upload_validator import (
     validate_mime_type,
     validate_pdf_not_encrypted,
 )
+
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -91,7 +91,6 @@ def _reject(
 
 class ScanMetadataPersistenceError(Exception):
     """Raised when scan-failure metadata cannot be persisted to the database."""
-    pass
 
 
 async def _persist_failed_scan(
@@ -163,7 +162,7 @@ async def upload_training_document(
     file: UploadFile,
     db: AsyncSession = Depends(get_session),
     admin: User = Depends(require_admin),
-    scenario_id: Optional[PyUUID] = Form(None),
+    scenario_id: PyUUID | None = Form(None),
 ) -> UploadSuccessResponse:
     """Upload a training document for AI debtor script creation."""
     original_filename = sanitize_filename(file.filename or "unnamed")
@@ -249,11 +248,11 @@ async def upload_training_document(
         if not scan_result.clean:
             # Delete quarantined file immediately — infected files must not be retained
             quarantine_path.unlink(missing_ok=True)
-            deleted_at = datetime.now(timezone.utc)
+            deleted_at = datetime.now(UTC)
 
             # Determine scan outcome
             scan_status = "infected" if scan_result.signature else "error"
-            quarantine_expires = datetime.now(timezone.utc) + timedelta(
+            quarantine_expires = datetime.now(UTC) + timedelta(
                 hours=settings.upload_quarantine_retention_hours
             )
 
@@ -363,7 +362,7 @@ async def upload_training_document(
 
     # 12. Persist successful upload metadata
     upload_id = uuid.uuid4()
-    quarantine_expires = datetime.now(timezone.utc) + timedelta(
+    quarantine_expires = datetime.now(UTC) + timedelta(
         hours=settings.upload_quarantine_retention_hours
     )
     upload_record = ScriptUpload(
@@ -418,7 +417,7 @@ async def upload_training_document(
         extraction_status="completed",
         status=UploadStatus.COMPLETED.value,
         quarantine_expires_at=quarantine_expires,
-        created_at=upload_record.created_at or datetime.now(timezone.utc),
+        created_at=upload_record.created_at or datetime.now(UTC),
         script_id=None,
         scenario_id=scenario_id,
         processing_notes="Content extracted and stored as pending. ScriptContract conversion available via S1-09.",

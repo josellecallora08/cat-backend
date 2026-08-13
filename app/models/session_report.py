@@ -9,12 +9,12 @@ with an incremented `report_version` rather than mutating a prior payload.
 import uuid
 
 from sqlalchemy import (
+    JSON,
     Column,
     DateTime,
     ForeignKey,
     Index,
     Integer,
-    JSON,
     String,
     Text,
     UniqueConstraint,
@@ -25,6 +25,7 @@ from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
 from app.database import Base
+
 
 # Use JSONB on PostgreSQL, JSON on other backends (e.g., SQLite for tests).
 JSONVariant = JSON().with_variant(JSONB, "postgresql")

@@ -9,10 +9,9 @@ agent and debtor utterances.
 Requirements: 3.1, 3.2, 3.3, 3.4, 4.1, 4.3
 """
 
-import asyncio
 import struct
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -26,8 +25,8 @@ from app.services.debtor_simulator import (
 from app.services.voice.audio_buffer import AudioBuffer
 from app.services.voice.peer_connection_manager import PeerConnectionManager
 from app.services.voice.pipeline_factory import create_voice_pipeline
-from app.services.voice.stt_service import MockSTTService, TranscriptionResult
-from app.services.voice.tts_service import AudioStream, MockTTSService
+from app.services.voice.stt_service import MockSTTService
+from app.services.voice.tts_service import MockTTSService
 from app.services.voice.vad import FRAME_SIZE_BYTES, VADProcessor
 from app.services.voice.voice_pipeline import VoicePipelineOrchestrator
 

@@ -6,13 +6,12 @@ Validates: Requirements 1.4, 1.5, 1.6, 1.7, 1.8, 1.9, 1.10, 1.12, 2.5
 """
 
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
-from sqlalchemy import event
+from sqlalchemy import event, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import selectinload
-from sqlalchemy import select
 
 from app.database import Base
 from app.models import CoachingReport, Evaluation, LearningPlan, Scenario, Session, Transcript
@@ -64,7 +63,7 @@ def _make_scenario() -> Scenario:
 
 
 def _make_session(scenario_id: uuid.UUID, **overrides) -> Session:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     defaults = dict(
         id=uuid.uuid4(),
         scenario_id=scenario_id,
@@ -126,7 +125,7 @@ async def test_transcript_entries_ordered_by_sequence(async_db):
     async_db.add(session)
     await async_db.flush()
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     for seq, speaker in [(2, "debtor"), (0, "agent"), (1, "debtor")]:
         async_db.add(Transcript(
             id=uuid.uuid4(), session_id=session.id, speaker=speaker,
@@ -238,7 +237,7 @@ async def test_canonical_evaluation_branch_used_when_categories_present(async_db
     }
     async_db.add(Transcript(
         id=uuid.uuid4(), session_id=session.id, speaker="agent",
-        utterance_text="Hello", timestamp_ms=datetime.now(timezone.utc), sequence_number=0,
+        utterance_text="Hello", timestamp_ms=datetime.now(UTC), sequence_number=0,
     ))
     async_db.add(Evaluation(
         id=uuid.uuid4(), session_id=session.id, overall_score=45.0,
@@ -336,7 +335,7 @@ async def test_coaching_canonical_suppresses_legacy_mistakes(async_db):
     async_db.add(Transcript(
         id=uuid.uuid4(), session_id=session.id, speaker="agent",
         utterance_text="Please confirm your full name and date of birth.",
-        timestamp_ms=datetime.now(timezone.utc), sequence_number=0,
+        timestamp_ms=datetime.now(UTC), sequence_number=0,
     ))
     async_db.add(CoachingReport(
         id=uuid.uuid4(), session_id=session.id,
@@ -372,7 +371,7 @@ async def test_coaching_legacy_branch_used_without_canonical_markers(async_db):
     await async_db.flush()
     async_db.add(Transcript(
         id=uuid.uuid4(), session_id=session.id, speaker="agent",
-        utterance_text="legacy transcript", timestamp_ms=datetime.now(timezone.utc), sequence_number=0,
+        utterance_text="legacy transcript", timestamp_ms=datetime.now(UTC), sequence_number=0,
     ))
 
     async_db.add(CoachingReport(
@@ -431,7 +430,7 @@ async def test_assembly_is_deterministic_for_identical_inputs(async_db):
     async_db.add(session)
     await async_db.flush()
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     async_db.add(Transcript(
         id=uuid.uuid4(), session_id=session.id, speaker="agent",
         utterance_text="Hello", timestamp_ms=now, sequence_number=0,
@@ -460,7 +459,7 @@ async def test_bounded_query_count_independent_of_transcript_length(async_db):
     async_db.add(session)
     await async_db.flush()
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     for i in range(50):
         async_db.add(Transcript(
             id=uuid.uuid4(), session_id=session.id, speaker="agent" if i % 2 == 0 else "debtor",
@@ -509,7 +508,7 @@ async def test_duplicate_transcript_sequence_is_rejected(async_db):
     session = _make_session(scenario.id)
     async_db.add(session)
     await async_db.flush()
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     for text in ("first", "second"):
         async_db.add(Transcript(
             id=uuid.uuid4(), session_id=session.id, speaker="agent",
@@ -625,6 +624,7 @@ async def test_query_count_is_independent_of_rubric_block_count(async_db):
 @pytest.mark.asyncio
 async def test_assembly_does_not_invoke_business_result_services(async_db):
     from unittest.mock import patch
+
     from app.services.coaching_engine import CoachingEngine
     from app.services.evaluation_pipeline import EvaluationPipeline
     from app.services.learning_plan_generator import LearningPlanGenerator

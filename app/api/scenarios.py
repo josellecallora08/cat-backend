@@ -24,6 +24,7 @@ from app.services.event_instances import event_broadcaster
 from app.services.llm_service import LLMMessage, LLMService
 from app.services.scenario_repository import get_scenario_by_id, list_active_scenarios
 
+
 router = APIRouter()
 
 

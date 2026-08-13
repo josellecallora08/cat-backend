@@ -2,8 +2,8 @@
 
 from decimal import Decimal
 
-import pytest
-from hypothesis import given, strategies as st
+from hypothesis import given
+from hypothesis import strategies as st
 
 from app.services.rubric_observation_validator import validate_observation
 from app.services.rubric_score_calculator import _money, calculate_rubric_score

@@ -6,7 +6,7 @@ GET status, GET list, and database error handling.
 """
 
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -157,14 +157,14 @@ class TestUploadValidation:
 
     @pytest.fixture
     def override_admin_and_db(self, app, admin_user):
-        from app.services.auth import require_admin
         from app.database import get_session
+        from app.services.auth import require_admin
 
         mock_db = _mock_db_session()
         # Make refresh set created_at on the record
         async def _refresh(obj):
             if not hasattr(obj, 'created_at') or obj.created_at is None:
-                obj.created_at = datetime.now(timezone.utc)
+                obj.created_at = datetime.now(UTC)
         mock_db.refresh = AsyncMock(side_effect=_refresh)
 
         app.dependency_overrides[require_admin] = lambda: admin_user
@@ -222,8 +222,8 @@ class TestUploadValidation:
     @pytest.mark.asyncio
     async def test_422_invalid_scenario_id(self, app, admin_user):
         """Non-existent scenario_id returns 422."""
-        from app.services.auth import require_admin
         from app.database import get_session
+        from app.services.auth import require_admin
 
         mock_db = _mock_db_session()
         # execute returns None for scenario lookup
@@ -252,8 +252,8 @@ class TestUploadValidation:
     @pytest.mark.asyncio
     async def test_201_valid_scenario_id_stores_link(self, app, admin_user):
         """Valid scenario_id is stored on the upload record."""
-        from app.services.auth import require_admin
         from app.database import get_session
+        from app.services.auth import require_admin
 
         mock_db = _mock_db_session()
         fake_scenario_id = uuid.uuid4()
@@ -267,7 +267,7 @@ class TestUploadValidation:
 
         async def _refresh(obj):
             if not hasattr(obj, 'created_at') or obj.created_at is None:
-                obj.created_at = datetime.now(timezone.utc)
+                obj.created_at = datetime.now(UTC)
         mock_db.refresh = AsyncMock(side_effect=_refresh)
 
         app.dependency_overrides[require_admin] = lambda: admin_user
@@ -333,14 +333,14 @@ class TestDatabaseErrorHandling:
     @pytest.mark.asyncio
     async def test_500_on_db_commit_failure(self, app, admin_user):
         """Database commit failure returns 500 and calls rollback."""
-        from app.services.auth import require_admin
         from app.database import get_session
+        from app.services.auth import require_admin
 
         mock_db = _mock_db_session()
         mock_db.commit = AsyncMock(side_effect=Exception("DB connection lost"))
 
         async def _refresh(obj):
-            obj.created_at = datetime.now(timezone.utc)
+            obj.created_at = datetime.now(UTC)
         mock_db.refresh = AsyncMock(side_effect=_refresh)
 
         app.dependency_overrides[require_admin] = lambda: admin_user
@@ -371,8 +371,8 @@ class TestRateLimit:
 
     @pytest.mark.asyncio
     async def test_429_when_rate_limited(self, app, admin_user):
-        from app.services.auth import require_admin
         from app.database import get_session
+        from app.services.auth import require_admin
 
         app.dependency_overrides[require_admin] = lambda: admin_user
         app.dependency_overrides[get_session] = lambda: _mock_db_session()
@@ -399,8 +399,8 @@ class TestGetUploadStatus:
 
     @pytest.mark.asyncio
     async def test_404_nonexistent_upload(self, app, admin_user):
-        from app.services.auth import require_admin
         from app.database import get_session
+        from app.services.auth import require_admin
 
         mock_db = _mock_db_session()
         mock_result = MagicMock()
@@ -420,12 +420,12 @@ class TestGetUploadStatus:
 
     @pytest.mark.asyncio
     async def test_200_existing_upload(self, app, admin_user):
-        from app.services.auth import require_admin
         from app.database import get_session
+        from app.services.auth import require_admin
 
         mock_db = _mock_db_session()
         upload_id = uuid.uuid4()
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         mock_upload = MagicMock()
         mock_upload.id = upload_id
@@ -473,8 +473,8 @@ class TestListUploads:
 
     @pytest.mark.asyncio
     async def test_200_empty_list(self, app, admin_user):
-        from app.services.auth import require_admin
         from app.database import get_session
+        from app.services.auth import require_admin
 
         mock_db = _mock_db_session()
         mock_result = MagicMock()
@@ -497,11 +497,11 @@ class TestListUploads:
 
     @pytest.mark.asyncio
     async def test_200_with_items_and_pagination(self, app, admin_user):
-        from app.services.auth import require_admin
         from app.database import get_session
+        from app.services.auth import require_admin
 
         mock_db = _mock_db_session()
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         items = []
         for i in range(3):

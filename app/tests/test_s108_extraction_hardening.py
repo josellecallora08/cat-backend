@@ -1,18 +1,26 @@
 """S1-08: Extraction hardening tests — encoding, CSV, Markdown, HTML."""
-import codecs
 import csv
 import io
-from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
 from app.services.upload_extractor import (
-    ExtractionError, extract_content, extract_csv, extract_md, extract_txt,
-    compute_content_hash, _strip_control_chars, _normalize_encoding,
-    _sanitize_markdown, _neutralize_csv_cell, _enforce_size_limit,
-    _is_dangerous_uri, _is_chardet_trustworthy,
-    _MAX_EXTRACTED_BYTES, _MAX_CSV_ROWS, _MAX_CSV_CELL_LEN,
+    _MAX_CSV_CELL_LEN,
+    _MAX_CSV_ROWS,
+    _MAX_EXTRACTED_BYTES,
+    ExtractionError,
+    _enforce_size_limit,
+    _is_chardet_trustworthy,
+    _is_dangerous_uri,
+    _neutralize_csv_cell,
+    _normalize_encoding,
+    _strip_control_chars,
+    compute_content_hash,
+    extract_content,
+    extract_csv,
+    extract_md,
+    extract_txt,
 )
 
 
@@ -47,7 +55,7 @@ class TestBomHandling:
         assert result == "Hi"
 
     def test_non_ascii_after_bom(self):
-        raw = b"\xef\xbb\xbf" + "café".encode("utf-8")
+        raw = b"\xef\xbb\xbf" + "café".encode()
         assert _normalize_encoding(raw) == "café"
 
     def test_empty_bom_only(self):
@@ -70,7 +78,7 @@ class TestBomCsvFormulaProbes:
         result = extract_csv(path)
         reader = csv.reader(io.StringIO(result))
         rows = list(reader)
-        assert rows[0][0].startswith("'"), f"Not neutralized: {repr(rows[0][0])}"
+        assert rows[0][0].startswith("'"), f"Not neutralized: {rows[0][0]!r}"
 
     def test_utf16_be_bom_plus(self, tmp_path):
         path = tmp_path / "u16be.csv"
@@ -110,7 +118,7 @@ class TestEncodingDetection:
         assert _normalize_encoding(b"name,value\nfoo,bar") == "name,value\nfoo,bar"
 
     def test_short_utf8_non_ascii(self):
-        assert _normalize_encoding("café".encode("utf-8")) == "café"
+        assert _normalize_encoding("café".encode()) == "café"
 
     def test_empty(self):
         assert _normalize_encoding(b"") == ""
@@ -159,7 +167,7 @@ class TestChardetConfidence:
 
     def test_chardet_unavailable(self, tmp_path):
         path = tmp_path / "nochardet.txt"
-        path.write_bytes("hello".encode("utf-8"))
+        path.write_bytes(b"hello")
         with patch.dict("sys.modules", {"chardet": None}):
             with patch("builtins.__import__", side_effect=ImportError):
                 # Falls through to UTF-8 fallback
@@ -312,7 +320,7 @@ class TestFormulaNeutralization:
     def test_neutralization(self, cell, expect_prefix):
         result = _neutralize_csv_cell(cell)
         if expect_prefix:
-            assert result.startswith("'"), f"{repr(cell)} not neutralized"
+            assert result.startswith("'"), f"{cell!r} not neutralized"
         else:
             assert not result.startswith("'") or cell.startswith("'")
 
@@ -368,7 +376,7 @@ class TestMarkdownUri:
         ("http://example.org/a?q=%3D", False),
     ])
     def test_is_dangerous(self, uri, dangerous):
-        assert _is_dangerous_uri(uri) == dangerous, f"URI {repr(uri)}"
+        assert _is_dangerous_uri(uri) == dangerous, f"URI {uri!r}"
 
     def test_inline_data_html(self, tmp_path):
         path = tmp_path / "d.md"
@@ -873,7 +881,7 @@ class TestDeepEncodedMarkdown:
     ], ids=["js-inline", "data-inline", "vbs-inline", "file-inline"])
     def test_inline_link_neutralized(self, tmp_path, uri):
         path = tmp_path / "t.md"
-        path.write_bytes(f"[click]({uri})".encode("utf-8"))
+        path.write_bytes(f"[click]({uri})".encode())
         result = extract_md(path)
         assert result.strip() == "click"
         assert uri not in result
@@ -885,7 +893,7 @@ class TestDeepEncodedMarkdown:
     ], ids=["js-img", "data-img"])
     def test_image_neutralized(self, tmp_path, uri):
         path = tmp_path / "t.md"
-        path.write_bytes(f"![img]({uri})".encode("utf-8"))
+        path.write_bytes(f"![img]({uri})".encode())
         result = extract_md(path)
         assert result.strip() == "img"
         assert uri not in result
@@ -989,7 +997,7 @@ class TestSafeDestinationsRestore:
     ], ids=["dbl-path-md", "dbl-query-md", "dbl-http-md"])
     def test_safe_in_markdown(self, tmp_path, url):
         path = tmp_path / "s.md"
-        path.write_bytes(f"[link]({url})".encode("utf-8"))
+        path.write_bytes(f"[link]({url})".encode())
         result = extract_md(path)
         assert f"[link]({url})" in result
 
@@ -1007,7 +1015,7 @@ class TestExactMarkdownNeutralization:
     ], ids=["js-exact", "data-exact", "vbs-exact", "file-exact"])
     def test_inline_link_exact_output(self, tmp_path, scheme_uri):
         path = tmp_path / "t.md"
-        path.write_bytes(f"[click]({scheme_uri})".encode("utf-8"))
+        path.write_bytes(f"[click]({scheme_uri})".encode())
         result = extract_md(path)
         assert result.strip() == "click"
         assert scheme_uri not in result
@@ -1021,7 +1029,7 @@ class TestExactMarkdownNeutralization:
     ], ids=["js-img-ex", "data-img-ex", "vbs-img-ex", "file-img-ex"])
     def test_image_exact_output(self, tmp_path, scheme_uri):
         path = tmp_path / "t.md"
-        path.write_bytes(f"![alt]({scheme_uri})".encode("utf-8"))
+        path.write_bytes(f"![alt]({scheme_uri})".encode())
         result = extract_md(path)
         assert result.strip() == "alt"
         assert scheme_uri not in result
@@ -1049,7 +1057,7 @@ class TestExactMarkdownNeutralization:
     ], ids=["pct-s-ex", "entity-ex", "tab-ex", "space-ex"])
     def test_encoded_inline_exact(self, tmp_path, uri):
         path = tmp_path / "t.md"
-        path.write_bytes(f"[txt]({uri})".encode("utf-8"))
+        path.write_bytes(f"[txt]({uri})".encode())
         result = extract_md(path)
         assert result.strip() == "txt"
         assert uri not in result

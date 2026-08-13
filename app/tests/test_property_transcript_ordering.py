@@ -11,9 +11,8 @@ SHALL be monotonically increasing.
 
 import asyncio
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
-import pytest
 import pytest_asyncio
 from hypothesis import given, settings
 from hypothesis import strategies as st
@@ -38,7 +37,7 @@ utterance_texts = st.text(
 timestamps = st.datetimes(
     min_value=datetime(2020, 1, 1),
     max_value=datetime(2030, 12, 31),
-).map(lambda dt: dt.replace(tzinfo=timezone.utc))
+).map(lambda dt: dt.replace(tzinfo=UTC))
 
 
 @st.composite

@@ -9,7 +9,6 @@ remain accessible in memory for the duration of the active session.
 Validates: Requirements 8.3, 8.5
 """
 
-import asyncio
 from unittest.mock import AsyncMock, patch
 
 import pytest

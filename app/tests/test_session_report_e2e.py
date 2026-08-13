@@ -12,7 +12,7 @@ Validates: Requirements 1.3, 1.4, 2.1-2.12, 3.5-3.6, 4.4, 4.6-4.10,
 import copy
 import json
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock
 
 import pytest
@@ -36,18 +36,18 @@ from app.models import (
     User,
 )
 from app.models.campaign import CampaignRole, CampaignStatus
-from app.schemas import EvaluationResult, EvaluationCategory, StrengthItem, WeaknessItem
+from app.schemas import EvaluationCategory, EvaluationResult, StrengthItem, WeaknessItem
 from app.schemas.negotiation_standard import NegotiationStandardContent
 from app.schemas.rubric_evaluation import CanonicalEvaluationResult
 from app.services.auth import hash_password
 from app.services.coaching_engine import CoachingEngine
 from app.services.evaluation_compatibility import build_rubric_recommendations
 from app.services.learning_plan_generator import LearningPlanGenerator
+from app.services.llm_service import LLMResponse, LLMService
 from app.services.negotiation_standard_service import create_standard, publish_standard
 from app.services.rubric_observation_validator import validate_observation
 from app.services.rubric_score_calculator import calculate_rubric_score
 from app.services.session_report_service import generate_report
-from app.services.llm_service import LLMResponse, LLMService
 
 
 PASSWORD = "E2E-password-123!"
@@ -233,7 +233,7 @@ async def _seed_identity(db: AsyncSession, *, campaign: bool = True) -> tuple[Us
 
 async def _seed_canonical_artifacts(db: AsyncSession, session: Session, version) -> CanonicalEvaluationResult:
     """Create canonical artifacts through real validation, scoring, and generators."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     transcript_rows = [
         Transcript(id=uuid.uuid4(), session_id=session.id, speaker=speaker, utterance_text=text, timestamp_ms=now + timedelta(seconds=index), sequence_number=index)
         for index, (speaker, text) in enumerate(_transcript_values())
@@ -295,10 +295,10 @@ async def _reload_session(db: AsyncSession, session_id: uuid.UUID) -> Session:
 
 async def _seed_report_variant(db: AsyncSession, *, variant: str) -> tuple[User, Session]:
     user, scenario, campaign, version = await _seed_identity(db)
-    session = Session(id=uuid.uuid4(), scenario_id=scenario.id, agent_id=user.id, campaign_id=campaign.id, negotiation_standard_version_id=version.id, status="completed", created_at=datetime.now(timezone.utc), ended_at=datetime.now(timezone.utc), persona_context={"name": "Test Debtor", "communication_style": "cooperative", "emotional_state": 3})
+    session = Session(id=uuid.uuid4(), scenario_id=scenario.id, agent_id=user.id, campaign_id=campaign.id, negotiation_standard_version_id=version.id, status="completed", created_at=datetime.now(UTC), ended_at=datetime.now(UTC), persona_context={"name": "Test Debtor", "communication_style": "cooperative", "emotional_state": 3})
     db.add(session)
     await db.flush()
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     if variant != "empty":
         db.add(Transcript(id=uuid.uuid4(), session_id=session.id, speaker="agent", utterance_text="Hello", timestamp_ms=now, sequence_number=0))
     if variant == "legacy":
@@ -350,7 +350,7 @@ async def test_authenticated_session_report_full_lifecycle(e2e_client, async_db,
     assert start_body["standard_version_id"] == str(version.id)
 
     session = await _reload_session(async_db, uuid.UUID(start_body["id"]))
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     async_db.add_all([
         Transcript(
             id=uuid.uuid4(),

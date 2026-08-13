@@ -10,10 +10,10 @@ response, escalation, trigger phrases, etc.).
 Validates: Requirements 3.4, 3.7, 9.1, 9.2, 9.3, 9.4
 """
 
-import json
-import logging
 import asyncio
 import base64
+import json
+import logging
 from uuid import UUID
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
@@ -22,15 +22,16 @@ from jose import JWTError, jwt
 from app.config import settings
 from app.database import async_session_factory
 from app.models import Session
-from app.services.script_content_loader import load_script_content
 from app.services.debtor_simulator import EmotionalState, PersonaContext
 from app.services.llm_service import LLMService
+from app.services.script_content_loader import load_script_content
+from app.services.voice.peer_connection_manager import (
+    AIORTC_AVAILABLE,
+    PeerConnectionManager,
+)
 from app.services.voice.pipeline_factory import create_voice_pipeline
 from app.services.voice.voice_pipeline import CallEndSignal
-from app.services.voice.peer_connection_manager import (
-    PeerConnectionManager,
-    AIORTC_AVAILABLE,
-)
+
 
 logger = logging.getLogger(__name__)
 
@@ -201,7 +202,7 @@ async def voice_signaling_websocket(websocket: WebSocket, session_id: UUID) -> N
                     await websocket.send_json(
                         {
                             "type": "error",
-                            "message": f"Failed to process offer: {str(e)}",
+                            "message": f"Failed to process offer: {e!s}",
                         }
                     )
 
@@ -254,7 +255,7 @@ async def voice_signaling_websocket(websocket: WebSocket, session_id: UUID) -> N
                     await websocket.send_json(
                         {
                             "type": "error",
-                            "message": f"Failed to add ICE candidate: {str(e)}",
+                            "message": f"Failed to add ICE candidate: {e!s}",
                         }
                     )
 

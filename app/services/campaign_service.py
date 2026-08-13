@@ -6,6 +6,7 @@ from uuid import UUID
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models import Scenario
 from app.models.campaign import (
     Campaign,
     CampaignAgent,
@@ -13,7 +14,6 @@ from app.models.campaign import (
     campaign_scenarios,
 )
 from app.models.user import User, UserRole, UserType
-from app.models import Scenario
 from app.schemas.campaign import (
     AgentAssignment,
     CampaignCreate,

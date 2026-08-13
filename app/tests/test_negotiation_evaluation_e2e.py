@@ -1,6 +1,6 @@
 """Complete pinned-standard evaluation flow for TASK-036."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from uuid import uuid4
 
 import pytest
@@ -10,17 +10,25 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from app.database import Base, get_session
 from app.main import app
-from app.models import Campaign, CampaignAgent, Evaluation, LearningPlan, CoachingReport, Scenario, Transcript, User
+from app.models import (
+    Campaign,
+    CampaignAgent,
+    CoachingReport,
+    Evaluation,
+    LearningPlan,
+    Scenario,
+    Transcript,
+    User,
+)
+from app.schemas.negotiation_standard import NegotiationStandardContent
 from app.services.auth import require_auth
 from app.services.debtor_simulator import EmotionalState, PersonaContext
 from app.services.evaluation_compatibility import render_legacy_review, to_legacy_review
 from app.services.evaluation_pipeline import EvaluationPipeline
 from app.services.llm_service import LLMResponse
 from app.services.negotiation_standard_service import create_standard, publish_standard
-from app.services.session_service import create_session
-from app.services.session_service import end_session
+from app.services.session_service import create_session, end_session
 from app.services.transcript_manager import TranscriptManager
-from app.schemas.negotiation_standard import NegotiationStandardContent
 
 
 class FakeDebtorSimulator:
@@ -101,7 +109,7 @@ async def test_complete_campaign_to_pinned_evaluation_and_results_api(db_session
         "We can discuss a plan", "That sounds helpful", "Let us confirm the next step", "Thank you",
     ]
     for index, text in enumerate(transcript_text):
-        await manager.append_entry(session.id, "agent" if index % 2 == 0 else "debtor", text, datetime.now(timezone.utc))
+        await manager.append_entry(session.id, "agent" if index % 2 == 0 else "debtor", text, datetime.now(UTC))
     await manager.persist(session.id)
     assert await db_session.scalar(select(Transcript).where(Transcript.session_id == session.id)) is not None
     completed = await end_session(db_session, session.id)

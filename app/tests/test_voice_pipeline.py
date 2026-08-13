@@ -8,8 +8,7 @@ Requirements: 3.1, 3.2, 3.3, 3.4, 3.5
 
 import asyncio
 import uuid
-from datetime import datetime, timezone
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -19,17 +18,13 @@ from app.services.debtor_simulator import (
     PersonaContext,
     SimulatorResponse,
 )
-from app.services.voice.audio_buffer import AudioBuffer
 from app.services.voice.peer_connection_manager import PeerConnectionManager
-from app.services.voice.stt_service import MockSTTService, TranscriptionResult
-from app.services.voice.tts_service import AudioStream, MockTTSService
+from app.services.voice.stt_service import MockSTTService
+from app.services.voice.tts_service import MockTTSService
 from app.services.voice.vad import (
     FRAME_SIZE_BYTES,
-    VADProcessor,
-    VADResult,
-    EnergyVADBackend,
 )
-from app.services.voice.voice_pipeline import VoicePipelineOrchestrator, PipelineState
+from app.services.voice.voice_pipeline import VoicePipelineOrchestrator
 
 
 # --- Fixtures ---
@@ -464,7 +459,7 @@ class TestHandleAudioTrack:
         """handle_audio_track marks the pipeline as active."""
         # Create a mock track that returns one frame then raises to exit
         mock_track = AsyncMock()
-        mock_track.recv = AsyncMock(side_effect=asyncio.TimeoutError())
+        mock_track.recv = AsyncMock(side_effect=TimeoutError())
 
         # Run briefly then cancel
         task = asyncio.create_task(orchestrator.handle_audio_track(mock_track))
@@ -493,10 +488,9 @@ class TestHandleAudioTrack:
             call_count += 1
             if call_count <= 1:
                 return frame_data
-            else:
-                # Stop after one frame
-                orchestrator._state.is_active = False
-                raise Exception("done")
+            # Stop after one frame
+            orchestrator._state.is_active = False
+            raise Exception("done")
 
         mock_track = AsyncMock()
         mock_track.recv = mock_recv

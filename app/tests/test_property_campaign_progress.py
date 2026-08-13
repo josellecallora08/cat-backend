@@ -5,8 +5,8 @@ Properties 6, 7, and 10: progress correctness, campaign ordering, and no orderin
 """
 
 from types import SimpleNamespace
-from uuid import UUID, uuid4
 from unittest.mock import AsyncMock, MagicMock
+from uuid import UUID, uuid4
 
 import pytest
 from hypothesis import given, settings

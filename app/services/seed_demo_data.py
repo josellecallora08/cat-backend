@@ -17,14 +17,15 @@ from __future__ import annotations
 import logging
 import random
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Scenario, Session, Transcript, Evaluation
+from app.models import Evaluation, Scenario, Session, Transcript
 from app.models.user import User, UserRole, UserType
 from app.services.auth import hash_password
+
 
 logger = logging.getLogger(__name__)
 
@@ -179,7 +180,7 @@ async def _seed_sessions_for_agent(
 ) -> int:
     """Create completed sessions + transcripts + evaluations for one agent."""
     created = 0
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     for i in range(num_sessions):
         scenario = random.choice(scenarios)

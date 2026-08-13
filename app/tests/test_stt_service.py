@@ -342,14 +342,13 @@ class TestSTTService:
         """STTService raises RuntimeError when faster-whisper is not installed."""
         service = STTService(model_size="tiny", device="cpu")
 
-        with patch.dict("sys.modules", {"faster_whisper": None}):
-            with patch(
-                "builtins.__import__",
-                side_effect=ImportError("No module named 'faster_whisper'"),
-            ):
-                # Force model load attempt
-                with pytest.raises(RuntimeError, match="faster-whisper is not installed"):
-                    service._load_model()
+        with patch.dict("sys.modules", {"faster_whisper": None}), patch(
+            "builtins.__import__",
+            side_effect=ImportError("No module named 'faster_whisper'"),
+        ):
+            # Force model load attempt
+            with pytest.raises(RuntimeError, match="faster-whisper is not installed"):
+                service._load_model()
 
     @patch("app.services.voice.stt_service.STTService._load_model")
     def test_unsupported_language_hint_ignored(self, mock_load):

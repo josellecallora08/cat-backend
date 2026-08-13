@@ -5,9 +5,7 @@ Validates: Requirements 3.3, 3.6
 
 import struct
 
-import pytest
-
-from app.services.voice.audio_buffer import AudioBuffer, MAX_BUFFER_DURATION_MS, MAX_FRAMES
+from app.services.voice.audio_buffer import MAX_BUFFER_DURATION_MS, MAX_FRAMES, AudioBuffer
 from app.services.voice.vad import (
     DEFAULT_SILENCE_THRESHOLD_MS,
     FRAME_DURATION_MS,
@@ -16,7 +14,6 @@ from app.services.voice.vad import (
     SAMPLE_WIDTH,
     EnergyVADBackend,
     VADProcessor,
-    VADResult,
 )
 
 

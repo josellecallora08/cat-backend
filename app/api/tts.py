@@ -13,6 +13,7 @@ from pydantic import BaseModel
 
 from app.config import settings
 
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter()

@@ -21,36 +21,32 @@ Required test coverage per validation findings:
 
 import io
 import os
-import platform
-import stat
-import tempfile
 import uuid
 import zipfile
+from datetime import UTC
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
-from app.services.upload_validator import (
-    UploadRejectionReason,
-    _is_unix_symlink,
-    validate_docx_archive,
-    validate_extension,
-    validate_file_signature,
-    validate_mime_type,
-    validate_pdf_not_encrypted,
-)
 from app.services import upload_quarantine
 from app.services.upload_quarantine import (
     get_quarantine_path,
     store_in_quarantine,
-    _ALLOWED_QUARANTINE_EXTENSIONS,
+)
+from app.services.upload_validator import (
+    UploadRejectionReason,
+    _is_unix_symlink,
+    validate_docx_archive,
+    validate_file_signature,
+    validate_pdf_not_encrypted,
 )
 
 
 def _make_real_docx_with_python_docx(path: Path) -> Path:
     """Generate a genuine valid DOCX using python-docx library."""
     from docx import Document
+
     doc = Document()
     doc.add_heading("Training Script", level=1)
     doc.add_paragraph("This is a valid training document for the AI debtor.")
@@ -61,23 +57,38 @@ def _make_real_docx_with_python_docx(path: Path) -> Path:
 def _make_minimal_valid_docx(path: Path) -> Path:
     """Create a structurally valid DOCX with standard paths."""
     with zipfile.ZipFile(path, "w") as zf:
-        zf.writestr("[Content_Types].xml", '<?xml version="1.0"?>'
+        zf.writestr(
+            "[Content_Types].xml",
+            '<?xml version="1.0"?>'
             '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
-            '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+            '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'  # noqa: E501
             '<Default Extension="xml" ContentType="application/xml"/>'
-            '<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>'
-            '</Types>')
-        zf.writestr("_rels/.rels", '<?xml version="1.0"?>'
+            '<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>'  # noqa: E501
+            "</Types>",
+        )
+        zf.writestr(
+            "_rels/.rels",
+            '<?xml version="1.0"?>'
             '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
-            '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>'
-            '</Relationships>')
-        zf.writestr("word/document.xml", '<?xml version="1.0"?>'
+            '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>'  # noqa: E501
+            "</Relationships>",
+        )
+        zf.writestr(
+            "word/document.xml",
+            '<?xml version="1.0"?>'
             '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
-            '<w:body><w:p><w:r><w:t>Hello</w:t></w:r></w:p></w:body></w:document>')
-        zf.writestr("word/_rels/document.xml.rels", '<?xml version="1.0"?>'
-            '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"/>')
-        zf.writestr("docProps/core.xml", '<?xml version="1.0"?>'
-            '<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties"/>')
+            "<w:body><w:p><w:r><w:t>Hello</w:t></w:r></w:p></w:body></w:document>",
+        )
+        zf.writestr(
+            "word/_rels/document.xml.rels",
+            '<?xml version="1.0"?>'
+            '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"/>',
+        )
+        zf.writestr(
+            "docProps/core.xml",
+            '<?xml version="1.0"?>'
+            '<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties"/>',
+        )
     return path
 
 
@@ -102,7 +113,7 @@ class TestGenuineValidDocx:
         with zipfile.ZipFile(path, "w") as zf:
             zf.writestr("[Content_Types].xml", "<Types/>")
             zf.writestr("word/_rels/document.xml.rels", "<R/>")
-        valid, reason = validate_docx_archive(path)
+        valid, _reason = validate_docx_archive(path)
         assert valid is True
 
     def test_docx_above_depth_rejected(self, tmp_path):
@@ -126,12 +137,12 @@ class TestUnixSymlinkDetection:
             info = zipfile.ZipInfo("[Content_Types].xml")
             # Unix regular file: mode 0o100644, create_system=3 (Unix)
             info.create_system = 3
-            info.external_attr = (0o100644 << 16)
+            info.external_attr = 0o100644 << 16
             zf.writestr(info, "<Types/>")
 
             info2 = zipfile.ZipInfo("word/document.xml")
             info2.create_system = 3
-            info2.external_attr = (0o100644 << 16)
+            info2.external_attr = 0o100644 << 16
             zf.writestr(info2, "<doc/>")
 
         valid, reason = validate_docx_archive(path)
@@ -143,13 +154,13 @@ class TestUnixSymlinkDetection:
         with zipfile.ZipFile(path, "w") as zf:
             info = zipfile.ZipInfo("[Content_Types].xml")
             info.create_system = 3
-            info.external_attr = (0o100644 << 16)
+            info.external_attr = 0o100644 << 16
             zf.writestr(info, "<Types/>")
 
             # Symlink: mode 0o120777
             sym_info = zipfile.ZipInfo("word/link.xml")
             sym_info.create_system = 3
-            sym_info.external_attr = (0o120777 << 16)
+            sym_info.external_attr = 0o120777 << 16
             zf.writestr(sym_info, "/etc/passwd")
 
         valid, reason = validate_docx_archive(path)
@@ -165,19 +176,19 @@ class TestUnixSymlinkDetection:
             # High bits set but not from Unix — should not be treated as symlink
             info.external_attr = 0x20  # Windows archive attribute
             zf.writestr(info, "<Types/>")
-        valid, reason = validate_docx_archive(path)
+        valid, _reason = validate_docx_archive(path)
         assert valid is True
 
     def test_is_unix_symlink_helper_regular_file(self):
         info = zipfile.ZipInfo("test.xml")
         info.create_system = 3
-        info.external_attr = (0o100644 << 16)
+        info.external_attr = 0o100644 << 16
         assert _is_unix_symlink(info) is False
 
     def test_is_unix_symlink_helper_actual_symlink(self):
         info = zipfile.ZipInfo("link.xml")
         info.create_system = 3
-        info.external_attr = (0o120777 << 16)
+        info.external_attr = 0o120777 << 16
         assert _is_unix_symlink(info) is True
 
     def test_is_unix_symlink_helper_windows_entry(self):
@@ -193,9 +204,10 @@ class TestEncryptedPdfPypdf:
     def test_genuine_encrypted_pdf_rejected(self):
         """Create a real encrypted PDF using pypdf and verify rejection."""
         from pypdf import PdfWriter
+
         writer = PdfWriter()
         writer.add_blank_page(width=612, height=792)
-        writer.encrypt("password123")
+        writer.encrypt("test-password-marker")
         buf = io.BytesIO()
         writer.write(buf)
         encrypted_bytes = buf.getvalue()
@@ -207,6 +219,7 @@ class TestEncryptedPdfPypdf:
     def test_valid_unencrypted_pdf_accepted(self):
         """Unencrypted PDF passes."""
         from pypdf import PdfWriter
+
         writer = PdfWriter()
         writer.add_blank_page(width=612, height=792)
         buf = io.BytesIO()
@@ -239,20 +252,20 @@ class TestOleDocxPolicy:
 
     def test_ole_signature_docx_rejected_as_unsafe_container(self):
         """DOCX with OLE/CFB signature is rejected (not confirmed encrypted, just unsafe)."""
-        ole_header = b"\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1" + b"\x00" * 100
+        ole_header = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1" + b"\x00" * 100
         valid, reason = validate_file_signature("encrypted.docx", ole_header)
         assert valid is False
         assert reason == UploadRejectionReason.DOCX_UNSAFE_CONTAINER
 
     def test_normal_zip_docx_signature_accepted(self):
         """Normal DOCX with PK/ZIP signature passes signature check."""
-        pk_header = b"\x50\x4B\x03\x04\x14\x00\x06\x00"
-        valid, reason = validate_file_signature("normal.docx", pk_header)
+        pk_header = b"\x50\x4b\x03\x04\x14\x00\x06\x00"
+        valid, _reason = validate_file_signature("normal.docx", pk_header)
         assert valid is True
 
     def test_ole_as_non_docx_rejected_as_signature_mismatch(self):
         """OLE signature on a .txt file is rejected as signature mismatch."""
-        ole_header = b"\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1"
+        ole_header = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
         valid, reason = validate_file_signature("data.txt", ole_header)
         assert valid is False
         assert reason == UploadRejectionReason.SIGNATURE_MISMATCH
@@ -287,15 +300,28 @@ class TestQuarantineExtensionWhitelist:
             assert p.exists()
             assert p.suffix == ".pdf"
 
-    @pytest.mark.parametrize("bad_ext", [
-        ".exe", ".zip", ".mp3", ".xlsx", ".wav",
-        "../escape", ".pdf/../../escape", "", "nodot",
-        ".bat", ".dll",
-    ])
+    @pytest.mark.parametrize(
+        "bad_ext",
+        [
+            ".exe",
+            ".zip",
+            ".mp3",
+            ".xlsx",
+            ".wav",
+            "../escape",
+            ".pdf/../../escape",
+            "",
+            "nodot",
+            ".bat",
+            ".dll",
+        ],
+    )
     def test_rejected_extensions(self, tmp_path, bad_ext):
-        with patch.object(upload_quarantine.settings, "upload_quarantine_path", str(tmp_path)):
-            with pytest.raises(ValueError, match="whitelist"):
-                store_in_quarantine(b"content", bad_ext)
+        with (
+            patch.object(upload_quarantine.settings, "upload_quarantine_path", str(tmp_path)),
+            pytest.raises(ValueError, match="whitelist"),
+        ):
+            store_in_quarantine(b"content", bad_ext)
 
 
 class TestQuarantinePathContainment:
@@ -336,25 +362,25 @@ class TestAtomicWriteFailureCleanup:
     def test_write_failure_no_partial_file(self, tmp_path):
         """If os.write fails, no temp or final file remains."""
         with patch.object(upload_quarantine.settings, "upload_quarantine_path", str(tmp_path)):
-            with patch("app.services.upload_quarantine.os.write", side_effect=OSError("disk full")):
+            with patch("app.services.upload_quarantine.os.write", side_effect=OSError("disk full")):  # noqa: SIM117
                 with pytest.raises(OSError):
                     store_in_quarantine(b"data", ".pdf")
 
             # No files should remain (only .gitkeep-like entries if any)
-            remaining = [f for f in tmp_path.iterdir() if f.is_file() and not f.name.startswith(".")]
+            remaining = [
+                f for f in tmp_path.iterdir() if f.is_file() and not f.name.startswith(".")
+            ]
             assert remaining == [], f"Partial files remain: {remaining}"
 
     def test_rename_failure_no_partial_file(self, tmp_path):
         """If rename fails after successful write, temp file is cleaned up."""
         with patch.object(upload_quarantine.settings, "upload_quarantine_path", str(tmp_path)):
-            original_rename = Path.rename
 
             def failing_rename(self, target):
                 raise OSError("rename failed")
 
-            with patch.object(Path, "rename", failing_rename):
-                with pytest.raises(OSError):
-                    store_in_quarantine(b"data", ".pdf")
+            with patch.object(Path, "rename", failing_rename), pytest.raises(OSError):
+                store_in_quarantine(b"data", ".pdf")
 
             # No files should remain
             remaining = [f for f in tmp_path.iterdir() if f.is_file()]
@@ -385,7 +411,7 @@ class TestPartialWriteHandling:
             chunk = buf[:100]
             return original_write(fd, chunk)
 
-        with patch.object(upload_quarantine.settings, "upload_quarantine_path", str(tmp_path)):
+        with patch.object(upload_quarantine.settings, "upload_quarantine_path", str(tmp_path)):  # noqa: SIM117
             with patch("app.services.upload_quarantine.os.write", side_effect=mock_partial_write):
                 path = store_in_quarantine(data, ".txt")
 
@@ -405,7 +431,7 @@ class TestPartialWriteHandling:
                 return 0  # Zero-byte write on third call
             return original_write(fd, buf[:100])
 
-        with patch.object(upload_quarantine.settings, "upload_quarantine_path", str(tmp_path)):
+        with patch.object(upload_quarantine.settings, "upload_quarantine_path", str(tmp_path)):  # noqa: SIM117
             with patch("app.services.upload_quarantine.os.write", side_effect=mock_zero_write):
                 with pytest.raises(OSError, match="returned 0"):
                     store_in_quarantine(data, ".txt")
@@ -436,7 +462,7 @@ class TestPartialWriteHandling:
                 return mock_result
             return result
 
-        with patch.object(upload_quarantine.settings, "upload_quarantine_path", str(tmp_path)):
+        with patch.object(upload_quarantine.settings, "upload_quarantine_path", str(tmp_path)):  # noqa: SIM117
             with patch.object(Path, "stat", fake_stat):
                 with pytest.raises(OSError, match="Size mismatch"):
                     store_in_quarantine(data, ".pdf")
@@ -458,16 +484,18 @@ class TestGenuineDocxEndpointIntegration:
     @pytest.mark.asyncio
     async def test_genuine_docx_upload_201(self, tmp_path):
         """Real DOCX generated by python-docx succeeds through full pipeline."""
-        from datetime import datetime, timezone
+        from datetime import datetime
         from unittest.mock import AsyncMock
-        from httpx import ASGITransport, AsyncClient
-        from app.main import create_app
-        from app.services.auth import require_admin
-        from app.database import get_session
-        from app.models.user import User, UserRole
 
         # Generate a real DOCX
         from docx import Document
+        from httpx import ASGITransport, AsyncClient
+
+        from app.database import get_session
+        from app.main import create_app
+        from app.models.user import User, UserRole
+        from app.services.auth import require_admin
+
         doc = Document()
         doc.add_heading("AI Debtor Training Script", level=1)
         doc.add_paragraph("When the agent says hello, respond with a greeting.")
@@ -489,7 +517,8 @@ class TestGenuineDocxEndpointIntegration:
 
         async def _refresh(obj):
             if not hasattr(obj, "created_at") or obj.created_at is None:
-                obj.created_at = datetime.now(timezone.utc)
+                obj.created_at = datetime.now(UTC)
+
         mock_db.refresh = AsyncMock(side_effect=_refresh)
 
         app = create_app()
@@ -518,14 +547,18 @@ class TestGenuineDocxEndpointIntegration:
                         mock_scan.return_value = MagicMock(clean=True, signature=None, error=None)
 
                         transport = ASGITransport(app=app)
-                        async with AsyncClient(transport=transport, base_url="http://test") as client:
+                        async with AsyncClient(
+                            transport=transport, base_url="http://test"
+                        ) as client:
                             resp = await client.post(
                                 "/api/scripts/upload",
-                                files={"file": (
-                                    "training.docx",
-                                    docx_bytes,
-                                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                                )},
+                                files={
+                                    "file": (
+                                        "training.docx",
+                                        docx_bytes,
+                                        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                                    )
+                                },
                             )
 
             assert resp.status_code == 201, f"Got {resp.status_code}: {resp.text}"
@@ -542,7 +575,10 @@ class TestGenuineDocxEndpointIntegration:
             mock_db.add.assert_called_once()
             record = mock_db.add.call_args[0][0]
             assert record.filename_original == "training.docx"
-            assert record.mime_type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            assert (
+                record.mime_type
+                == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            )
             assert record.extraction_status == "completed"
             assert record.extracted_content is not None
             assert len(record.extracted_content) > 0

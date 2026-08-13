@@ -37,8 +37,7 @@ Valid action transitions (deterministic, server-side only):
 
 import json
 import logging
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 from uuid import UUID
 
 from sqlalchemy import select
@@ -59,6 +58,7 @@ from app.services.script_validator import (
     validate_script,
 )
 
+
 logger = logging.getLogger(__name__)
 
 
@@ -67,7 +67,7 @@ logger = logging.getLogger(__name__)
 
 def derive_review_status(
     upload: ScriptUpload,
-    script: Optional[Script] = None,
+    script: Script | None = None,
 ) -> str:
     """Derive the externally visible review status from persisted state.
 
@@ -148,10 +148,7 @@ def derive_actions(review_status: str, upload: ScriptUpload) -> dict[str, bool]:
     elif review_status == "ready_for_conversion":
         actions["can_retry"] = True  # retry conversion
         actions["can_reject"] = True
-    elif review_status == "extraction_failed":
-        actions["can_retry"] = _quarantine_source_exists(upload)
-        actions["can_reject"] = True
-    elif review_status == "scan_failed":
+    elif review_status == "extraction_failed" or review_status == "scan_failed":
         actions["can_retry"] = _quarantine_source_exists(upload)
         actions["can_reject"] = True
     elif review_status == "infected":
@@ -162,7 +159,6 @@ def derive_actions(review_status: str, upload: ScriptUpload) -> dict[str, bool]:
 
 def _quarantine_source_exists(upload: ScriptUpload) -> bool:
     """Check if the quarantined original file still exists on disk."""
-    from pathlib import Path
     from app.services.upload_quarantine import get_quarantine_path
 
     try:
@@ -178,7 +174,7 @@ def _quarantine_source_exists(upload: ScriptUpload) -> bool:
 
 def build_warnings(
     upload: ScriptUpload,
-    script: Optional[Script],
+    script: Script | None,
     review_status: str,
 ) -> list[ReviewWarning]:
     """Build structured warnings for the review detail.
@@ -214,7 +210,7 @@ def build_warnings(
 
     # Quarantine expiry warning
     if upload.quarantine_expires_at:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         if upload.quarantine_expires_at < now and review_status not in ("published", "rejected"):
             warnings.append(ReviewWarning(
                 code="quarantine_expired",
@@ -263,7 +259,7 @@ def _validate_draft_content(draft_content: dict) -> list[ReviewWarning]:
 
 async def load_upload_with_script(
     db: AsyncSession, upload_id: UUID
-) -> tuple[Optional[ScriptUpload], Optional[Script]]:
+) -> tuple[ScriptUpload | None, Script | None]:
     """Load an upload and its linked script (if any)."""
     stmt = select(ScriptUpload).where(ScriptUpload.id == upload_id)
     result = await db.execute(stmt)
@@ -288,7 +284,7 @@ async def load_upload_with_script(
 
 def build_review_detail(
     upload: ScriptUpload,
-    script: Optional[Script],
+    script: Script | None,
 ) -> ReviewDetailResponse:
     """Build the full review detail response from persisted state.
 
@@ -372,7 +368,7 @@ def build_review_detail(
 
 async def get_published_at(
     db: AsyncSession, script: Script
-) -> Optional[datetime]:
+) -> datetime | None:
     """Get the published_at timestamp for a published script's current version."""
     if script.status != ScriptStatus.PUBLISHED.value or script.current_version_id is None:
         return None

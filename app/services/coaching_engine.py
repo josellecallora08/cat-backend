@@ -9,7 +9,6 @@ Validates: Requirements 6.1, 6.2, 6.3, 6.4, 6.5
 
 import json
 import logging
-from typing import Dict, List
 from uuid import UUID
 
 from app.schemas import (
@@ -27,6 +26,7 @@ from app.schemas.rubric_evaluation import (
 from app.services.db_retry import retry_db_operation
 from app.services.evaluation_compatibility import build_rubric_recommendations
 from app.services.llm_service import LLMMessage, LLMServiceProtocol
+
 
 logger = logging.getLogger(__name__)
 
@@ -136,7 +136,7 @@ class CoachingEngine:
         raw_mistakes = parsed.get("mistakes", [])
 
         # Convert to MistakeItem objects
-        mistake_items: List[MistakeItem] = []
+        mistake_items: list[MistakeItem] = []
         for raw in raw_mistakes:
             try:
                 item = MistakeItem(
@@ -152,7 +152,7 @@ class CoachingEngine:
                 continue
 
         # Group mistakes by category
-        mistakes_by_category: Dict[EvaluationCategory, List[MistakeItem]] = {}
+        mistakes_by_category: dict[EvaluationCategory, list[MistakeItem]] = {}
         for item in mistake_items:
             if item.category not in mistakes_by_category:
                 mistakes_by_category[item.category] = []

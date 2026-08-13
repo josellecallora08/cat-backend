@@ -6,7 +6,14 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.database import Base
-from app.models import Campaign, CampaignAgent, NegotiationStandard, NegotiationStandardVersion, Scenario, User
+from app.models import (
+    Campaign,
+    CampaignAgent,
+    NegotiationStandard,
+    NegotiationStandardVersion,
+    Scenario,
+    User,
+)
 from app.services.debtor_simulator import EmotionalState, PersonaContext
 from app.services.session_service import PublishedStandardRequiredError, create_session
 

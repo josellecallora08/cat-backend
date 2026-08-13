@@ -20,16 +20,17 @@ how the real JWT-based auth flow reaches `require_admin` in production.
 
 import uuid
 from contextlib import ExitStack
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from httpx import ASGITransport, AsyncClient
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
-from httpx import ASGITransport, AsyncClient
 
 from app.main import app
 from app.services.auth import get_current_user
+
 
 # --- Fixtures ---
 
@@ -78,8 +79,8 @@ def _make_mock_script(script_id: uuid.UUID) -> MagicMock:
     script.format = "json"
     script.draft_content = {"opening_response": "hi"}
     script.current_version_id = None
-    script.created_at = datetime(2025, 1, 1, tzinfo=timezone.utc)
-    script.updated_at = datetime(2025, 1, 1, tzinfo=timezone.utc)
+    script.created_at = datetime(2025, 1, 1, tzinfo=UTC)
+    script.updated_at = datetime(2025, 1, 1, tzinfo=UTC)
     return script
 
 

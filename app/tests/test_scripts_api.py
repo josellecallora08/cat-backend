@@ -1,7 +1,7 @@
 """Tests for the Script Registry management API endpoints."""
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -52,8 +52,8 @@ def _make_script(
         draft_content if draft_content is not None else {"opening_response": "Hello"}
     )
     script.current_version_id = current_version_id
-    script.created_at = datetime(2025, 1, 1, tzinfo=timezone.utc)
-    script.updated_at = datetime(2025, 1, 1, tzinfo=timezone.utc)
+    script.created_at = datetime(2025, 1, 1, tzinfo=UTC)
+    script.updated_at = datetime(2025, 1, 1, tzinfo=UTC)
     return script
 
 
@@ -70,7 +70,7 @@ def _make_version(
     version.version_number = version_number
     version.content = content if content is not None else {"opening_response": "Hello"}
     version.published_by = published_by or uuid.uuid4()
-    version.published_at = datetime(2025, 1, 1, tzinfo=timezone.utc)
+    version.published_at = datetime(2025, 1, 1, tzinfo=UTC)
     return version
 
 

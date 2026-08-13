@@ -1,6 +1,6 @@
 """Schemas for S1-09 upload-to-script conversion responses."""
 
-from typing import Any, Optional
+from typing import Any
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -26,4 +26,4 @@ class ConversionErrorResponse(BaseModel):
 
     error: str = "conversion_failed"
     message: str
-    details: Optional[dict[str, Any]] = None
+    details: dict[str, Any] | None = None

@@ -7,20 +7,21 @@ and real row locking. No mocks on database operations.
 Requirements:
     - PostgreSQL running
     - Set CAT_TEST_DATABASE_URL to a test-only database, e.g.:
-      CAT_TEST_DATABASE_URL=postgresql+asyncpg://postgres:123456@localhost:5433/cat_test
+      CAT_TEST_DATABASE_URL=postgresql+asyncpg://local_test_user:local_test_password@localhost:5433/cat_test
     - The database name MUST contain 'test' (e.g. cat_test, testing_db)
     - Start with: docker compose up -d db
     - Create the test DB: createdb -h localhost -p 5433 -U postgres cat_test
     - Run with:
-      $env:CAT_TEST_DATABASE_URL="postgresql+asyncpg://postgres:123456@localhost:5433/cat_test"
+      $env:CAT_TEST_DATABASE_URL="postgresql+asyncpg://local_test_user:local_test_password@localhost:5433/cat_test"
       python -m pytest app/tests/test_s109_script_conversion_db.py -q --tb=short -m db_integration
 """
+
 import asyncio
 import json
 import os
 import re
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from sqlalchemy import delete, select, text
@@ -40,9 +41,11 @@ from app.services.conversion_service import (
     is_scenario_script_unique_violation,
 )
 
+
 # --- Test database URL validation ---
 
 _TEST_DB_URL = os.environ.get("CAT_TEST_DATABASE_URL", "")
+
 
 def _test_db_url_valid() -> bool:
     """Check if CAT_TEST_DATABASE_URL is set and points to a test database."""
@@ -61,7 +64,7 @@ def _test_db_url_valid() -> bool:
 _SKIP_REASON = (
     "CAT_TEST_DATABASE_URL is required for PostgreSQL integration tests. "
     "Set it to a test-only database (name must contain 'test'), e.g.: "
-    "CAT_TEST_DATABASE_URL=postgresql+asyncpg://postgres:123456@localhost:5433/cat_test"
+    "CAT_TEST_DATABASE_URL=postgresql+asyncpg://local_test_user:local_test_password@localhost:5433/cat_test"
 )
 
 pytestmark = [
@@ -73,7 +76,11 @@ pytestmark = [
 # --- Valid contract data ---
 
 VALID_CONTRACT = {
-    "debtor_persona": {"name": "DB Test", "communication_style": "Direct", "background": "Test scenario"},
+    "debtor_persona": {
+        "name": "DB Test",
+        "communication_style": "Direct",
+        "background": "Test scenario",
+    },
     "financial_situation": {
         "outstanding_balance": "1500.00",
         "days_past_due": 15,
@@ -86,11 +93,15 @@ VALID_CONTRACT = {
     "payment_conditions": [{"condition": "full amount", "term": "monthly", "accepted": False}],
     "escalation_conditions": [{"condition": "threats", "behavior": "end call", "ends_call": True}],
     "prohibited_responses": ["I refuse everything"],
-    "conversation_goal": {"target_outcome": "payment arrangement", "completion_condition": "verbal agreement"},
+    "conversation_goal": {
+        "target_outcome": "payment arrangement",
+        "completion_condition": "verbal agreement",
+    },
 }
 
 
 # --- Fixtures ---
+
 
 @pytest.fixture
 async def engine():
@@ -174,7 +185,7 @@ def _make_clean_upload(admin_id, scenario_id, content=None):
         extracted_content=content or json.dumps(VALID_CONTRACT),
         scenario_id=scenario_id,
         status=UploadStatus.COMPLETED.value,
-        quarantine_expires_at=datetime.now(timezone.utc) + timedelta(hours=24),
+        quarantine_expires_at=datetime.now(UTC) + timedelta(hours=24),
     )
 
 
@@ -186,7 +197,9 @@ def _make_clean_upload(admin_id, scenario_id, content=None):
 class TestAtomicSuccess:
     """Conversion creates Script and links upload atomically."""
 
-    async def test_conversion_creates_script_and_links(self, session_factory, admin_user, scenario, db):
+    async def test_conversion_creates_script_and_links(
+        self, session_factory, admin_user, scenario, db
+    ):
         upload = _make_clean_upload(admin_user.id, scenario.id)
         db.add(upload)
         await db.commit()
@@ -199,15 +212,17 @@ class TestAtomicSuccess:
 
         # Verify from a separate session
         async with session_factory() as verify:
-            scripts = (await verify.execute(
-                select(Script).where(Script.scenario_id == scenario.id)
-            )).scalars().all()
+            scripts = (
+                (await verify.execute(select(Script).where(Script.scenario_id == scenario.id)))
+                .scalars()
+                .all()
+            )
             assert len(scripts) == 1
             assert scripts[0].draft_content["opening_response"] == "Hello, I received your letter."
 
-            u = (await verify.execute(
-                select(ScriptUpload).where(ScriptUpload.id == upload.id)
-            )).scalar_one()
+            u = (
+                await verify.execute(select(ScriptUpload).where(ScriptUpload.id == upload.id))
+            ).scalar_one()
             assert u.script_id == scripts[0].id
             assert result.script_id == scripts[0].id
 
@@ -216,7 +231,9 @@ class TestConversionFailure:
     """Invalid content: no Script, script_id stays null."""
 
     async def test_partial_contract_no_script(self, session_factory, admin_user, scenario, db):
-        partial = json.dumps({"debtor_persona": {"name": "X", "communication_style": "Y", "background": "Z"}})
+        partial = json.dumps(
+            {"debtor_persona": {"name": "X", "communication_style": "Y", "background": "Z"}}
+        )
         upload = _make_clean_upload(admin_user.id, scenario.id, content=partial)
         db.add(upload)
         await db.commit()
@@ -228,9 +245,15 @@ class TestConversionFailure:
         assert result.error == "conversion_failed"
 
         async with session_factory() as verify:
-            scripts = (await verify.execute(select(Script).where(Script.scenario_id == scenario.id))).scalars().all()
+            scripts = (
+                (await verify.execute(select(Script).where(Script.scenario_id == scenario.id)))
+                .scalars()
+                .all()
+            )
             assert len(scripts) == 0
-            u = (await verify.execute(select(ScriptUpload).where(ScriptUpload.id == upload.id))).scalar_one()
+            u = (
+                await verify.execute(select(ScriptUpload).where(ScriptUpload.id == upload.id))
+            ).scalar_one()
             assert u.script_id is None
 
 
@@ -251,7 +274,11 @@ class TestLimitFailure:
         assert "publication requirements" in result.message
 
         async with session_factory() as verify:
-            scripts = (await verify.execute(select(Script).where(Script.scenario_id == scenario.id))).scalars().all()
+            scripts = (
+                (await verify.execute(select(Script).where(Script.scenario_id == scenario.id)))
+                .scalars()
+                .all()
+            )
             assert len(scripts) == 0
 
 
@@ -261,9 +288,13 @@ class TestExistingScenarioScript:
     async def test_existing_script_conflict(self, session_factory, admin_user, scenario, db):
         # Create existing script
         existing = Script(
-            id=uuid.uuid4(), scenario_id=scenario.id, name="Existing",
-            status=ScriptStatus.DRAFT.value, format="json",
-            draft_content=VALID_CONTRACT, created_by=admin_user.id,
+            id=uuid.uuid4(),
+            scenario_id=scenario.id,
+            name="Existing",
+            status=ScriptStatus.DRAFT.value,
+            format="json",
+            draft_content=VALID_CONTRACT,
+            created_by=admin_user.id,
         )
         db.add(existing)
         upload = _make_clean_upload(admin_user.id, scenario.id)
@@ -277,10 +308,16 @@ class TestExistingScenarioScript:
         assert result.error == "scenario_has_script"
 
         async with session_factory() as verify:
-            scripts = (await verify.execute(select(Script).where(Script.scenario_id == scenario.id))).scalars().all()
+            scripts = (
+                (await verify.execute(select(Script).where(Script.scenario_id == scenario.id)))
+                .scalars()
+                .all()
+            )
             assert len(scripts) == 1
             assert scripts[0].id == existing.id  # unchanged
-            u = (await verify.execute(select(ScriptUpload).where(ScriptUpload.id == upload.id))).scalar_one()
+            u = (
+                await verify.execute(select(ScriptUpload).where(ScriptUpload.id == upload.id))
+            ).scalar_one()
             assert u.script_id is None
 
 
@@ -302,7 +339,11 @@ class TestRepeatedConversion:
         assert r2.error == "already_converted"
 
         async with session_factory() as verify:
-            scripts = (await verify.execute(select(Script).where(Script.scenario_id == scenario.id))).scalars().all()
+            scripts = (
+                (await verify.execute(select(Script).where(Script.scenario_id == scenario.id)))
+                .scalars()
+                .all()
+            )
             assert len(scripts) == 1
 
 
@@ -330,9 +371,15 @@ class TestSameUploadConcurrency:
         assert conflicts[0].error == "already_converted"
 
         async with session_factory() as verify:
-            scripts = (await verify.execute(select(Script).where(Script.scenario_id == scenario.id))).scalars().all()
+            scripts = (
+                (await verify.execute(select(Script).where(Script.scenario_id == scenario.id)))
+                .scalars()
+                .all()
+            )
             assert len(scripts) == 1
-            u = (await verify.execute(select(ScriptUpload).where(ScriptUpload.id == upload.id))).scalar_one()
+            u = (
+                await verify.execute(select(ScriptUpload).where(ScriptUpload.id == upload.id))
+            ).scalar_one()
             assert u.script_id == scripts[0].id
 
 
@@ -368,13 +415,21 @@ class TestSameScenarioConcurrency:
         assert conflicts[0][1].error == "scenario_has_script"
 
         async with session_factory() as verify:
-            scripts = (await verify.execute(select(Script).where(Script.scenario_id == scenario.id))).scalars().all()
+            scripts = (
+                (await verify.execute(select(Script).where(Script.scenario_id == scenario.id)))
+                .scalars()
+                .all()
+            )
             assert len(scripts) == 1
 
             winner_id = successes[0][0]
             loser_id = conflicts[0][0]
-            winner = (await verify.execute(select(ScriptUpload).where(ScriptUpload.id == winner_id))).scalar_one()
-            loser = (await verify.execute(select(ScriptUpload).where(ScriptUpload.id == loser_id))).scalar_one()
+            winner = (
+                await verify.execute(select(ScriptUpload).where(ScriptUpload.id == winner_id))
+            ).scalar_one()
+            loser = (
+                await verify.execute(select(ScriptUpload).where(ScriptUpload.id == loser_id))
+            ).scalar_one()
             assert winner.script_id == scripts[0].id
             assert loser.script_id is None
 
@@ -398,8 +453,12 @@ class TestRollbackVisibility:
             contract_data = convert_extracted_to_contract(u.extracted_content)
             raw = json.dumps(contract_data)
             script = await create_draft_in_transaction(
-                session, admin_id=admin_user.id, name="will rollback",
-                scenario_id=scenario.id, format="json", raw_definition=raw,
+                session,
+                admin_id=admin_user.id,
+                name="will rollback",
+                scenario_id=scenario.id,
+                format="json",
+                raw_definition=raw,
             )
             u.script_id = script.id
             # Simulate failure: rollback instead of commit
@@ -407,9 +466,15 @@ class TestRollbackVisibility:
 
         # Verify from separate session: nothing persisted
         async with session_factory() as verify:
-            scripts = (await verify.execute(select(Script).where(Script.scenario_id == scenario.id))).scalars().all()
+            scripts = (
+                (await verify.execute(select(Script).where(Script.scenario_id == scenario.id)))
+                .scalars()
+                .all()
+            )
             assert len(scripts) == 0
-            u_check = (await verify.execute(select(ScriptUpload).where(ScriptUpload.id == upload.id))).scalar_one()
+            u_check = (
+                await verify.execute(select(ScriptUpload).where(ScriptUpload.id == upload.id))
+            ).scalar_one()
             assert u_check.script_id is None
 
 
@@ -421,7 +486,9 @@ class TestCleanupVerification:
         async with session_factory() as verify:
             # Check there are no orphaned scripts from failed test runs
             # (This validates the fixture cleanup strategy)
-            result = await verify.execute(text("SELECT COUNT(*) FROM scripts WHERE name LIKE '%will rollback%'"))
+            result = await verify.execute(
+                text("SELECT COUNT(*) FROM scripts WHERE name LIKE '%will rollback%'")
+            )
             count = result.scalar()
             assert count == 0
 
@@ -436,41 +503,51 @@ class TestIntegrityErrorClassifier:
 
     def test_exact_scripts_scenario_id_key_true(self):
         """PostgreSQL unique violation on scripts_scenario_id_key → True."""
+
         class FakeOrig:
             sqlstate = "23505"
             constraint_name = "scripts_scenario_id_key"
+
         exc = IntegrityError("", {}, FakeOrig())
         assert is_scenario_script_unique_violation(exc) is True
 
     def test_other_table_scenario_id_constraint_false(self):
         """Another table's scenario_id unique constraint → False."""
+
         class FakeOrig:
             sqlstate = "23505"
             constraint_name = "campaign_scenarios_scenario_id_key"
+
         exc = IntegrityError("", {}, FakeOrig())
         assert is_scenario_script_unique_violation(exc) is False
 
     def test_different_constraint_false(self):
         """Unique violation on a completely different constraint → False."""
+
         class FakeOrig:
             sqlstate = "23505"
             constraint_name = "uq_users_email"
+
         exc = IntegrityError("", {}, FakeOrig())
         assert is_scenario_script_unique_violation(exc) is False
 
     def test_foreign_key_violation_false(self):
         """Foreign-key violation (23503) → False."""
+
         class FakeOrig:
             sqlstate = "23503"
             constraint_name = "scripts_scenario_id_fkey"
+
         exc = IntegrityError("", {}, FakeOrig())
         assert is_scenario_script_unique_violation(exc) is False
 
     def test_not_null_violation_false(self):
         """Not-null violation (23502) → False."""
+
         class FakeOrig:
             sqlstate = "23502"
             constraint_name = None
+
         exc = IntegrityError("", {}, FakeOrig())
         assert is_scenario_script_unique_violation(exc) is False
 
@@ -481,28 +558,36 @@ class TestIntegrityErrorClassifier:
 
     def test_unknown_driver_false(self):
         """Unknown driver structure → False."""
+
         class FakeOrig:
             pass
+
         exc = IntegrityError("", {}, FakeOrig())
         assert is_scenario_script_unique_violation(exc) is False
 
     def test_message_fallback_exact_match(self):
         """Message contains exact constraint name → True."""
+
         class FakeOrig:
             sqlstate = "23505"
             constraint_name = None
+
             def __str__(self):
                 return 'duplicate key value violates unique constraint "scripts_scenario_id_key"'
+
         exc = IntegrityError("", {}, FakeOrig())
         assert is_scenario_script_unique_violation(exc) is True
 
     def test_message_partial_substring_false(self):
         """Message contains 'scenario_id' but not the exact constraint → False."""
+
         class FakeOrig:
             sqlstate = "23505"
             constraint_name = None
+
             def __str__(self):
                 return 'duplicate key value violates unique constraint "other_scenario_id_key"'
+
         exc = IntegrityError("", {}, FakeOrig())
         assert is_scenario_script_unique_violation(exc) is False
 
@@ -510,94 +595,122 @@ class TestIntegrityErrorClassifier:
 
     def test_deceptive_other_scripts_prefix_false(self):
         """'other_scripts_scenario_id_key' must NOT match (prefix deception)."""
+
         class FakeOrig:
             sqlstate = "23505"
             constraint_name = "other_scripts_scenario_id_key"
+
         exc = IntegrityError("", {}, FakeOrig())
         assert is_scenario_script_unique_violation(exc) is False
 
     def test_deceptive_archived_scripts_prefix_false(self):
         """'archived_scripts_scenario_id_key' must NOT match."""
+
         class FakeOrig:
             sqlstate = "23505"
             constraint_name = "archived_scripts_scenario_id_key"
+
         exc = IntegrityError("", {}, FakeOrig())
         assert is_scenario_script_unique_violation(exc) is False
 
     def test_deceptive_backup_suffix_false(self):
         """'scripts_scenario_id_key_backup' must NOT match (suffix deception)."""
+
         class FakeOrig:
             sqlstate = "23505"
             constraint_name = "scripts_scenario_id_key_backup"
+
         exc = IntegrityError("", {}, FakeOrig())
         assert is_scenario_script_unique_violation(exc) is False
 
     def test_deceptive_message_contains_as_longer_identifier_false(self):
         """Message containing the constraint as part of a longer name must NOT match."""
+
         class FakeOrig:
             sqlstate = "23505"
             constraint_name = None
+
             def __str__(self):
-                return 'duplicate key value violates unique constraint "other_scripts_scenario_id_key"'
+                return (
+                    'duplicate key value violates unique constraint "other_scripts_scenario_id_key"'
+                )
+
         exc = IntegrityError("", {}, FakeOrig())
         assert is_scenario_script_unique_violation(exc) is False
 
     def test_deceptive_message_backup_suffix_false(self):
         """Message containing backup-suffixed constraint must NOT match."""
+
         class FakeOrig:
             sqlstate = "23505"
             constraint_name = None
+
             def __str__(self):
-                return 'duplicate key value violates unique constraint "scripts_scenario_id_key_backup"'
+                return 'duplicate key value violates unique constraint "scripts_scenario_id_key_backup"'  # noqa: E501
+
         exc = IntegrityError("", {}, FakeOrig())
         assert is_scenario_script_unique_violation(exc) is False
 
     def test_unquoted_ambiguous_message_false(self):
         """Unquoted ambiguous message without parseable constraint → False."""
+
         class FakeOrig:
             sqlstate = "23505"
             constraint_name = None
+
             def __str__(self):
                 return "unique violation on scripts_scenario_id_key related column"
+
         exc = IntegrityError("", {}, FakeOrig())
         assert is_scenario_script_unique_violation(exc) is False
 
     def test_sqlstate_not_23505_with_matching_constraint_false(self):
         """Even if constraint name matches, wrong SQLSTATE → False."""
+
         class FakeOrig:
             sqlstate = "23503"  # FK violation, not unique
             constraint_name = "scripts_scenario_id_key"
+
         exc = IntegrityError("", {}, FakeOrig())
         assert is_scenario_script_unique_violation(exc) is False
 
     def test_psycopg_diag_exact_match_true(self):
         """psycopg diag field with exact constraint name → True."""
+
         class FakeDiag:
             constraint_name = "scripts_scenario_id_key"
+
         class FakeOrig:
             sqlstate = "23505"
             constraint_name = None  # asyncpg field absent
             diag = FakeDiag()
+
         exc = IntegrityError("", {}, FakeOrig())
         assert is_scenario_script_unique_violation(exc) is True
 
     def test_psycopg_diag_different_constraint_false(self):
         """psycopg diag field with different constraint → False."""
+
         class FakeDiag:
             constraint_name = "other_scripts_scenario_id_key"
+
         class FakeOrig:
             sqlstate = "23505"
             constraint_name = None
             diag = FakeDiag()
+
         exc = IntegrityError("", {}, FakeOrig())
         assert is_scenario_script_unique_violation(exc) is False
 
     def test_no_constraint_metadata_no_quotes_in_message_false(self):
         """No structured metadata, no quoted identifier in message → False."""
+
         class FakeOrig:
             sqlstate = "23505"
             constraint_name = None
+
             def __str__(self):
                 return "some unique constraint violation occurred"
+
         exc = IntegrityError("", {}, FakeOrig())
         assert is_scenario_script_unique_violation(exc) is False

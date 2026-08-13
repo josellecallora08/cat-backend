@@ -32,16 +32,21 @@ import pytest
 import yaml
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy import event, select, text
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.database import Base
 from app.models import Scenario, Script, ScriptVersion, Session, User
-from app.models.script import ScriptStatus
 from app.models.user import UserRole
 from app.services.debtor_simulator import DebtorSimulatorService, EmotionalState, PersonaContext
-from app.services.script_registry import create_draft, get_active_published_version, publish, unpublish
+from app.services.script_registry import (
+    create_draft,
+    get_active_published_version,
+    publish,
+    unpublish,
+)
 from app.services.session_service import create_session
+
 
 # --- Fixtures ---
 

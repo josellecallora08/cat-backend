@@ -19,6 +19,7 @@ from app.services.script_validator import (
     validate_script,
 )
 
+
 # A generous ScriptLimits instance so limit checks never interfere with
 # these tests (they only exercise parse/structure/format behavior).
 GENEROUS_LIMITS = ScriptLimits(

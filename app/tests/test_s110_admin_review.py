@@ -13,14 +13,13 @@ Tests cover:
 import json
 import logging
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from httpx import ASGITransport, AsyncClient
 
 from app.main import app
-from app.models.script_upload import UploadStatus
 from app.services.auth import get_current_user, require_admin
 from app.services.review_service import derive_actions, derive_review_status
 
@@ -96,9 +95,9 @@ def _make_upload(
     upload.storage_key = "test-uuid-key.txt"
     upload.scan_signature = scan_signature
     upload.extraction_error = extraction_error
-    upload.created_at = datetime(2025, 1, 1, tzinfo=timezone.utc)
-    upload.updated_at = datetime(2025, 1, 1, tzinfo=timezone.utc)
-    upload.quarantine_expires_at = quarantine_expires_at or datetime(2025, 1, 2, tzinfo=timezone.utc)
+    upload.created_at = datetime(2025, 1, 1, tzinfo=UTC)
+    upload.updated_at = datetime(2025, 1, 1, tzinfo=UTC)
+    upload.quarantine_expires_at = quarantine_expires_at or datetime(2025, 1, 2, tzinfo=UTC)
     upload.deleted_at = None
     upload.rejected_at = rejected_at
     upload.rejected_by = rejected_by
@@ -114,8 +113,8 @@ def _make_script(*, script_id=None, status="draft", draft_content=None, is_delet
     script.draft_content = draft_content if draft_content is not None else VALID_CONTRACT
     script.current_version_id = None
     script.is_deleted = is_deleted
-    script.created_at = datetime(2025, 1, 1, tzinfo=timezone.utc)
-    script.updated_at = datetime(2025, 1, 1, tzinfo=timezone.utc)
+    script.created_at = datetime(2025, 1, 1, tzinfo=UTC)
+    script.updated_at = datetime(2025, 1, 1, tzinfo=UTC)
     return script
 
 
@@ -372,7 +371,7 @@ class TestReviewDetail:
     async def test_no_storage_key_in_response(self, client, admin_override):
         upload = _make_upload()
         # Set quarantine_expires_at in the future so the warning won't fire
-        upload.quarantine_expires_at = datetime(2099, 1, 1, tzinfo=timezone.utc)
+        upload.quarantine_expires_at = datetime(2099, 1, 1, tzinfo=UTC)
         from app.database import get_session as get_db
         app.dependency_overrides[get_db] = lambda: _mock_db_for_review(upload)
         try:
@@ -528,7 +527,7 @@ class TestEditReview:
 
     async def test_concurrent_edit_returns_409(self, client, admin_override):
         script = _make_script(status="draft")
-        script.updated_at = datetime(2025, 6, 1, tzinfo=timezone.utc)
+        script.updated_at = datetime(2025, 6, 1, tzinfo=UTC)
         upload = _make_upload(script_id=script.id)
         from app.database import get_session as get_db
         mock_db = _mock_db_for_edit(upload, script)
@@ -573,24 +572,23 @@ class TestEditReview:
             "app.services.script_registry.update_draft",
             new_callable=AsyncMock,
             return_value=script,
-        ):
-            with caplog.at_level(logging.INFO, logger="app.api.review"):
-                r = await client.patch(
-                    f"/api/scripts/uploads/{upload.id}/review",
-                    json={"script_contract": VALID_CONTRACT},
-                )
-                assert r.status_code == 200
-                # Find audit record
-                audit_records = [
-                    rec for rec in caplog.records
-                    if rec.getMessage() == "upload_draft_edited"
-                ]
-                assert len(audit_records) == 1
-                rec = audit_records[0]
-                assert rec.__dict__["upload_id"] == str(upload.id)
-                assert rec.__dict__["script_id"] == str(script.id)
-                # No contract content in audit
-                assert "Hello" not in str(rec.__dict__)
+        ), caplog.at_level(logging.INFO, logger="app.api.review"):
+            r = await client.patch(
+                f"/api/scripts/uploads/{upload.id}/review",
+                json={"script_contract": VALID_CONTRACT},
+            )
+            assert r.status_code == 200
+            # Find audit record
+            audit_records = [
+                rec for rec in caplog.records
+                if rec.getMessage() == "upload_draft_edited"
+            ]
+            assert len(audit_records) == 1
+            rec = audit_records[0]
+            assert rec.__dict__["upload_id"] == str(upload.id)
+            assert rec.__dict__["script_id"] == str(script.id)
+            # No contract content in audit
+            assert "Hello" not in str(rec.__dict__)
         app.dependency_overrides.pop(get_db, None)
 
 
@@ -683,7 +681,7 @@ class TestRejectReview:
         app.dependency_overrides.pop(get_db, None)
 
     async def test_already_rejected_idempotent(self, client, admin_override):
-        rej_time = datetime(2025, 6, 1, tzinfo=timezone.utc)
+        rej_time = datetime(2025, 6, 1, tzinfo=UTC)
         rej_by = uuid.uuid4()
         upload = _make_upload(
             status="rejected",
@@ -756,7 +754,7 @@ class TestPublishReview:
 
         mock_version = MagicMock()
         mock_version.version_number = 1
-        mock_version.published_at = datetime(2025, 7, 1, tzinfo=timezone.utc)
+        mock_version.published_at = datetime(2025, 7, 1, tzinfo=UTC)
 
         with patch("app.services.script_registry.publish", new_callable=AsyncMock, return_value=mock_version):
             r = await client.post(f"/api/scripts/uploads/{upload.id}/review/publish")
@@ -820,7 +818,7 @@ class TestPublishReview:
 
         mock_version = MagicMock()
         mock_version.version_number = 1
-        mock_version.published_at = datetime(2025, 7, 1, tzinfo=timezone.utc)
+        mock_version.published_at = datetime(2025, 7, 1, tzinfo=UTC)
 
         with patch("app.services.script_registry.publish", new_callable=AsyncMock, return_value=mock_version):
             with caplog.at_level(logging.INFO, logger="app.api.review"):

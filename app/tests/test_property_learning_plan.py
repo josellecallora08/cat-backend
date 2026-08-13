@@ -14,7 +14,6 @@ be empty and all_passing SHALL be true.
 
 import uuid
 
-import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
@@ -26,7 +25,6 @@ from app.schemas import (
     WeaknessItem,
 )
 from app.services.learning_plan_generator import (
-    COMPETENCY_SCENARIO_MAP,
     WEAKNESS_THRESHOLD,
     LearningPlanGenerator,
 )

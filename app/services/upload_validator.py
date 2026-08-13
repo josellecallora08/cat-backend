@@ -12,7 +12,6 @@ import stat
 import zipfile
 from enum import Enum
 from pathlib import Path, PurePosixPath
-from typing import Optional, Tuple
 
 from app.config import settings
 
@@ -96,7 +95,7 @@ _SUSPICIOUS_EXTENSIONS = {
 _MAX_COMPRESSION_RATIO = 100
 
 
-def validate_extension(filename: str) -> Tuple[bool, Optional[UploadRejectionReason]]:
+def validate_extension(filename: str) -> tuple[bool, UploadRejectionReason | None]:
     """Validate file extension against the allowed whitelist."""
     ext = os.path.splitext(filename)[1].lower()
     if ext not in ALLOWED_FORMATS:
@@ -106,7 +105,7 @@ def validate_extension(filename: str) -> Tuple[bool, Optional[UploadRejectionRea
 
 def validate_mime_type(
     filename: str, content_type: str
-) -> Tuple[bool, Optional[UploadRejectionReason]]:
+) -> tuple[bool, UploadRejectionReason | None]:
     """Validate MIME type matches allowed types for the extension."""
     ext = os.path.splitext(filename)[1].lower()
     format_info = ALLOWED_FORMATS.get(ext)
@@ -119,7 +118,7 @@ def validate_mime_type(
 
 def validate_file_signature(
     filename: str, header_bytes: bytes
-) -> Tuple[bool, Optional[UploadRejectionReason]]:
+) -> tuple[bool, UploadRejectionReason | None]:
     """Validate binary signature matches the declared extension.
 
     For .docx files: also detects OLE/CFB containers (encrypted Office docs).
@@ -162,7 +161,7 @@ def validate_file_signature(
 
 async def validate_file_size_streaming(
     upload_file, max_size: int
-) -> Tuple[bytes, Optional[UploadRejectionReason]]:
+) -> tuple[bytes, UploadRejectionReason | None]:
     """Read upload in 64KB streaming chunks; reject if exceeds max_size or empty."""
     chunk_size = 65536
     buffer = bytearray()
@@ -181,7 +180,7 @@ async def validate_file_size_streaming(
     return (bytes(buffer), None)
 
 
-def validate_pdf_not_encrypted(file_bytes: bytes) -> Tuple[bool, Optional[UploadRejectionReason]]:
+def validate_pdf_not_encrypted(file_bytes: bytes) -> tuple[bool, UploadRejectionReason | None]:
     """Check if a PDF is encrypted using pypdf.
 
     Uses pypdf.PdfReader.is_encrypted for reliable detection.
@@ -217,7 +216,7 @@ def _is_unix_symlink(info: zipfile.ZipInfo) -> bool:
 
 def validate_docx_archive(
     file_path: Path,
-) -> Tuple[bool, Optional[UploadRejectionReason]]:
+) -> tuple[bool, UploadRejectionReason | None]:
     """Validate a DOCX file's ZIP archive structure for safety.
 
     Checks:

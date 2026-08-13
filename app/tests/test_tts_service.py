@@ -8,17 +8,16 @@ Requirements: 3.2
 
 from __future__ import annotations
 
-import asyncio
-from typing import AsyncIterator
+from collections.abc import AsyncIterator
 
 import pytest
 
 from app.services.voice.tts_service import (
+    TTS_CHANNELS,
+    TTS_SAMPLE_RATE,
     AudioStream,
     MockTTSService,
     TTSSynthesisError,
-    TTS_CHANNELS,
-    TTS_SAMPLE_RATE,
     _split_sentences,
 )
 

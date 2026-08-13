@@ -17,7 +17,6 @@ from app.schemas import (
     CompetencyScore,
     EvaluationCategory,
     EvaluationResult,
-    MistakeItem,
     StrengthItem,
     WeaknessItem,
 )

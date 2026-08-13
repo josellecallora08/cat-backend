@@ -24,6 +24,7 @@ from app.services.session_service import (
     get_session,
 )
 
+
 # A minimal Script_Contract satisfying every required field/sub-field, used
 # to publish a Published_Script for a scenario before create_session tests
 # that expect success (create_session now requires an active Published_Script

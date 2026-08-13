@@ -4,21 +4,22 @@ import uuid
 from enum import Enum
 
 from sqlalchemy import (
+    JSON,
     Boolean,
     Column,
     DateTime,
     ForeignKey,
     Integer,
-    JSON,
     String,
-    Uuid,
     UniqueConstraint,
+    Uuid,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
 from app.database import Base
+
 
 # Use JSONB on PostgreSQL, JSON on other backends (e.g., SQLite for tests)
 JSONVariant = JSON().with_variant(JSONB, "postgresql")

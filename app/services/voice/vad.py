@@ -13,6 +13,7 @@ import struct
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 
+
 # Audio format constants
 SAMPLE_RATE = 16000  # 16 kHz
 SAMPLE_WIDTH = 2  # 16-bit PCM = 2 bytes per sample

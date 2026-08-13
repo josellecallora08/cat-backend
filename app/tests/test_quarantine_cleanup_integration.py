@@ -3,7 +3,7 @@
 import os
 import time
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
@@ -26,13 +26,13 @@ async def test_cleanup_changes_only_deleted_at_in_database(tmp_path, monkeypatch
     expired_time = time.time() - 3600
     os.utime(source, (expired_time, expired_time))
 
-    original_updated_at = datetime(2020, 1, 2, 3, 4, 5, tzinfo=timezone.utc)
+    original_updated_at = datetime(2020, 1, 2, 3, 4, 5, tzinfo=UTC)
     upload_id = uuid.uuid4()
     script_id = uuid.uuid4()
     uploader_id = uuid.uuid4()
     rejected_by = uuid.uuid4()
-    rejected_at = datetime(2020, 2, 3, 4, 5, 6, tzinfo=timezone.utc)
-    expires_at = datetime.now(timezone.utc) - timedelta(hours=1)
+    rejected_at = datetime(2020, 2, 3, 4, 5, 6, tzinfo=UTC)
+    expires_at = datetime.now(UTC) - timedelta(hours=1)
 
     upload = ScriptUpload(
         id=upload_id,

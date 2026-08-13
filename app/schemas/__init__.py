@@ -126,7 +126,7 @@ class SessionCreate(BaseModel):
     """Request body for creating a new training session."""
 
     scenario_id: UUID
-    campaign_id: Optional[UUID] = None
+    campaign_id: UUID | None = None
 
 
 class SessionResponse(BaseModel):
@@ -136,14 +136,14 @@ class SessionResponse(BaseModel):
     scenario_id: UUID
     campaign_id: UUID | None = None
     campaign_name: str | None = Field(default=None, max_length=100)
-    persona: Optional[PersonaSummary] = None
+    persona: PersonaSummary | None = None
     status: SessionStatus
     created_at: datetime
-    ended_at: Optional[datetime] = None
-    standard_id: Optional[UUID] = None
-    standard_version_id: Optional[UUID] = None
-    standard_version_number: Optional[int] = None
-    standard_name: Optional[str] = None
+    ended_at: datetime | None = None
+    standard_id: UUID | None = None
+    standard_version_id: UUID | None = None
+    standard_version_number: int | None = None
+    standard_name: str | None = None
 
 
 # --- Transcript Schemas ---
@@ -186,27 +186,27 @@ class CompetencyScore(BaseModel):
 
     category: EvaluationCategory
     score: int = Field(ge=0, le=100)
-    strengths: List[StrengthItem] = Field(default_factory=list)
-    weaknesses: List[WeaknessItem] = Field(default_factory=list)
+    strengths: list[StrengthItem] = Field(default_factory=list)
+    weaknesses: list[WeaknessItem] = Field(default_factory=list)
 
 
 class EvaluationResult(BaseModel):
     """Complete evaluation result for a session."""
 
     session_id: UUID
-    category_scores: List[CompetencyScore]
+    category_scores: list[CompetencyScore]
     overall_score: float = Field(ge=0, le=100)
-    strengths: List[StrengthItem] = Field(default_factory=list, min_length=1, max_length=5)
-    weaknesses: List[WeaknessItem] = Field(default_factory=list, min_length=1, max_length=5)
+    strengths: list[StrengthItem] = Field(default_factory=list, min_length=1, max_length=5)
+    weaknesses: list[WeaknessItem] = Field(default_factory=list, min_length=1, max_length=5)
     is_too_short: bool = False
-    negotiation_standard_version_id: Optional[UUID] = None
-    standard_name: Optional[str] = None
-    standard_version_number: Optional[int] = None
-    weighted_total: Optional[float] = Field(default=None, ge=0, le=100)
-    passing_score: Optional[int] = Field(default=None, ge=0, le=100)
-    passed: Optional[bool] = None
-    standard_snapshot: Optional[dict] = None
-    rubric_result: Optional[CanonicalEvaluationResult] = None
+    negotiation_standard_version_id: UUID | None = None
+    standard_name: str | None = None
+    standard_version_number: int | None = None
+    weighted_total: float | None = Field(default=None, ge=0, le=100)
+    passing_score: int | None = Field(default=None, ge=0, le=100)
+    passed: bool | None = None
+    standard_snapshot: dict | None = None
+    rubric_result: CanonicalEvaluationResult | None = None
 
 
 # --- Coaching Schemas ---
@@ -226,12 +226,12 @@ class CoachingReportSchema(BaseModel):
     """Coaching report with legacy and canonical rubric coaching contracts."""
 
     session_id: UUID
-    mistakes_by_category: Dict[EvaluationCategory, List[MistakeItem]]
+    mistakes_by_category: dict[EvaluationCategory, list[MistakeItem]]
     total_mistakes: int = Field(ge=0)
     no_mistakes: bool = False
     rubric_coaching: RubricCoaching | None = None
-    rubric_recommendations: List[RubricRecommendation] = Field(default_factory=list)
-    rubric_recommendations_by_block: Dict[str, List[RubricRecommendation]] = Field(default_factory=dict)
+    rubric_recommendations: list[RubricRecommendation] = Field(default_factory=list)
+    rubric_recommendations_by_block: dict[str, list[RubricRecommendation]] = Field(default_factory=dict)
 
 
 # --- Learning Plan Schemas ---
@@ -247,17 +247,17 @@ class LearningPlanItem(BaseModel):
 
     category: EvaluationCategory | str
     score: int = Field(ge=0, le=100)
-    recommended_scenario: Optional[str] = Field(default=None, min_length=1)
-    scenario_id: Optional[UUID] = None
-    rubric_block_id: Optional[str] = None
-    criterion_id: Optional[str] = None
-    practice_focus: Optional[str] = None
+    recommended_scenario: str | None = Field(default=None, min_length=1)
+    scenario_id: UUID | None = None
+    rubric_block_id: str | None = None
+    criterion_id: str | None = None
+    practice_focus: str | None = None
 
 
 class LearningPlanSchema(BaseModel):
     """Personalized learning plan based on evaluation results."""
 
     session_id: UUID
-    weak_competencies: List[LearningPlanItem] = Field(default_factory=list)
+    weak_competencies: list[LearningPlanItem] = Field(default_factory=list)
     all_passing: bool = False
-    standard_version_id: Optional[UUID] = None
+    standard_version_id: UUID | None = None

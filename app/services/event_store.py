@@ -2,7 +2,7 @@
 
 import asyncio
 from collections import deque
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from app.schemas.event import EventPayload
 
@@ -46,7 +46,7 @@ class EventStore:
         Args:
             event: The event payload to store.
         """
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         cutoff = now - self._ttl
 
         # Evict expired entries from the front of the deque

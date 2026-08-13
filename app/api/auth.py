@@ -15,23 +15,28 @@ from app.models.user import User, UserRole, UserType
 from app.services.auth import (
     create_access_token,
     hash_password,
-    verify_password,
-    require_auth,
     require_admin,
+    require_auth,
+    verify_password,
 )
 from app.services.google_oauth import (
     exchange_code_for_tokens as google_exchange_code,
+)
+from app.services.google_oauth import (
     fetch_google_user_info,
-    get_authorize_url as google_get_authorize_url,
     get_or_create_google_user,
+)
+from app.services.google_oauth import (
+    get_authorize_url as google_get_authorize_url,
 )
 from app.services.lark_oauth import (
     exchange_code_for_user_token,
-    fetch_lark_user_info,
     fetch_lark_user_department,
+    fetch_lark_user_info,
     get_authorize_url,
     get_or_create_lark_user,
 )
+
 
 logger = logging.getLogger(__name__)
 

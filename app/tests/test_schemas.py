@@ -1,7 +1,7 @@
 """Unit tests for Pydantic schemas."""
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
@@ -216,7 +216,7 @@ class TestSessionSchemas:
         assert create.scenario_id == sid
 
     def test_session_response(self):
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         resp = SessionResponse(
             id=uuid.uuid4(),
             scenario_id=uuid.uuid4(),
@@ -234,7 +234,7 @@ class TestSessionSchemas:
         assert resp.ended_at is None
 
     def test_session_response_without_persona(self):
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         resp = SessionResponse(
             id=uuid.uuid4(),
             scenario_id=uuid.uuid4(),
@@ -254,7 +254,7 @@ class TestTranscriptEntry:
         entry = TranscriptEntry(
             speaker="agent",
             text="Hello, I'm calling about your account.",
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             sequence_number=0,
         )
         assert entry.speaker == "agent"
@@ -263,7 +263,7 @@ class TestTranscriptEntry:
         entry = TranscriptEntry(
             speaker="debtor",
             text="I know, I'm having trouble paying.",
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             sequence_number=1,
         )
         assert entry.speaker == "debtor"
@@ -273,7 +273,7 @@ class TestTranscriptEntry:
             TranscriptEntry(
                 speaker="system",
                 text="Some text",
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 sequence_number=0,
             )
 
@@ -282,7 +282,7 @@ class TestTranscriptEntry:
             TranscriptEntry(
                 speaker="agent",
                 text="",
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 sequence_number=0,
             )
 
@@ -630,7 +630,7 @@ from app.schemas.session_report import (
 
 
 def _report_summary() -> SessionReportSummary:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     return SessionReportSummary(
         session_id=uuid.uuid4(),
         scenario_id=uuid.uuid4(),
@@ -714,7 +714,7 @@ class TestSessionReportTypedContracts:
         assert parsed.report is None
 
     def test_valid_generating_and_failed_variants_have_no_payload(self):
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         for status, reason in (("pending", "generation_pending"), ("failed", "generation_failed")):
             envelope = TypeAdapter(ReportStatusEnvelope).validate_python(
                 {
@@ -785,7 +785,7 @@ class TestSessionReportTypedContracts:
             CoachingSection(available=True, mode="legacy", reason_code="no_coaching")
 
     def test_transcript_order_and_duplicate_identity_are_rejected(self):
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         entry = TranscriptEntry(speaker="agent", text="Hello", timestamp=now, sequence_number=0)
         with pytest.raises(Exception):
             TranscriptSection(available=True, entries=[entry, entry])

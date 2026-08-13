@@ -7,7 +7,7 @@ Validates: Requirements 5.2, 5.3, 5.7
 import pytest
 
 from app.schemas import EvaluationCategory
-from app.services.evaluation_engine import EvaluationEngine, CATEGORY_WEIGHTS
+from app.services.evaluation_engine import CATEGORY_WEIGHTS, EvaluationEngine
 
 
 @pytest.fixture

@@ -2,38 +2,14 @@
 
 import uuid
 
-from app.models.user import User as User, UserRole as UserRole
-from app.models.campaign import (
-    Campaign as Campaign,
-    CampaignAgent as CampaignAgent,
-    CampaignRole as CampaignRole,
-    CampaignStatus as CampaignStatus,
-    campaign_scenarios as campaign_scenarios,
-)
-from app.models.script import (
-    Script as Script,
-    ScriptStatus as ScriptStatus,
-    ScriptVersion as ScriptVersion,
-)
-from app.models.script_upload import ScriptUpload as ScriptUpload, UploadStatus as UploadStatus
-from app.models.negotiation_standard import (
-    ImmutableVersionError as ImmutableVersionError,
-    NegotiationStandard as NegotiationStandard,
-    NegotiationStandardVersion as NegotiationStandardVersion,
-)
-from app.models.session_report import (
-    SessionReport as SessionReport,
-    SessionReportStatus as SessionReportStatus,
-)
-
 from sqlalchemy import (
+    JSON,
     Boolean,
     Column,
     DateTime,
     Float,
     ForeignKey,
     Integer,
-    JSON,
     String,
     Text,
     Uuid,
@@ -43,6 +19,49 @@ from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
 from app.database import Base
+from app.models.campaign import (
+    Campaign as Campaign,
+)
+from app.models.campaign import (
+    CampaignAgent as CampaignAgent,
+)
+from app.models.campaign import (
+    CampaignRole as CampaignRole,
+)
+from app.models.campaign import (
+    CampaignStatus as CampaignStatus,
+)
+from app.models.campaign import (
+    campaign_scenarios as campaign_scenarios,
+)
+from app.models.negotiation_standard import (
+    ImmutableVersionError as ImmutableVersionError,
+)
+from app.models.negotiation_standard import (
+    NegotiationStandard as NegotiationStandard,
+)
+from app.models.negotiation_standard import (
+    NegotiationStandardVersion as NegotiationStandardVersion,
+)
+from app.models.script import (
+    Script as Script,
+)
+from app.models.script import (
+    ScriptStatus as ScriptStatus,
+)
+from app.models.script import (
+    ScriptVersion as ScriptVersion,
+)
+from app.models.script_upload import ScriptUpload as ScriptUpload
+from app.models.script_upload import UploadStatus as UploadStatus
+from app.models.session_report import (
+    SessionReport as SessionReport,
+)
+from app.models.session_report import (
+    SessionReportStatus as SessionReportStatus,
+)
+from app.models.user import User as User
+from app.models.user import UserRole as UserRole
 
 
 # Use JSONB on PostgreSQL, JSON on other backends (e.g., SQLite for tests)

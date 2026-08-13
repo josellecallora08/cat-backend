@@ -3,14 +3,13 @@
 import uuid
 
 import pytest
-from httpx import ASGITransport, AsyncClient
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from fastapi import HTTPException
+from httpx import ASGITransport, AsyncClient
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.database import Base, get_session
 from app.main import app
 from app.models import Campaign, User
-from app.schemas.negotiation_standard import NegotiationStandardContent
 from app.services.auth import require_admin
 
 

@@ -17,6 +17,9 @@ dependencies = [
     "PyYAML>=6.0",
 ]
 
+[project.scripts]
+cat-backend-release-gate = "scripts.release_gate:main"
+
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0.0",
@@ -77,4 +80,22 @@ testpaths = ["app/tests"]
 markers = [
     "integration: tests requiring external services (ClamAV, PostgreSQL)",
     "db_integration: tests requiring a real PostgreSQL database connection",
+    "http_e2e: HTTP-level report lifecycle tests against an isolated async database",
+    "report: report contract, service, route, and export coverage",
 ]
+
+[tool.coverage.run]
+branch = true
+source = ["app"]
+omit = [
+    "app/tests/*",
+    "app/__pycache__/*",
+]
+
+[tool.coverage.report]
+exclude_also = [
+    "if TYPE_CHECKING:",
+    "if __name__ == .__main__.:",
+]
+fail_under = 80
+show_missing = true

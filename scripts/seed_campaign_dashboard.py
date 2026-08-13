@@ -15,7 +15,7 @@ import asyncio
 import logging
 import random
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -116,7 +116,7 @@ async def seed_campaign_dashboard_data(db: AsyncSession) -> None:
             )
             num_sessions = random.randint(8, 15)
 
-            now = datetime.now(timezone.utc)
+            now = datetime.now(UTC)
             start_date = now - timedelta(days=30)
 
             for j in range(num_sessions):

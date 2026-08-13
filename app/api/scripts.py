@@ -12,8 +12,8 @@ from app.models.script import Script, ScriptVersion
 from app.models.user import User
 from app.schemas.script import (
     PaginatedScripts,
-    ScriptCreateRequest,
     ScriptAssignmentRequest,
+    ScriptCreateRequest,
     ScriptDetail,
     ScriptListItem,
     ScriptUpdateRequest,

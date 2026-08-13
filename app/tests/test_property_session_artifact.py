@@ -9,7 +9,7 @@ Validates: Requirements 8.2
 """
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 from hypothesis import HealthCheck, given, settings
@@ -378,7 +378,7 @@ class TestSessionArtifactAssociation:
             session_id=session.id,
             speaker=speaker,
             utterance_text=utterance_text,
-            timestamp_ms=datetime.now(timezone.utc),
+            timestamp_ms=datetime.now(UTC),
             sequence_number=seq_num,
         )
         async_db.add(transcript_entry)
@@ -462,7 +462,7 @@ class TestSessionArtifactAssociation:
                 session_id=session.id,
                 speaker=speaker,
                 utterance_text=f"Utterance {i}",
-                timestamp_ms=datetime.now(timezone.utc),
+                timestamp_ms=datetime.now(UTC),
                 sequence_number=i,
             )
             async_db.add(transcript)

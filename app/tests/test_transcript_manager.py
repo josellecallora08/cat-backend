@@ -5,7 +5,7 @@ buffering, ordering, persistence, and validation behavior.
 """
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 import pytest_asyncio
@@ -73,7 +73,7 @@ class TestAppendEntry:
     @pytest.mark.asyncio
     async def test_append_valid_agent_entry(self, transcript_manager, session_id):
         """Valid agent entry is buffered with correct sequence number."""
-        ts = datetime.now(timezone.utc)
+        ts = datetime.now(UTC)
         entry = await transcript_manager.append_entry(session_id, "agent", "Hello, this is collections.", ts)
 
         assert entry.speaker == "agent"
@@ -85,7 +85,7 @@ class TestAppendEntry:
     @pytest.mark.asyncio
     async def test_append_valid_debtor_entry(self, transcript_manager, session_id):
         """Valid debtor entry is buffered with correct sequence number."""
-        ts = datetime.now(timezone.utc)
+        ts = datetime.now(UTC)
         entry = await transcript_manager.append_entry(session_id, "debtor", "I can't pay right now.", ts)
 
         assert entry.speaker == "debtor"
@@ -95,7 +95,7 @@ class TestAppendEntry:
     @pytest.mark.asyncio
     async def test_append_multiple_entries_increments_sequence(self, transcript_manager, session_id):
         """Multiple entries get incrementing sequence numbers."""
-        ts = datetime.now(timezone.utc)
+        ts = datetime.now(UTC)
 
         e1 = await transcript_manager.append_entry(session_id, "agent", "Hello", ts)
         e2 = await transcript_manager.append_entry(session_id, "debtor", "Hi", ts)
@@ -108,21 +108,21 @@ class TestAppendEntry:
     @pytest.mark.asyncio
     async def test_append_invalid_speaker_raises(self, transcript_manager, session_id):
         """Invalid speaker value raises TranscriptValidationError."""
-        ts = datetime.now(timezone.utc)
+        ts = datetime.now(UTC)
         with pytest.raises(TranscriptValidationError, match="Invalid speaker"):
             await transcript_manager.append_entry(session_id, "customer", "Hello", ts)
 
     @pytest.mark.asyncio
     async def test_append_empty_text_raises(self, transcript_manager, session_id):
         """Empty text raises TranscriptValidationError."""
-        ts = datetime.now(timezone.utc)
+        ts = datetime.now(UTC)
         with pytest.raises(TranscriptValidationError, match="non-empty"):
             await transcript_manager.append_entry(session_id, "agent", "", ts)
 
     @pytest.mark.asyncio
     async def test_append_whitespace_only_text_raises(self, transcript_manager, session_id):
         """Whitespace-only text raises TranscriptValidationError."""
-        ts = datetime.now(timezone.utc)
+        ts = datetime.now(UTC)
         with pytest.raises(TranscriptValidationError, match="non-empty"):
             await transcript_manager.append_entry(session_id, "agent", "   ", ts)
 
@@ -139,7 +139,7 @@ class TestGetTranscript:
     @pytest.mark.asyncio
     async def test_get_transcript_returns_ordered_entries(self, transcript_manager, session_id, db_session):
         """Persisted entries are returned ordered by sequence_number."""
-        ts = datetime.now(timezone.utc)
+        ts = datetime.now(UTC)
 
         # Manually insert entries out of order
         entries = [
@@ -174,7 +174,7 @@ class TestGetAgentUtteranceCount:
     @pytest.mark.asyncio
     async def test_count_only_agent_entries(self, transcript_manager, session_id, db_session):
         """Only counts entries where speaker='agent'."""
-        ts = datetime.now(timezone.utc)
+        ts = datetime.now(UTC)
 
         entries = [
             Transcript(session_id=session_id, speaker="agent", utterance_text="Hello", timestamp_ms=ts, sequence_number=0),
@@ -197,7 +197,7 @@ class TestPersist:
     @pytest.mark.asyncio
     async def test_persist_flushes_buffer_to_db(self, transcript_manager, session_id, db_session):
         """Persisted entries are retrievable from the database."""
-        ts = datetime.now(timezone.utc)
+        ts = datetime.now(UTC)
 
         await transcript_manager.append_entry(session_id, "agent", "Hello", ts)
         await transcript_manager.append_entry(session_id, "debtor", "Hi there", ts)
@@ -218,7 +218,7 @@ class TestPersist:
     @pytest.mark.asyncio
     async def test_persist_clears_buffer(self, transcript_manager, session_id):
         """After persist, the internal buffer is cleared."""
-        ts = datetime.now(timezone.utc)
+        ts = datetime.now(UTC)
 
         await transcript_manager.append_entry(session_id, "agent", "Hello", ts)
         await transcript_manager.persist(session_id)
@@ -235,7 +235,7 @@ class TestPersist:
     @pytest.mark.asyncio
     async def test_sequence_continues_after_persist(self, transcript_manager, session_id):
         """Sequence numbers continue correctly after a persist."""
-        ts = datetime.now(timezone.utc)
+        ts = datetime.now(UTC)
 
         await transcript_manager.append_entry(session_id, "agent", "Hello", ts)
         await transcript_manager.append_entry(session_id, "debtor", "Hi", ts)

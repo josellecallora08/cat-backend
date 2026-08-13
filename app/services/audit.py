@@ -4,7 +4,9 @@ Logs structured events without exposing secrets (tokens, passwords, URLs).
 """
 
 import logging
-from typing import Optional
+from datetime import datetime, timezone
+from uuid import UUID
+
 
 audit_logger = logging.getLogger("cats.audit")
 
@@ -57,7 +59,7 @@ def log_reset_weak_password(user_id: str, ip: str, reason: str) -> None:
 
 
 def log_session_report_generated(
-    session_id: str, report_version: int, generated_by: Optional[str]
+    session_id: str, report_version: int, generated_by: str | None
 ) -> None:
     """Log successful session report generation."""
     audit_logger.info(
@@ -83,9 +85,7 @@ _SAFE_REPORT_FAILURE_CODES = frozenset(
 )
 
 
-def log_session_report_generation_failed(
-    session_id: str, report_version: int, reason: str
-) -> None:
+def log_session_report_generation_failed(session_id: str, report_version: int, reason: str) -> None:
     """Log only a finite safe failure classification for report generation."""
     safe_reason = reason if reason in _SAFE_REPORT_FAILURE_CODES else "generation_failed"
     audit_logger.warning(
@@ -100,10 +100,39 @@ def _mask_email(email: str) -> str:
     """Mask email for logging: show first 2 chars + domain."""
     try:
         local, domain = email.split("@", 1)
-        if len(local) <= 2:
-            masked_local = local[0] + "***"
-        else:
-            masked_local = local[:2] + "***"
+        masked_local = local[0] + "***" if len(local) <= 2 else local[:2] + "***"
         return f"{masked_local}@{domain}"
     except (ValueError, IndexError):
         return "***@***"
+
+
+def log_rubric_seed_completed(
+    run_id: UUID,
+    source_id: str,
+    initiated_by: UUID | None,
+    status: str,
+    reused_rubrics: int,
+    created_rubrics: int,
+    reused_versions: int,
+    created_versions: int,
+    published_versions: int,
+    rejected_definitions: int,
+) -> None:
+    """Log a safe summary of a rubric seed run without source contents or secrets."""
+    audit_logger.info(
+        "RUBRIC_SEED_COMPLETED",
+        extra={
+            "event": "rubric_seed_completed",
+            "run_id": str(run_id),
+            "source_id": source_id,
+            "initiated_by": str(initiated_by) if initiated_by else "system",
+            "status": status,
+            "reused_rubrics": reused_rubrics,
+            "created_rubrics": created_rubrics,
+            "reused_versions": reused_versions,
+            "created_versions": created_versions,
+            "published_versions": published_versions,
+            "rejected_definitions": rejected_definitions,
+            "timestamp": datetime.now(timezone.utc).isoformat(),  # noqa: UP017 - Python 3.11 compatibility
+        },
+    )

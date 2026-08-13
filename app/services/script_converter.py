@@ -32,6 +32,7 @@ from pydantic import ValidationError
 from app.config import settings
 from app.schemas.script import ScriptContract
 
+
 logger = logging.getLogger(__name__)
 
 _STRUCTURED_CODE_BLOCK = re.compile(

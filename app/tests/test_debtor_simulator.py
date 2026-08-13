@@ -17,7 +17,7 @@ from app.services.debtor_simulator import (
     contains_prohibited_response,
     select_opening_response,
 )
-from app.services.llm_service import LLMMessage, LLMResponse, LLMServiceProtocol
+from app.services.llm_service import LLMResponse, LLMServiceProtocol
 
 
 # --- Fixtures ---

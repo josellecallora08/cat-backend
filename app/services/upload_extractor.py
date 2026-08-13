@@ -34,6 +34,7 @@ import re
 import urllib.parse
 from pathlib import Path
 
+
 logger = logging.getLogger(__name__)
 
 # Resource limits
@@ -89,7 +90,6 @@ _URI_NORMALIZATION_MAX_ITER = 3
 
 class ExtractionError(Exception):
     """Raised when content extraction fails."""
-    pass
 
 
 # ─── Encoding ─────────────────────────────────────────────────────────────

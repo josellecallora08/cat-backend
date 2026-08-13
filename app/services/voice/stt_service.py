@@ -12,7 +12,8 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass
-from typing import Optional, Protocol
+from typing import Protocol
+
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +45,7 @@ class STTServiceProtocol(Protocol):
     """Protocol for STT service implementations, enabling easy mocking."""
 
     def transcribe(
-        self, audio: bytes, *, language: Optional[str] = None
+        self, audio: bytes, *, language: str | None = None
     ) -> TranscriptionResult:
         """Transcribe a PCM 16kHz audio buffer to text.
 
@@ -116,7 +117,7 @@ class STTService:
         return int(duration_seconds * 1000)
 
     def transcribe(
-        self, audio: bytes, *, language: Optional[str] = None
+        self, audio: bytes, *, language: str | None = None
     ) -> TranscriptionResult:
         """Transcribe a PCM 16kHz audio buffer to text.
 
@@ -228,8 +229,8 @@ class MockSTTService:
         self._default_language = default_language
         self._default_confidence = default_confidence
         self._call_count = 0
-        self._last_audio: Optional[bytes] = None
-        self._last_language: Optional[str] = None
+        self._last_audio: bytes | None = None
+        self._last_language: str | None = None
 
     @property
     def call_count(self) -> int:
@@ -237,12 +238,12 @@ class MockSTTService:
         return self._call_count
 
     @property
-    def last_audio(self) -> Optional[bytes]:
+    def last_audio(self) -> bytes | None:
         """The last audio buffer passed to transcribe."""
         return self._last_audio
 
     @property
-    def last_language(self) -> Optional[str]:
+    def last_language(self) -> str | None:
         """The last language hint passed to transcribe."""
         return self._last_language
 
@@ -253,7 +254,7 @@ class MockSTTService:
         return int(duration_seconds * 1000)
 
     def transcribe(
-        self, audio: bytes, *, language: Optional[str] = None
+        self, audio: bytes, *, language: str | None = None
     ) -> TranscriptionResult:
         """Return a mock transcription result.
 

@@ -18,7 +18,7 @@ import tempfile
 import time
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from sqlalchemy import select, update
@@ -26,6 +26,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.config import settings
 from app.models.script_upload import ScriptUpload
+
 
 logger = logging.getLogger(__name__)
 
@@ -204,11 +205,11 @@ async def cleanup_expired_files(session_factory: async_sessionmaker) -> CleanupR
     logger.debug(
         "Starting quarantine cleanup pass: retention_hours=%d utc=%s",
         retention_hours,
-        datetime.now(timezone.utc).isoformat(),
+        datetime.now(UTC).isoformat(),
         extra={
             "event": "quarantine_cleanup_started",
             "retention_hours": retention_hours,
-            "cleanup_started_at": datetime.now(timezone.utc).isoformat(),
+            "cleanup_started_at": datetime.now(UTC).isoformat(),
         },
     )
 
@@ -265,7 +266,7 @@ async def cleanup_expired_files(session_factory: async_sessionmaker) -> CleanupR
                 ).scalar_one_or_none()
 
                 if upload is not None and upload.deleted_at is None:
-                    deletion_time = datetime.now(timezone.utc)
+                    deletion_time = datetime.now(UTC)
                     await session.execute(
                         update(ScriptUpload)
                         .where(ScriptUpload.id == upload.id)
@@ -398,7 +399,7 @@ async def stop_cleanup_scheduler(app, timeout_seconds: float = 5) -> bool:
         await asyncio.wait_for(asyncio.shield(task), timeout=timeout_seconds)
     except asyncio.CancelledError:
         return True
-    except asyncio.TimeoutError:
+    except TimeoutError:
         logger.warning(
             "Timed out waiting for quarantine cleanup scheduler cancellation"
         )

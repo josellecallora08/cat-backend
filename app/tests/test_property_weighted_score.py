@@ -16,6 +16,7 @@ from hypothesis import strategies as st
 from app.schemas import EvaluationCategory
 from app.services.evaluation_engine import EvaluationEngine
 
+
 # Strategy: generate a score integer in [0, 100] for each category
 scores_strategy = st.fixed_dictionaries({
     EvaluationCategory.CALL_OPENING: st.integers(min_value=0, max_value=100),

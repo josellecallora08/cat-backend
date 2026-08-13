@@ -8,11 +8,11 @@ import pytest
 
 from app.services.upload_validator import (
     UploadRejectionReason,
+    validate_docx_archive,
     validate_extension,
-    validate_mime_type,
     validate_file_signature,
     validate_file_size_streaming,
-    validate_docx_archive,
+    validate_mime_type,
 )
 
 

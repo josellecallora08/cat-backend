@@ -12,7 +12,6 @@ from app.services.rubric_score_calculator import (
 )
 
 
-
 def _block(block_id: str, weight: int, order: int, passing: int = 50) -> dict:
     return {
         "id": block_id,

@@ -25,6 +25,7 @@ from hypothesis import strategies as st
 from app.schemas.script import ScriptContract
 from app.services.script_validator import ScriptLimits, validate_limits
 
+
 # --- Shared strategies (adapted from test_property_script_contract_structure.py) ---
 
 # Free-text strategy: printable letters/numbers plus a few safe punctuation

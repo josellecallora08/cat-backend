@@ -9,7 +9,7 @@ import csv
 import io
 import json
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from xml.sax.saxutils import escape as escape_xml
 
 from reportlab.lib import colors
@@ -20,6 +20,7 @@ from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, Tabl
 
 from app.models import SessionReport
 from app.services.upload_extractor import _neutralize_csv_cell
+
 
 SUPPORTED_FORMATS = frozenset({"json", "csv", "pdf"})
 _FILENAME_COMPONENT_RE = re.compile(r"[^A-Za-z0-9_-]")
@@ -70,7 +71,7 @@ def _iso(value) -> str:
     if isinstance(value, str):
         return value
     if isinstance(value, datetime):
-        return value.astimezone(timezone.utc).isoformat()
+        return value.astimezone(UTC).isoformat()
     return str(value)
 
 

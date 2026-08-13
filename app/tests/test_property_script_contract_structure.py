@@ -31,6 +31,7 @@ from app.services.script_validator import (
     validate_contract_structure,
 )
 
+
 # --- Shared strategies (base: adapted from test_property_script_format.py) ---
 
 # Free-text strategy: printable letters/numbers plus a few safe punctuation

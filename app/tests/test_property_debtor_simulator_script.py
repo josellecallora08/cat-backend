@@ -57,14 +57,14 @@ from app.database import Base
 from app.models import Scenario, Script, ScriptVersion, User
 from app.models.user import UserRole
 from app.services.debtor_simulator import (
+    _NEGATIVE_EMOTION_KEYWORDS,
+    _POSITIVE_EMOTION_KEYWORDS,
     SAFE_DEFAULT_DEBTOR_RESPONSE,
     AgentTone,
     DebtorSimulatorService,
     EmotionalState,
     PersonaContext,
     _apply_directional_step,
-    _NEGATIVE_EMOTION_KEYWORDS,
-    _POSITIVE_EMOTION_KEYWORDS,
     _resolve_state_change_direction,
     contains_prohibited_response,
     evaluate_conversation_goal_completion,
@@ -82,6 +82,7 @@ from app.services.script_registry import (
     update_draft,
 )
 from app.services.session_service import create_session
+
 
 # --- Shared strategies (adapted from test_property_script_lifecycle.py /
 # test_property_script_consumption.py) ---

@@ -26,6 +26,7 @@ from app.services.negotiation_standard_service import (
     validate_draft,
 )
 
+
 router = APIRouter()
 
 

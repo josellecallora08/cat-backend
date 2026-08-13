@@ -94,10 +94,9 @@ def classify_agent_tone(message: str) -> AgentTone:
 
     if empathetic_count > aggressive_count:
         return AgentTone.EMPATHETIC
-    elif aggressive_count > empathetic_count:
+    if aggressive_count > empathetic_count:
         return AgentTone.AGGRESSIVE
-    else:
-        return AgentTone.NEUTRAL
+    return AgentTone.NEUTRAL
 
 
 # Keywords used to interpret free-text `state_change` descriptions from
@@ -198,7 +197,7 @@ def _apply_directional_step(current: EmotionalState, direction: int) -> Emotiona
     """Apply a -1/0/+1 directional step to an emotional state, clamped to bounds."""
     if direction > 0:
         return EmotionalState(min(current.value + 1, EmotionalState.COOPERATIVE.value))
-    elif direction < 0:
+    if direction < 0:
         return EmotionalState(max(current.value - 1, EmotionalState.HOSTILE.value))
     return current
 
@@ -251,11 +250,10 @@ def transition_emotional_state(
     if tone == AgentTone.EMPATHETIC:
         new_value = min(current.value + 1, EmotionalState.COOPERATIVE.value)
         return EmotionalState(new_value)
-    elif tone == AgentTone.AGGRESSIVE:
+    if tone == AgentTone.AGGRESSIVE:
         new_value = max(current.value - 1, EmotionalState.HOSTILE.value)
         return EmotionalState(new_value)
-    else:
-        return current
+    return current
 
 
 @dataclass
@@ -337,10 +335,9 @@ def detect_language(text: str) -> str:
 
     if tagalog_ratio >= 0.5:
         return "TL"
-    elif tagalog_ratio >= 0.15:
+    if tagalog_ratio >= 0.15:
         return "TAGLISH"
-    else:
-        return "EN"
+    return "EN"
 
 
 def select_opening_response(script_content: dict[str, Any] | None) -> str | None:

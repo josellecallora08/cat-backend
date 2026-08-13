@@ -6,7 +6,7 @@ Validates: Requirements 2.2, 2.3, 2.4, 3.6, 6.1, 6.2
 """
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import patch
 
 import pytest
@@ -84,7 +84,7 @@ def _make_scenario() -> Scenario:
 
 
 def _make_session(scenario_id: uuid.UUID, status: str = "completed") -> Session:
-    created_at = datetime.now(timezone.utc)
+    created_at = datetime.now(UTC)
     return Session(
         id=uuid.uuid4(),
         scenario_id=scenario_id,
@@ -247,9 +247,8 @@ async def test_failed_assembly_records_failure_without_payload(async_db):
         side_effect=RuntimeError("boom"),
     ), patch(
         "app.services.session_report_service.log_session_report_generation_failed"
-    ) as audit_log:
-        with pytest.raises(RuntimeError):
-            await generate_report(async_db, reloaded)
+    ) as audit_log, pytest.raises(RuntimeError):
+        await generate_report(async_db, reloaded)
 
     audit_log.assert_called_once_with(str(session.id), 1, "generation_failed")
 
@@ -278,9 +277,8 @@ async def test_failed_then_retry_produces_version_2(async_db):
     with patch(
         "app.services.session_report_service.assemble_report_payload",
         side_effect=RuntimeError("boom"),
-    ):
-        with pytest.raises(RuntimeError):
-            await generate_report(async_db, reloaded)
+    ), pytest.raises(RuntimeError):
+        await generate_report(async_db, reloaded)
 
     reloaded = await _reload_session(async_db, session.id)
     report = await generate_report(async_db, reloaded)

@@ -7,7 +7,7 @@ these tests verify signaling protocol behavior with appropriate mocking.
 Validates: Requirements 3.4, 3.7, 5.1, 5.2, 5.3, 5.4, 5.5
 """
 
-from unittest.mock import AsyncMock, patch, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
 import pytest
@@ -234,8 +234,8 @@ class TestPeerConnectionManager:
     def test_is_available_reflects_aiortc_import(self):
         """is_available should reflect whether aiortc was imported."""
         from app.services.voice.peer_connection_manager import (
-            PeerConnectionManager,
             AIORTC_AVAILABLE,
+            PeerConnectionManager,
         )
 
         manager = PeerConnectionManager()
@@ -249,9 +249,8 @@ class TestPeerConnectionManager:
         manager = PeerConnectionManager()
         with patch(
             "app.services.voice.peer_connection_manager.AIORTC_AVAILABLE", False
-        ):
-            with pytest.raises(RuntimeError, match="aiortc is not installed"):
-                await manager.create_peer_connection(uuid4())
+        ), pytest.raises(RuntimeError, match="aiortc is not installed"):
+            await manager.create_peer_connection(uuid4())
 
     @pytest.mark.asyncio
     async def test_handle_offer_raises_without_aiortc(self):
@@ -261,9 +260,8 @@ class TestPeerConnectionManager:
         manager = PeerConnectionManager()
         with patch(
             "app.services.voice.peer_connection_manager.AIORTC_AVAILABLE", False
-        ):
-            with pytest.raises(RuntimeError, match="aiortc is not installed"):
-                await manager.handle_offer(uuid4(), "v=0\r\n...")
+        ), pytest.raises(RuntimeError, match="aiortc is not installed"):
+            await manager.handle_offer(uuid4(), "v=0\r\n...")
 
     @pytest.mark.asyncio
     async def test_add_ice_candidate_raises_without_aiortc(self):
@@ -273,6 +271,5 @@ class TestPeerConnectionManager:
         manager = PeerConnectionManager()
         with patch(
             "app.services.voice.peer_connection_manager.AIORTC_AVAILABLE", False
-        ):
-            with pytest.raises(RuntimeError, match="aiortc is not installed"):
-                await manager.add_ice_candidate(uuid4(), "candidate:1...")
+        ), pytest.raises(RuntimeError, match="aiortc is not installed"):
+            await manager.add_ice_candidate(uuid4(), "candidate:1...")

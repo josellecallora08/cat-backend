@@ -10,25 +10,24 @@ Includes regression probes for three specific bypass cases:
 """
 
 import io
-import os
 import uuid
 import zipfile
+from datetime import UTC
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
-from xml.etree import ElementTree as ET
 
 import pytest
 
-from app.services.pdf_security import validate_pdf_security
 from app.services.docx_security import validate_docx_security
+from app.services.pdf_security import validate_pdf_security
 from app.services.upload_extractor import (
     ExtractionError,
-    extract_content,
-    extract_pdf,
-    extract_docx,
-    extract_txt,
-    extract_md,
     compute_content_hash,
+    extract_content,
+    extract_docx,
+    extract_md,
+    extract_pdf,
+    extract_txt,
 )
 from app.services.upload_validator import UploadRejectionReason
 
@@ -36,7 +35,6 @@ from app.services.upload_validator import UploadRejectionReason
 def _make_valid_pdf() -> bytes:
     """Generate a valid unencrypted PDF with text."""
     from pypdf import PdfWriter
-    from pypdf.generic import NameObject, TextStringObject
     w = PdfWriter()
     w.add_blank_page(612, 792)
     buf = io.BytesIO()
@@ -84,7 +82,9 @@ class TestPdfSecurity:
         """PDF containing /JavaScript in catalog is rejected."""
         from pypdf import PdfWriter
         from pypdf.generic import (
-            ArrayObject, DictionaryObject, NameObject, TextStringObject,
+            DictionaryObject,
+            NameObject,
+            TextStringObject,
         )
         w = PdfWriter()
         w.add_blank_page(612, 792)
@@ -106,7 +106,7 @@ class TestPdfSecurity:
     def test_pdf_with_embedded_file_rejected(self):
         """PDF with /EmbeddedFiles in catalog is rejected."""
         from pypdf import PdfWriter
-        from pypdf.generic import DictionaryObject, NameObject, ArrayObject
+        from pypdf.generic import ArrayObject, DictionaryObject, NameObject
         w = PdfWriter()
         w.add_blank_page(612, 792)
         ef_dict = DictionaryObject()
@@ -122,7 +122,7 @@ class TestPdfSecurity:
     def test_pdf_with_uri_action_rejected(self):
         """PDF with /URI action annotation is rejected."""
         from pypdf import PdfWriter
-        from pypdf.generic import DictionaryObject, NameObject, TextStringObject, ArrayObject
+        from pypdf.generic import ArrayObject, DictionaryObject, NameObject, TextStringObject
         w = PdfWriter()
         p = w.add_blank_page(612, 792)
         annot = DictionaryObject()
@@ -170,7 +170,10 @@ class TestPdfSecurity:
         """REGRESSION: /URI action inside array nested inside another array is rejected."""
         from pypdf import PdfWriter
         from pypdf.generic import (
-            DictionaryObject, NameObject, TextStringObject, ArrayObject,
+            ArrayObject,
+            DictionaryObject,
+            NameObject,
+            TextStringObject,
         )
         w = PdfWriter()
         p = w.add_blank_page(612, 792)
@@ -192,7 +195,10 @@ class TestPdfSecurity:
         """JavaScript hidden inside nested arrays is rejected."""
         from pypdf import PdfWriter
         from pypdf.generic import (
-            DictionaryObject, NameObject, TextStringObject, ArrayObject,
+            ArrayObject,
+            DictionaryObject,
+            NameObject,
+            TextStringObject,
         )
         w = PdfWriter()
         p = w.add_blank_page(612, 792)
@@ -212,7 +218,10 @@ class TestPdfSecurity:
         """Attachment dictionary reached through nested arrays is rejected."""
         from pypdf import PdfWriter
         from pypdf.generic import (
-            DictionaryObject, NameObject, ArrayObject, TextStringObject,
+            ArrayObject,
+            DictionaryObject,
+            NameObject,
+            TextStringObject,
         )
         w = PdfWriter()
         w.add_blank_page(612, 792)
@@ -232,7 +241,9 @@ class TestPdfSecurity:
         """IndirectObject that cannot be resolved triggers PDF_MALFORMED."""
         from pypdf import PdfWriter
         from pypdf.generic import (
-            DictionaryObject, NameObject, ArrayObject, IndirectObject,
+            ArrayObject,
+            IndirectObject,
+            NameObject,
         )
         w = PdfWriter()
         p = w.add_blank_page(612, 792)
@@ -250,7 +261,9 @@ class TestPdfSecurity:
         """Normal PDF with harmless arrays is accepted."""
         from pypdf import PdfWriter
         from pypdf.generic import (
-            DictionaryObject, NameObject, ArrayObject, NumberObject,
+            ArrayObject,
+            NameObject,
+            NumberObject,
         )
         w = PdfWriter()
         p = w.add_blank_page(612, 792)
@@ -569,7 +582,7 @@ class TestDocxFailClosedReads:
         # Patch zf.read to raise on the rels file
         orig_init = zipfile.ZipFile.__init__
 
-        with patch.object(zipfile.ZipFile, "read", side_effect=IOError("corrupt")):
+        with patch.object(zipfile.ZipFile, "read", side_effect=OSError("corrupt")):
             valid, reason = validate_docx_security(path)
 
         assert valid is False
@@ -587,7 +600,7 @@ class TestDocxFailClosedReads:
 
         def _failing_read(self, name, *args, **kwargs):
             if name.lower().endswith(".xml"):
-                raise IOError("corrupt xml")
+                raise OSError("corrupt xml")
             return real_read(self, name, *args, **kwargs)
 
         with patch.object(zipfile.ZipFile, "read", side_effect=_failing_read):
@@ -800,11 +813,10 @@ class TestEndpointSecurityRejection:
 
     @pytest.fixture
     def _setup(self, tmp_path):
-        from app.main import create_app
-        from app.services.auth import require_admin
         from app.database import get_session
+        from app.main import create_app
         from app.models.user import User, UserRole
-        from unittest.mock import AsyncMock
+        from app.services.auth import require_admin
 
         admin = MagicMock(spec=User)
         admin.id = uuid.uuid4()
@@ -817,8 +829,8 @@ class TestEndpointSecurityRejection:
         db.rollback = AsyncMock()
 
         async def _refresh(obj):
-            from datetime import datetime, timezone
-            obj.created_at = datetime.now(timezone.utc)
+            from datetime import datetime
+            obj.created_at = datetime.now(UTC)
         db.refresh = AsyncMock(side_effect=_refresh)
 
         app = create_app()
@@ -834,6 +846,7 @@ class TestEndpointSecurityRejection:
     async def test_unsafe_pdf_rejected_422(self, _setup, caplog):
         """PDF with unsafe structure -> 422, no extraction, no success."""
         import logging
+
         from httpx import ASGITransport, AsyncClient
         app, admin, db, q_dir = _setup
 
@@ -874,6 +887,7 @@ class TestEndpointSecurityRejection:
     async def test_unsafe_docx_rejected_422(self, _setup, caplog):
         """DOCX with unsafe content -> 422, no extraction, no success."""
         import logging
+
         from httpx import ASGITransport, AsyncClient
         app, admin, db, q_dir = _setup
 
@@ -921,6 +935,7 @@ class TestEndpointSecurityRejection:
     async def test_extraction_error_422(self, _setup, caplog):
         """ExtractionError -> 422, file deleted, no success."""
         import logging
+
         from httpx import ASGITransport, AsyncClient
         app, admin, db, q_dir = _setup
 
@@ -1001,7 +1016,10 @@ class TestRegressionProbes:
         """PROBE 3: PDF /URI action inside nested arrays MUST be rejected."""
         from pypdf import PdfWriter
         from pypdf.generic import (
-            DictionaryObject, NameObject, TextStringObject, ArrayObject,
+            ArrayObject,
+            DictionaryObject,
+            NameObject,
+            TextStringObject,
         )
         w = PdfWriter()
         p = w.add_blank_page(612, 792)

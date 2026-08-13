@@ -18,6 +18,7 @@ from app.config import settings
 from app.models.user import AuthProvider, User, UserRole, UserType
 from app.services.auth import create_access_token
 
+
 logger = logging.getLogger(__name__)
 
 # Lark API endpoints

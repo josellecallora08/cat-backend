@@ -9,11 +9,10 @@ Tests cover:
 import json
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-import yaml
 from httpx import ASGITransport, AsyncClient
 
 from app.main import app
@@ -393,9 +392,9 @@ def _make_upload(
     upload.storage_key = "test-key"
     upload.scan_signature = None
     upload.extraction_error = None
-    upload.created_at = datetime(2025, 1, 1, tzinfo=timezone.utc)
-    upload.updated_at = datetime(2025, 1, 1, tzinfo=timezone.utc)
-    upload.quarantine_expires_at = datetime(2025, 1, 2, tzinfo=timezone.utc)
+    upload.created_at = datetime(2025, 1, 1, tzinfo=UTC)
+    upload.updated_at = datetime(2025, 1, 1, tzinfo=UTC)
+    upload.quarantine_expires_at = datetime(2025, 1, 2, tzinfo=UTC)
     upload.deleted_at = None
     return upload
 
@@ -410,8 +409,8 @@ def _make_script_mock(script_id=None, scenario_id=None):
     script.format = "json"
     script.draft_content = VALID_CONTRACT
     script.current_version_id = None
-    script.created_at = datetime(2025, 1, 1, tzinfo=timezone.utc)
-    script.updated_at = datetime(2025, 1, 1, tzinfo=timezone.utc)
+    script.created_at = datetime(2025, 1, 1, tzinfo=UTC)
+    script.updated_at = datetime(2025, 1, 1, tzinfo=UTC)
     return script
 
 

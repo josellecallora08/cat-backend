@@ -7,7 +7,7 @@ are validated against the section in which they occur.
 
 from datetime import datetime
 from enum import Enum
-from typing import Annotated, Literal, Optional, Union
+from typing import Annotated, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -58,7 +58,7 @@ class ReportReason(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
     code: ReportReasonCodeValue
-    message: Optional[str] = Field(default=None, min_length=1, max_length=500)
+    message: str | None = Field(default=None, min_length=1, max_length=500)
 
 
 # Section matrix.  Generation reasons are row/status concerns and cannot be
@@ -114,17 +114,17 @@ class SessionReportSummary(BaseModel):
     session_id: UUID
     scenario_id: UUID
     agent_id: UUID
-    campaign_id: Optional[UUID] = None
-    campaign_name: Optional[str] = None
-    persona: Optional[PersonaSummary] = None
+    campaign_id: UUID | None = None
+    campaign_name: str | None = None
+    persona: PersonaSummary | None = None
     status: SessionStatus
     created_at: datetime
-    ended_at: Optional[datetime] = None
-    duration_seconds: Optional[float] = Field(default=None, ge=0)
-    standard_id: Optional[UUID] = None
-    standard_version_id: Optional[UUID] = None
-    standard_version_number: Optional[int] = Field(default=None, ge=1)
-    standard_name: Optional[str] = None
+    ended_at: datetime | None = None
+    duration_seconds: float | None = Field(default=None, ge=0)
+    standard_id: UUID | None = None
+    standard_version_id: UUID | None = None
+    standard_version_number: int | None = Field(default=None, ge=1)
+    standard_name: str | None = None
 
     @model_validator(mode="after")
     def validate_timestamps(self) -> "SessionReportSummary":
@@ -146,7 +146,7 @@ class TranscriptSection(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
     available: bool = True
-    reason: Optional[str] = Field(default=None, min_length=1, max_length=500)
+    reason: str | None = Field(default=None, min_length=1, max_length=500)
     reason_code: ReportReasonCodeValue | None = None
     entries: list[TranscriptEntry] = Field(default_factory=list)
 
@@ -212,15 +212,15 @@ class EvaluationSection(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
     available: bool
-    reason: Optional[str] = Field(default=None, min_length=1, max_length=500)
+    reason: str | None = Field(default=None, min_length=1, max_length=500)
     reason_code: ReportReasonCodeValue | None = None
-    mode: Optional[EvaluationMode] = None
-    canonical: Optional[CanonicalEvaluationResult] = None
-    legacy: Optional[LegacyEvaluationResult] = None
-    weighted_total: Optional[float] = Field(default=None, ge=0, le=100)
-    passing_score: Optional[int] = Field(default=None, ge=0, le=100)
-    passed: Optional[bool] = None
-    standard_version_number: Optional[int] = Field(default=None, ge=1)
+    mode: EvaluationMode | None = None
+    canonical: CanonicalEvaluationResult | None = None
+    legacy: LegacyEvaluationResult | None = None
+    weighted_total: float | None = Field(default=None, ge=0, le=100)
+    passing_score: int | None = Field(default=None, ge=0, le=100)
+    passed: bool | None = None
+    standard_version_number: int | None = Field(default=None, ge=1)
 
     @model_validator(mode="before")
     @classmethod
@@ -281,13 +281,13 @@ class CoachingSection(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
     available: bool
-    reason: Optional[str] = Field(default=None, min_length=1, max_length=500)
+    reason: str | None = Field(default=None, min_length=1, max_length=500)
     reason_code: ReportReasonCodeValue | None = None
-    mode: Optional[CoachingMode] = None
+    mode: CoachingMode | None = None
     blocks: list[RubricCoachingBlock] = Field(default_factory=list)
     legacy_mistakes_by_category: dict[str, list[MistakeItem]] = Field(default_factory=dict)
-    total_mistakes: Optional[int] = Field(default=None, ge=0)
-    no_mistakes: Optional[bool] = None
+    total_mistakes: int | None = Field(default=None, ge=0)
+    no_mistakes: bool | None = None
 
     @model_validator(mode="before")
     @classmethod
@@ -347,10 +347,10 @@ class LearningPlanSection(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
     available: bool
-    reason: Optional[str] = Field(default=None, min_length=1, max_length=500)
+    reason: str | None = Field(default=None, min_length=1, max_length=500)
     reason_code: ReportReasonCodeValue | None = None
     items: list[LearningPlanItem] = Field(default_factory=list)
-    all_passing: Optional[bool] = None
+    all_passing: bool | None = None
 
     @model_validator(mode="before")
     @classmethod
@@ -652,18 +652,7 @@ class ReportNoEvidenceStatus(_TerminalReportStatus):
 
 
 ReportStatusEnvelope = Annotated[
-    Union[
-        ReportMissingStatus,
-        ReportIncompleteStatus,
-        ReportGeneratingStatus,
-        ReportFailedStatus,
-        ReportReadyStatus,
-        ReportNotApplicableStatus,
-        ReportTooShortStatus,
-        ReportLegacyOnlyStatus,
-        ReportEmptyTranscriptStatus,
-        ReportNoEvidenceStatus,
-    ],
+    ReportMissingStatus | ReportIncompleteStatus | ReportGeneratingStatus | ReportFailedStatus | ReportReadyStatus | ReportNotApplicableStatus | ReportTooShortStatus | ReportLegacyOnlyStatus | ReportEmptyTranscriptStatus | ReportNoEvidenceStatus,
     Field(discriminator="status"),
 ]
 

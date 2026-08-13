@@ -4,7 +4,6 @@ Tests classify_agent_tone() and transition_emotional_state() functions.
 Validates Requirements 2.3 and 2.4.
 """
 
-import pytest
 
 from app.services.debtor_simulator import (
     AgentTone,

@@ -1,6 +1,6 @@
 import logging
 
-from pydantic import field_validator
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings
 
 
@@ -8,13 +8,26 @@ logger = logging.getLogger(__name__)
 
 
 class Settings(BaseSettings):
-    database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/cat_db"
+    database_url: str = (
+        "postgresql+asyncpg://local_test_user:local_test_password@localhost:5432/cat_db"
+    )
     debug: bool = False
+
+    # Dynamic rubric seed flow
+    rubric_seed_enabled: bool = False
+    rubric_source: str = Field(default="", max_length=4096, repr=False)
+    rubric_source_id: str = Field(default="", max_length=128, repr=False)
+    rubric_source_max_bytes: int = Field(
+        default=1_048_576,
+        ge=1,
+        le=52_428_800,
+    )
+
     # CORS
     cors_origins: str = "*"
 
     # JWT Authentication
-    jwt_secret: str = "change-this-to-a-random-secret-in-production"
+    jwt_secret: str = "local_test_jwt_placeholder"  # noqa: S105
     jwt_expiry_hours: int = 24
     reset_token_expiry_minutes: int = 30
 
@@ -50,9 +63,7 @@ class Settings(BaseSettings):
 
     # ElevenLabs TTS (leave empty to use gTTS fallback)
     elevenlabs_api_key: str = ""
-    elevenlabs_voice_id: str = (
-        "pFZP5JQG7iQjIQuC4Bku"  # Lily - good for Filipino/multilingual
-    )
+    elevenlabs_voice_id: str = "pFZP5JQG7iQjIQuC4Bku"  # Lily - good for Filipino/multilingual
     # TTS provider: "elevenlabs", "gtts", or "auto" (tries elevenlabs first)
     tts_provider: str = "auto"
 
@@ -91,9 +102,7 @@ class Settings(BaseSettings):
             )
             return 0
         if value > 8760:
-            logger.warning(
-                "Upload quarantine retention hours (%d) clamped to 8760", value
-            )
+            logger.warning("Upload quarantine retention hours (%d) clamped to 8760", value)
             return 8760
         return value
 

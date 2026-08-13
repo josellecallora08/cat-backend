@@ -6,7 +6,6 @@ from unittest.mock import AsyncMock
 import pytest
 
 from app.services.debtor_simulator import (
-    AgentTone,
     DebtorSimulatorService,
     EmotionalState,
     Message,
@@ -14,7 +13,7 @@ from app.services.debtor_simulator import (
     SimulatorResponse,
     detect_language,
 )
-from app.services.llm_service import LLMMessage, LLMResponse, LLMServiceProtocol
+from app.services.llm_service import LLMResponse, LLMServiceProtocol
 
 
 # --- Fixtures ---

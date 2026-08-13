@@ -10,7 +10,7 @@ and non-empty utterance_text.
 """
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 import pytest_asyncio
@@ -39,7 +39,7 @@ valid_text = st.text(
 valid_timestamps = st.datetimes(
     min_value=datetime(2000, 1, 1),
     max_value=datetime(2030, 12, 31),
-    timezones=st.just(timezone.utc),
+    timezones=st.just(UTC),
 )
 
 # Invalid speakers (anything not "agent" or "debtor")
@@ -216,7 +216,7 @@ class TestTranscriptEntryStructuralCompleteness:
                 await db_session.commit()
 
                 manager = TranscriptManager(db=db_session)
-                timestamp = datetime.now(timezone.utc)
+                timestamp = datetime.now(UTC)
 
                 with pytest.raises(TranscriptValidationError):
                     await manager.append_entry(sess.id, speaker, "Valid text", timestamp)

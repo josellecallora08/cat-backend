@@ -1,7 +1,7 @@
 """Upload validation response schemas."""
 
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any
 from uuid import UUID
 
 from pydantic import BaseModel
@@ -13,15 +13,15 @@ class UploadRejectionResponse(BaseModel):
     error: str = "upload_rejected"
     reason_code: str
     message: str
-    details: Optional[dict[str, Any]] = None
+    details: dict[str, Any] | None = None
 
 
 class UploadValidationResult(BaseModel):
     """Internal validation result for upload checks."""
 
     valid: bool
-    reason_code: Optional[str] = None
-    message: Optional[str] = None
+    reason_code: str | None = None
+    message: str | None = None
 
 
 class UploadSuccessResponse(BaseModel):
@@ -38,9 +38,9 @@ class UploadSuccessResponse(BaseModel):
     status: str
     quarantine_expires_at: datetime
     created_at: datetime
-    script_id: Optional[UUID] = None
-    scenario_id: Optional[UUID] = None
-    processing_notes: Optional[str] = None
+    script_id: UUID | None = None
+    scenario_id: UUID | None = None
+    processing_notes: str | None = None
 
 
 class UploadStatusResponse(BaseModel):
@@ -50,20 +50,20 @@ class UploadStatusResponse(BaseModel):
     filename_original: str
     mime_type: str
     file_size_bytes: int
-    content_hash: Optional[str] = None  # Null for pre-extraction failures
+    content_hash: str | None = None  # Null for pre-extraction failures
     storage_key: str
     uploaded_by: UUID
     scan_status: str
-    scan_signature: Optional[str] = None
+    scan_signature: str | None = None
     extraction_status: str
-    extraction_error: Optional[str] = None
+    extraction_error: str | None = None
     status: str
-    script_id: Optional[UUID] = None
-    scenario_id: Optional[UUID] = None
+    script_id: UUID | None = None
+    scenario_id: UUID | None = None
     created_at: datetime
     updated_at: datetime
     quarantine_expires_at: datetime
-    deleted_at: Optional[datetime] = None
+    deleted_at: datetime | None = None
 
 
 class UploadListItem(BaseModel):
@@ -74,6 +74,6 @@ class UploadListItem(BaseModel):
     mime_type: str
     file_size_bytes: int
     status: str
-    script_id: Optional[UUID] = None
-    scenario_id: Optional[UUID] = None
+    script_id: UUID | None = None
+    scenario_id: UUID | None = None
     created_at: datetime

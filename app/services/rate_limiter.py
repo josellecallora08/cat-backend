@@ -3,8 +3,8 @@
 Uses a sliding window approach. For production, swap with Redis-backed implementation.
 """
 
-import time
 import threading
+import time
 from collections import defaultdict
 from dataclasses import dataclass, field
 

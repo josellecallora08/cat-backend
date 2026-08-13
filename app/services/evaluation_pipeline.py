@@ -19,15 +19,21 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Session, Transcript
-from app.schemas import CoachingReportSchema, EvaluationCategory, EvaluationResult, LearningPlanSchema
+from app.schemas import (
+    CoachingReportSchema,
+    EvaluationCategory,
+    EvaluationResult,
+    LearningPlanSchema,
+)
 from app.schemas.event import EventMetadata
 from app.schemas.rubric_evaluation import CanonicalEvaluationResult
 from app.services.coaching_engine import CoachingEngine
-from app.services.evaluation_engine import EvaluationEngine
 from app.services.evaluation_compatibility import build_rubric_recommendations
+from app.services.evaluation_engine import EvaluationEngine
+from app.services.event_instances import event_broadcaster
 from app.services.learning_plan_generator import LearningPlanGenerator
 from app.services.llm_service import LLMServiceProtocol
-from app.services.event_instances import event_broadcaster
+
 
 logger = logging.getLogger(__name__)
 
@@ -104,6 +110,10 @@ class EvaluationPipeline:
             session = result.scalar_one_or_none()
             if session is None or session.negotiation_standard_version is None:
                 raise ValueError("Session has no pinned published negotiation standard version")
+            standard_version = session.negotiation_standard_version
+            # The session lookup starts a transaction. The rubric evaluation
+            # performs external LLM calls, so release the connection first.
+            await db.close()
             rubric_transcript = [
                 {**entry, "sequence_number": entry.get("sequence_number", index)}
                 for index, entry in enumerate(transcript)
@@ -111,11 +121,11 @@ class EvaluationPipeline:
             canonical = await self._evaluation_engine.evaluate_rubric(
                 session_id=session_id,
                 transcript=rubric_transcript,
-                standard_version=session.negotiation_standard_version,
+                standard_version=standard_version,
                 db=None,
             )
             return self._canonical_to_legacy_result(
-                session_id, canonical, session.negotiation_standard_version
+                session_id, canonical, standard_version
             )
 
         # Existing unit callers use lightweight mocks and the legacy contract.
@@ -176,9 +186,21 @@ class EvaluationPipeline:
             for item in category.violations
         ][:5]
         if not strengths:
-            strengths = [{"description": canonical.summary, "category": EvaluationCategory.CALL_OPENING, "transcript_excerpt": canonical.summary}]
+            strengths = [
+                {
+                    "description": canonical.summary,
+                    "category": EvaluationCategory.CALL_OPENING,
+                    "transcript_excerpt": canonical.summary,
+                }
+            ]
         if not weaknesses:
-            weaknesses = [{"description": canonical.summary, "category": EvaluationCategory.CALL_OPENING, "transcript_excerpt": canonical.summary}]
+            weaknesses = [
+                {
+                    "description": canonical.summary,
+                    "category": EvaluationCategory.CALL_OPENING,
+                    "transcript_excerpt": canonical.summary,
+                }
+            ]
 
         return EvaluationResult(
             session_id=session_id,
@@ -259,7 +281,9 @@ class EvaluationPipeline:
         }
 
         if coaching_report.rubric_coaching is not None:
-            serialized_coaching["_rubric_coaching"] = coaching_report.rubric_coaching.model_dump(mode="json")
+            serialized_coaching["_rubric_coaching"] = (
+                coaching_report.rubric_coaching.model_dump(mode="json")
+            )
         if coaching_report.rubric_recommendations:
             serialized_coaching["_rubric_recommendations"] = [
                 item.model_dump(mode="json")
@@ -299,7 +323,10 @@ class EvaluationPipeline:
                 LearningPlan(
                     session_id=evaluation.session_id,
                     agent_id=agent_id,
-                    weak_competencies=[item.model_dump(mode="json") for item in learning_plan.weak_competencies],
+                    weak_competencies=[
+                        item.model_dump(mode="json")
+                        for item in learning_plan.weak_competencies
+                    ],
                     all_passing=learning_plan.all_passing,
                 )
             )

@@ -16,7 +16,7 @@ Validates: Requirements 1.5, 1.7, 1.10, 1.11, 1.12, 2.5
 """
 
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import pytest
@@ -28,7 +28,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from sqlalchemy.orm import selectinload
 
 from app.database import Base
-from app.models import CoachingReport, Evaluation, LearningPlan, Scenario, Session, Transcript
+from app.models import Evaluation, Scenario, Session, Transcript
 from app.schemas import SessionStatus, TranscriptEntry
 from app.schemas.rubric_evaluation import (
     CanonicalEvaluationResult,
@@ -36,11 +36,11 @@ from app.schemas.rubric_evaluation import (
     RubricEvidence,
 )
 from app.schemas.session_report import (
+    SECTION_REASON_MATRIX,
     CoachingSection,
     EvaluationSection,
     LearningPlanSection,
     LegacyEvaluationResult,
-    SECTION_REASON_MATRIX,
     SessionReportPayload,
     SessionReportSummary,
     TranscriptSection,
@@ -93,7 +93,7 @@ def _make_scenario() -> Scenario:
 
 
 def _make_session(scenario_id: uuid.UUID) -> Session:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     return Session(
         id=uuid.uuid4(),
         scenario_id=scenario_id,
@@ -148,7 +148,7 @@ class TestDeterminism:
         async_db.add(session)
         await async_db.flush()
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         for i in range(num_entries):
             async_db.add(Transcript(
                 id=uuid.uuid4(), session_id=session.id,
@@ -195,7 +195,7 @@ class TestNoFabrication:
         async_db.add(session)
         await async_db.flush()
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         for i in range(num_transcripts):
             async_db.add(Transcript(
                 id=uuid.uuid4(), session_id=session.id,
@@ -283,7 +283,7 @@ class TestTranscriptOrdering:
         async_db.add(session)
         await async_db.flush()
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         # Insert in reverse to prove assembly sorts, not just relies on insert order.
         for seq in reversed(sequences):
             async_db.add(Transcript(
@@ -338,7 +338,7 @@ class TestTerminalOutcomesHaveReason:
 
 
 def _memory_summary() -> SessionReportSummary:
-    now = datetime(2024, 1, 1, tzinfo=timezone.utc)
+    now = datetime(2024, 1, 1, tzinfo=UTC)
     return SessionReportSummary(
         session_id=uuid.UUID("00000000-0000-0000-0000-000000000001"),
         scenario_id=uuid.UUID("00000000-0000-0000-0000-000000000002"),
@@ -351,7 +351,7 @@ def _memory_summary() -> SessionReportSummary:
 
 
 def _memory_transcript(sequences: list[int]) -> TranscriptSection:
-    timestamp = datetime(2024, 1, 1, tzinfo=timezone.utc)
+    timestamp = datetime(2024, 1, 1, tzinfo=UTC)
     return TranscriptSection(
         available=True,
         entries=[

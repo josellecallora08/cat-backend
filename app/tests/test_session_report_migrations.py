@@ -5,7 +5,7 @@ import shutil
 import subprocess
 import sys
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -76,7 +76,7 @@ def _seed_representative_rows(engine):
     standard_id = uuid.uuid4()
     standard_version_id = uuid.uuid4()
     session_id = uuid.uuid4()
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     with DBSession(engine) as db:
         db.add(
@@ -334,9 +334,8 @@ async def test_session_report_hardening_upgrade_downgrade_preserves_data():
             ":version, CAST(:payload AS jsonb), :hash, :reason)"
         )
         for case in invalid_cases:
-            with pytest.raises(IntegrityError):
-                with engine.begin() as conn:
-                    conn.execute(insert_invalid, case)
+            with pytest.raises(IntegrityError), engine.begin() as conn:
+                conn.execute(insert_invalid, case)
 
         result = _run_alembic(project_root, async_url, "downgrade", "-1")
         assert result.returncode == 0, result.stderr

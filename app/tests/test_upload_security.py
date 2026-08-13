@@ -2,21 +2,20 @@
 
 import sys
 import zipfile
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
+from app.services import upload_scanner
+from app.services.upload_quarantine import sanitize_filename
+from app.services.upload_scanner import scan_file
 from app.services.upload_validator import (
     UploadRejectionReason,
+    validate_docx_archive,
     validate_extension,
     validate_file_signature,
-    validate_docx_archive,
     validate_mime_type,
 )
-from app.services.upload_quarantine import sanitize_filename
-from app.services.upload_scanner import ScanResult, scan_file
-from app.services import upload_scanner
 
 
 class TestExtensionSpoofing:

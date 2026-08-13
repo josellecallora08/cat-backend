@@ -5,7 +5,6 @@ debtor simulator prompt configuration.
 """
 
 import logging
-from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -16,6 +15,7 @@ from app.database import get_session
 from app.models import SystemConfig
 from app.models.user import User
 from app.services.auth import require_admin
+
 
 logger = logging.getLogger(__name__)
 

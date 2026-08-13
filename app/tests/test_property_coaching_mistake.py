@@ -17,7 +17,13 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from app.schemas import EvaluationCategory, EvaluationResult, CompetencyScore, StrengthItem, WeaknessItem
+from app.schemas import (
+    CompetencyScore,
+    EvaluationCategory,
+    EvaluationResult,
+    StrengthItem,
+    WeaknessItem,
+)
 from app.services.coaching_engine import CoachingEngine
 from app.services.llm_service import LLMResponse
 
