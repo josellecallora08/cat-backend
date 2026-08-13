@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 @dataclass
 class RateLimitWindow:
     """Tracks request timestamps within a window."""
+
     timestamps: list[float] = field(default_factory=list)
 
 

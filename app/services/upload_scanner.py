@@ -121,9 +121,7 @@ def _connect_to_clamd():
         return cd
     except (ConnectionError, OSError) as exc:
         # Fallback to network socket if Unix socket fails
-        logger.warning(
-            "Unix socket connection failed (%s), trying network socket", exc
-        )
+        logger.warning("Unix socket connection failed (%s), trying network socket", exc)
         cd = clamd.ClamdNetworkSocket()
         cd.ping()
         return cd
@@ -157,7 +155,7 @@ def _parse_scan_result(result: dict, file_path: Path) -> ScanResult:
 
     if file_result is None:
         # Try to get any result (ClamAV may use absolute path)
-        for key, value in result.items():
+        for _key, value in result.items():
             file_result = value
             break
 
@@ -172,9 +170,7 @@ def _parse_scan_result(result: dict, file_path: Path) -> ScanResult:
         logger.info("File %s passed malware scan", file_path)
         return ScanResult(clean=True)
     if status == "FOUND":
-        logger.warning(
-            "Malware detected in %s: signature=%s", file_path, signature
-        )
+        logger.warning("Malware detected in %s: signature=%s", file_path, signature)
         return ScanResult(clean=False, signature=signature)
     # Unexpected status (e.g. "ERROR") — fail-closed
     logger.error(

@@ -106,6 +106,4 @@ async def get_global_prompt(
     result = await db.execute(stmt)
     config = result.scalar_one_or_none()
 
-    return GlobalPromptResponse(
-        global_prompt=config.value if config else DEFAULT_GLOBAL_PROMPT
-    )
+    return GlobalPromptResponse(global_prompt=config.value if config else DEFAULT_GLOBAL_PROMPT)

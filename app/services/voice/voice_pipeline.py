@@ -12,16 +12,20 @@ import asyncio
 import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any
-from uuid import UUID
+from typing import TYPE_CHECKING, Any
 
-from app.services.debtor_simulator import DebtorSimulatorService, PersonaContext
-from app.services.transcript_manager import TranscriptManager
 from app.services.voice.audio_buffer import AudioBuffer
 from app.services.voice.peer_connection_manager import PeerConnectionManager
-from app.services.voice.stt_service import STTServiceProtocol
-from app.services.voice.tts_service import TTSServiceProtocol
 from app.services.voice.vad import VADProcessor
+
+
+if TYPE_CHECKING:
+    from uuid import UUID
+
+    from app.services.debtor_simulator import DebtorSimulatorService, PersonaContext
+    from app.services.transcript_manager import TranscriptManager
+    from app.services.voice.stt_service import STTServiceProtocol
+    from app.services.voice.tts_service import TTSServiceProtocol
 
 
 logger = logging.getLogger(__name__)
@@ -142,9 +146,7 @@ class VoicePipelineOrchestrator:
         try:
             while self._state.is_active:
                 try:
-                    frame = await asyncio.wait_for(
-                        track.recv(), timeout=5.0
-                    )
+                    frame = await asyncio.wait_for(track.recv(), timeout=5.0)
                     # Extract raw PCM bytes from the frame
                     if hasattr(frame, "to_ndarray"):
                         # aiortc AudioFrame - convert to bytes
@@ -245,15 +247,11 @@ class VoicePipelineOrchestrator:
         try:
             transcription = self._stt_service.transcribe(pcm_audio)
         except Exception as e:
-            logger.error(
-                "Session %s: STT transcription failed: %s", self.session_id, e
-            )
+            logger.error("Session %s: STT transcription failed: %s", self.session_id, e)
             return None
 
         if not transcription.text or not transcription.text.strip():
-            logger.debug(
-                "Session %s: empty transcription, skipping", self.session_id
-            )
+            logger.debug("Session %s: empty transcription, skipping", self.session_id)
             return None
 
         agent_text = transcription.text.strip()
@@ -295,9 +293,7 @@ class VoicePipelineOrchestrator:
 
                 # Synthesize opening response via TTS
                 try:
-                    audio_stream = await self._tts_service.synthesize(
-                        opening, language="tl"
-                    )
+                    audio_stream = await self._tts_service.synthesize(opening, language="tl")
                     response_audio = audio_stream.data
                 except Exception as e:
                     logger.error(
@@ -356,9 +352,7 @@ class VoicePipelineOrchestrator:
                     await self.teardown()
                     # Queue the sentinel after teardown; teardown clears stale
                     # output, so queuing it before teardown loses the signal.
-                    await self._output_queue.put(
-                        CallEndSignal(reason=escalation_behavior)
-                    )
+                    await self._output_queue.put(CallEndSignal(reason=escalation_behavior))
                     return response_audio
 
             # Check conversation goal completion
@@ -442,9 +436,7 @@ class VoicePipelineOrchestrator:
             )
             response_audio = audio_stream.data
         except Exception as e:
-            logger.error(
-                "Session %s: TTS synthesis failed: %s", self.session_id, e
-            )
+            logger.error("Session %s: TTS synthesis failed: %s", self.session_id, e)
             return None
 
         # Step 7: Queue audio for WebRTC output

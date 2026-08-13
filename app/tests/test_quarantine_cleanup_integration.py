@@ -76,12 +76,8 @@ async def test_cleanup_changes_only_deleted_at_in_database(tmp_path, monkeypatch
             "rejection_reason": upload.rejection_reason,
         }
 
-    monkeypatch.setattr(
-        upload_quarantine.settings, "upload_quarantine_path", str(tmp_path)
-    )
-    monkeypatch.setattr(
-        upload_quarantine.settings, "upload_quarantine_retention_hours", 0
-    )
+    monkeypatch.setattr(upload_quarantine.settings, "upload_quarantine_path", str(tmp_path))
+    monkeypatch.setattr(upload_quarantine.settings, "upload_quarantine_retention_hours", 0)
 
     result = await cleanup_expired_files(session_factory)
 
@@ -90,9 +86,7 @@ async def test_cleanup_changes_only_deleted_at_in_database(tmp_path, monkeypatch
     async with session_factory() as session:
         persisted = await session.get(ScriptUpload, upload_id)
         assert persisted.deleted_at is not None
-        preserved_after = {
-            field: getattr(persisted, field) for field in preserved_before
-        }
+        preserved_after = {field: getattr(persisted, field) for field in preserved_before}
         assert preserved_after == preserved_before
 
     await engine.dispose()

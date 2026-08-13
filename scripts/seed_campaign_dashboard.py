@@ -11,6 +11,8 @@ Or import and call:
     await seed_campaign_dashboard_data(db)
 """
 
+# This script intentionally uses non-cryptographic randomness for demo data.
+
 import asyncio
 import logging
 import random
@@ -74,9 +76,7 @@ async def seed_campaign_dashboard_data(db: AsyncSession) -> None:
         return
 
     # Find campaigns that are not archived
-    campaigns_stmt = select(Campaign).where(
-        Campaign.status != CampaignStatus.ARCHIVED.value
-    )
+    campaigns_stmt = select(Campaign).where(Campaign.status != CampaignStatus.ARCHIVED.value)
     campaigns_result = await db.execute(campaigns_stmt)
     campaigns = list(campaigns_result.scalars().all())
 
@@ -89,9 +89,7 @@ async def seed_campaign_dashboard_data(db: AsyncSession) -> None:
 
     for campaign in campaigns:
         # Get agents for this campaign
-        agents_stmt = select(CampaignAgent.agent_id).where(
-            CampaignAgent.campaign_id == campaign.id
-        )
+        agents_stmt = select(CampaignAgent.agent_id).where(CampaignAgent.campaign_id == campaign.id)
         agents_result = await db.execute(agents_stmt)
         agent_ids = list(agents_result.scalars().all())
 
@@ -111,9 +109,7 @@ async def seed_campaign_dashboard_data(db: AsyncSession) -> None:
         for i, agent_id in enumerate(agent_ids):
             is_high_performer = i < len(agent_ids) // 2 + 1
 
-            base_score = (
-                random.uniform(72, 88) if is_high_performer else random.uniform(48, 65)
-            )
+            base_score = random.uniform(72, 88) if is_high_performer else random.uniform(48, 65)
             num_sessions = random.randint(8, 15)
 
             now = datetime.now(UTC)
@@ -128,14 +124,8 @@ async def seed_campaign_dashboard_data(db: AsyncSession) -> None:
                 )
 
                 # High performers improve slightly over time
-                score_drift = (
-                    (j / num_sessions) * 5
-                    if is_high_performer
-                    else random.uniform(-3, 3)
-                )
-                overall_score = max(
-                    20, min(98, base_score + score_drift + random.uniform(-8, 8))
-                )
+                score_drift = (j / num_sessions) * 5 if is_high_performer else random.uniform(-3, 3)
+                overall_score = max(20, min(98, base_score + score_drift + random.uniform(-8, 8)))
                 overall_score = round(overall_score, 1)
 
                 session = Session(

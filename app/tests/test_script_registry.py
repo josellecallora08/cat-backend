@@ -121,14 +121,13 @@ CONTRACT_V1 = {
     },
     "opening_response": "Hello, I'm calling about my account.",
     "expected_replies": [
-        {"agent_statement": "Can you make a payment today?", "debtor_reply": "I can try to pay something small."}
+        {
+            "agent_statement": "Can you make a payment today?",
+            "debtor_reply": "I can try to pay something small.",
+        }
     ],
-    "trigger_phrases": [
-        {"phrase": "legal action", "behavior": "become distressed"}
-    ],
-    "emotional_state_rules": [
-        {"trigger": "threat", "state_change": "increase anxiety"}
-    ],
+    "trigger_phrases": [{"phrase": "legal action", "behavior": "become distressed"}],
+    "emotional_state_rules": [{"trigger": "threat", "state_change": "increase anxiety"}],
     "payment_conditions": [
         {"condition": "partial payment", "term": "50 dollars now", "accepted": True}
     ],
@@ -155,14 +154,13 @@ CONTRACT_V2 = {
     },
     "opening_response": "Hi, I got your message about my balance.",
     "expected_replies": [
-        {"agent_statement": "Can you make a payment today?", "debtor_reply": "I can pay part of it now."}
+        {
+            "agent_statement": "Can you make a payment today?",
+            "debtor_reply": "I can pay part of it now.",
+        }
     ],
-    "trigger_phrases": [
-        {"phrase": "collections agency", "behavior": "become defensive"}
-    ],
-    "emotional_state_rules": [
-        {"trigger": "threat", "state_change": "increase frustration"}
-    ],
+    "trigger_phrases": [{"phrase": "collections agency", "behavior": "become defensive"}],
+    "emotional_state_rules": [{"trigger": "threat", "state_change": "increase frustration"}],
     "payment_conditions": [
         {"condition": "installment plan", "term": "100 dollars per month", "accepted": True}
     ],
@@ -250,7 +248,9 @@ class TestScriptRegistryLifecycle:
             .where(ScriptVersion.script_id == script_id)
         )
         count_result = await async_db.execute(count_stmt)
-        assert count_result.scalar() == 2, "Expected exactly two ScriptVersion rows after two publishes"
+        assert (
+            count_result.scalar() == 2
+        ), "Expected exactly two ScriptVersion rows after two publishes"
 
         refetched_version_1 = await async_db.get(ScriptVersion, version_1.id)
         refetched_version_2 = await async_db.get(ScriptVersion, version_2.id)
@@ -275,10 +275,9 @@ class TestScriptRegistryLifecycle:
         assert refetched_script_after_unpublish.current_version_id == version_2.id
 
         active_version = await get_active_published_version(async_db, scenario.id)
-        assert active_version is None, (
-            "Expected an unpublished script to not be consumable via "
-            "get_active_published_version"
-        )
+        assert (
+            active_version is None
+        ), "Expected an unpublished script to not be consumable via get_active_published_version"
 
         # 6. delete_script -> is_deleted=True, get_script returns None, and
         # both ScriptVersion rows (1 and 2) still exist untouched in the DB.
@@ -288,15 +287,14 @@ class TestScriptRegistryLifecycle:
         assert deleted_script_direct is not None
         assert deleted_script_direct.is_deleted is True
 
-        assert await get_script(async_db, script_id) is None, (
-            "Expected get_script to return None for a soft-deleted script"
-        )
+        assert (
+            await get_script(async_db, script_id) is None
+        ), "Expected get_script to return None for a soft-deleted script"
 
         final_count_result = await async_db.execute(count_stmt)
-        assert final_count_result.scalar() == 2, (
-            "Expected both ScriptVersion rows to remain untouched after "
-            "soft-deleting the script"
-        )
+        assert (
+            final_count_result.scalar() == 2
+        ), "Expected both ScriptVersion rows to remain untouched after soft-deleting the script"
         final_version_1 = await async_db.get(ScriptVersion, version_1.id)
         final_version_2 = await async_db.get(ScriptVersion, version_2.id)
         assert final_version_1 is not None and final_version_1.version_number == 1

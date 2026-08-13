@@ -89,9 +89,7 @@ async def exchange_code_for_tokens(code: str) -> str:
 
     if resp.status_code != 200:
         error_data = resp.json()
-        msg = error_data.get(
-            "error_description", error_data.get("error", "Unknown error")
-        )
+        msg = error_data.get("error_description", error_data.get("error", "Unknown error"))
         logger.error("Google token exchange failed: %s", msg)
         raise ValueError(f"Google token exchange error: {msg}")
 

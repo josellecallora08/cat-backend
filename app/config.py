@@ -27,7 +27,7 @@ class Settings(BaseSettings):
     cors_origins: str = "*"
 
     # JWT Authentication
-    jwt_secret: str = "local_test_jwt_placeholder"  # noqa: S105
+    jwt_secret: str = "local_test_jwt_placeholder"
     jwt_expiry_hours: int = 24
     reset_token_expiry_minutes: int = 30
 

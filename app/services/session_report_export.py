@@ -96,10 +96,21 @@ def render_csv(report: SessionReport) -> bytes:
     summary = payload.get("summary", {}) or {}
     write_row("Section", "Field", "Value")
     for field in (
-        "session_id", "scenario_id", "campaign_name", "status", "created_at",
-        "ended_at", "duration_seconds", "standard_name", "standard_version_number",
+        "session_id",
+        "scenario_id",
+        "campaign_name",
+        "status",
+        "created_at",
+        "ended_at",
+        "duration_seconds",
+        "standard_name",
+        "standard_version_number",
     ):
-        value = _iso(summary.get(field)) if field in {"created_at", "ended_at"} else summary.get(field) or ""
+        value = (
+            _iso(summary.get(field))
+            if field in {"created_at", "ended_at"}
+            else summary.get(field) or ""
+        )
         write_row("summary", field, value)
     write_row()
 
@@ -110,8 +121,11 @@ def render_csv(report: SessionReport) -> bytes:
         for category in evaluation["canonical"].get("categories", []):
             evaluation_rows += 1
             write_row(
-                "evaluation", category.get("category", ""), category.get("raw_score", ""),
-                category.get("weighted_contribution", ""), category.get("passed", ""),
+                "evaluation",
+                category.get("category", ""),
+                category.get("raw_score", ""),
+                category.get("weighted_contribution", ""),
+                category.get("passed", ""),
             )
     elif evaluation.get("mode") == "legacy" and evaluation.get("legacy"):
         for category in evaluation["legacy"].get("category_scores", []):
@@ -129,7 +143,9 @@ def render_csv(report: SessionReport) -> bytes:
             for recommendation in block.get("recommendations", []):
                 coaching_rows += 1
                 write_row(
-                    "coaching", block.get("block_name", ""), recommendation.get("criterion_id", ""),
+                    "coaching",
+                    block.get("block_name", ""),
+                    recommendation.get("criterion_id", ""),
                     recommendation.get("recommended_response", ""),
                 )
     elif coaching.get("mode") == "legacy":
@@ -147,9 +163,12 @@ def render_csv(report: SessionReport) -> bytes:
     for item in learning_plan.get("items", []):
         plan_rows += 1
         write_row(
-            "learning_plan", item.get("rubric_block_id", ""), item.get("criterion_id", ""),
+            "learning_plan",
+            item.get("rubric_block_id", ""),
+            item.get("criterion_id", ""),
             item.get("practice_focus") or item.get("recommended_scenario", ""),
-            item.get("score", ""), item.get("scenario_id", ""),
+            item.get("score", ""),
+            item.get("scenario_id", ""),
         )
     if not plan_rows:
         terminal_value = "all_passing" if learning_plan.get("available") else "terminal"
@@ -160,7 +179,12 @@ def render_csv(report: SessionReport) -> bytes:
     write_row("Section", "Sequence", "Speaker", "Text")
     entries = transcript.get("entries", []) or []
     for entry in entries:
-        write_row("transcript", entry.get("sequence_number", ""), entry.get("speaker", ""), entry.get("text", ""))
+        write_row(
+            "transcript",
+            entry.get("sequence_number", ""),
+            entry.get("speaker", ""),
+            entry.get("text", ""),
+        )
     if not entries:
         write_row("transcript", "terminal", reason(transcript), "")
 
@@ -207,123 +231,221 @@ def render_pdf(report: SessionReport) -> bytes:
         ["Status", str(summary.get("status", ""))],
         ["Created", _iso(summary.get("created_at"))],
         ["Ended", _iso(summary.get("ended_at")) or "—"],
-        ["Duration", f"{summary.get('duration_seconds')} seconds" if summary.get("duration_seconds") is not None else "—"],
+        [
+            "Duration",
+            f"{summary.get('duration_seconds')} seconds"
+            if summary.get("duration_seconds") is not None
+            else "—",
+        ],
         ["Standard", str(summary.get("standard_name") or "—")],
         ["Standard version", str(summary.get("standard_version_number") or "—")],
     ]
     summary_table = Table(summary_rows, colWidths=[1.45 * inch, 5.8 * inch], repeatRows=0)
-    summary_table.setStyle(TableStyle([
-        ("GRID", (0, 0), (-1, -1), 0.25, colors.lightgrey),
-        ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#f3f4f6")),
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
-        ("FONTSIZE", (0, 0), (-1, -1), 8),
-    ]))
+    summary_table.setStyle(
+        TableStyle(
+            [
+                ("GRID", (0, 0), (-1, -1), 0.25, colors.lightgrey),
+                ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#f3f4f6")),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
+                ("FONTSIZE", (0, 0), (-1, -1), 8),
+            ]
+        )
+    )
     story.extend([summary_table, Spacer(1, 12), Paragraph("Evaluation", heading_style)])
 
     evaluation_rows = [["Category", "Raw", "Penalized", "Weight", "Weighted", "Result"]]
     canonical = evaluation.get("canonical") or {}
     if evaluation.get("mode") == "canonical":
         for category in canonical.get("categories", []):
-            evaluation_rows.append([
-                str(category.get("category", "")),
-                str(category.get("raw_score") if category.get("raw_score") is not None else "N/A"),
-                str(category.get("penalized_score") if category.get("penalized_score") is not None else "N/A"),
-                str(category.get("weight", "")),
-                str(category.get("weighted_contribution", "")),
-                "Passed" if category.get("passed") else "Needs practice",
-            ])
+            evaluation_rows.append(
+                [
+                    str(category.get("category", "")),
+                    str(
+                        category.get("raw_score")
+                        if category.get("raw_score") is not None
+                        else "N/A"
+                    ),
+                    str(
+                        category.get("penalized_score")
+                        if category.get("penalized_score") is not None
+                        else "N/A"
+                    ),
+                    str(category.get("weight", "")),
+                    str(category.get("weighted_contribution", "")),
+                    "Passed" if category.get("passed") else "Needs practice",
+                ]
+            )
     elif evaluation.get("mode") == "legacy":
         for category in (evaluation.get("legacy") or {}).get("category_scores", []):
-            evaluation_rows.append([str(category.get("category", "")), str(category.get("score", "")), "—", "—", "—", "—"])
+            evaluation_rows.append(
+                [
+                    str(category.get("category", "")),
+                    str(category.get("score", "")),
+                    "—",
+                    "—",
+                    "—",
+                    "—",
+                ]
+            )
     else:
-        evaluation_rows.append([evaluation.get("reason_code") or evaluation.get("reason") or "Not available", "—", "—", "—", "—", "—"])
-    evaluation_table = Table(evaluation_rows, repeatRows=1, colWidths=[2.1 * inch, 0.65 * inch, 0.75 * inch, 0.6 * inch, 0.8 * inch, 1.2 * inch])
-    evaluation_table.setStyle(TableStyle([
-        ("GRID", (0, 0), (-1, -1), 0.25, colors.lightgrey),
-        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#e5e7eb")),
-        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-        ("FONTSIZE", (0, 0), (-1, -1), 7),
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-    ]))
+        evaluation_rows.append(
+            [
+                evaluation.get("reason_code") or evaluation.get("reason") or "Not available",
+                "—",
+                "—",
+                "—",
+                "—",
+                "—",
+            ]
+        )
+    evaluation_table = Table(
+        evaluation_rows,
+        repeatRows=1,
+        colWidths=[2.1 * inch, 0.65 * inch, 0.75 * inch, 0.6 * inch, 0.8 * inch, 1.2 * inch],
+    )
+    evaluation_table.setStyle(
+        TableStyle(
+            [
+                ("GRID", (0, 0), (-1, -1), 0.25, colors.lightgrey),
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#e5e7eb")),
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("FONTSIZE", (0, 0), (-1, -1), 7),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ]
+        )
+    )
     story.extend([evaluation_table, Spacer(1, 12), Paragraph("Coaching", heading_style)])
 
     coaching_rows = [["Block", "Criterion", "Recommendation", "Advice"]]
     if coaching.get("mode") == "canonical":
         for block in coaching.get("blocks", []):
             for recommendation in block.get("recommendations", []):
-                coaching_rows.append([
-                    str(block.get("block_name", "")),
-                    str(recommendation.get("criterion_name") or recommendation.get("criterion_id", "")),
-                    str(recommendation.get("recommended_response", "")),
-                    str(recommendation.get("coaching_advice", "")),
-                ])
+                coaching_rows.append(
+                    [
+                        str(block.get("block_name", "")),
+                        str(
+                            recommendation.get("criterion_name")
+                            or recommendation.get("criterion_id", "")
+                        ),
+                        str(recommendation.get("recommended_response", "")),
+                        str(recommendation.get("coaching_advice", "")),
+                    ]
+                )
     elif coaching.get("mode") == "legacy":
         for category, mistakes in coaching.get("legacy_mistakes_by_category", {}).items():
             for mistake in mistakes:
-                coaching_rows.append([str(category), "—", str(mistake.get("recommended_alternative", "")), str(mistake.get("explanation", ""))])
+                coaching_rows.append(
+                    [
+                        str(category),
+                        "—",
+                        str(mistake.get("recommended_alternative", "")),
+                        str(mistake.get("explanation", "")),
+                    ]
+                )
     else:
-        coaching_rows.append([coaching.get("reason_code") or coaching.get("reason") or "Not available", "—", "—", "—"])
-    coaching_table = Table(coaching_rows, repeatRows=1, colWidths=[1.35 * inch, 1.25 * inch, 2.35 * inch, 2.15 * inch])
-    coaching_table.setStyle(TableStyle([
-        ("GRID", (0, 0), (-1, -1), 0.25, colors.lightgrey),
-        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#e5e7eb")),
-        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-        ("FONTSIZE", (0, 0), (-1, -1), 7),
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-    ]))
+        coaching_rows.append(
+            [
+                coaching.get("reason_code") or coaching.get("reason") or "Not available",
+                "—",
+                "—",
+                "—",
+            ]
+        )
+    coaching_table = Table(
+        coaching_rows, repeatRows=1, colWidths=[1.35 * inch, 1.25 * inch, 2.35 * inch, 2.15 * inch]
+    )
+    coaching_table.setStyle(
+        TableStyle(
+            [
+                ("GRID", (0, 0), (-1, -1), 0.25, colors.lightgrey),
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#e5e7eb")),
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("FONTSIZE", (0, 0), (-1, -1), 7),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ]
+        )
+    )
     story.extend([coaching_table, Spacer(1, 12), Paragraph("Learning Plan", heading_style)])
 
     learning_plan_rows = [["Block", "Criterion", "Practice Focus", "Score", "Scenario"]]
     for item in learning_plan.get("items", []):
-        learning_plan_rows.append([
-            str(item.get("rubric_block_id", "")),
-            str(item.get("criterion_id", "")),
-            str(item.get("practice_focus") or item.get("recommended_scenario", "")),
-            str(item.get("score", "")),
-            str(item.get("scenario_id", "")),
-        ])
+        learning_plan_rows.append(
+            [
+                str(item.get("rubric_block_id", "")),
+                str(item.get("criterion_id", "")),
+                str(item.get("practice_focus") or item.get("recommended_scenario", "")),
+                str(item.get("score", "")),
+                str(item.get("scenario_id", "")),
+            ]
+        )
     if len(learning_plan_rows) == 1:
-        learning_plan_rows.append([
-            "all passing" if learning_plan.get("available") else "terminal",
-            str(learning_plan.get("reason_code") or learning_plan.get("reason") or "Not available"),
-            "", "", "",
-        ])
+        learning_plan_rows.append(
+            [
+                "all passing" if learning_plan.get("available") else "terminal",
+                str(
+                    learning_plan.get("reason_code")
+                    or learning_plan.get("reason")
+                    or "Not available"
+                ),
+                "",
+                "",
+                "",
+            ]
+        )
     learning_plan_table = Table(
         learning_plan_rows,
         repeatRows=1,
         colWidths=[1.25 * inch, 1.25 * inch, 2.55 * inch, 0.65 * inch, 1.25 * inch],
     )
-    learning_plan_table.setStyle(TableStyle([
-        ("GRID", (0, 0), (-1, -1), 0.25, colors.lightgrey),
-        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#e5e7eb")),
-        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-        ("FONTSIZE", (0, 0), (-1, -1), 7),
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-    ]))
+    learning_plan_table.setStyle(
+        TableStyle(
+            [
+                ("GRID", (0, 0), (-1, -1), 0.25, colors.lightgrey),
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#e5e7eb")),
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("FONTSIZE", (0, 0), (-1, -1), 7),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ]
+        )
+    )
     story.extend([learning_plan_table, Spacer(1, 12), Paragraph("Transcript", heading_style)])
 
     transcript_rows = [["Sequence", "Speaker", "Text"]]
     for entry in transcript.get("entries", []):
-        transcript_rows.append([
-            str(entry.get("sequence_number", "")),
-            str(entry.get("speaker", "")),
-            str(entry.get("text", "")),
-        ])
+        transcript_rows.append(
+            [
+                str(entry.get("sequence_number", "")),
+                str(entry.get("speaker", "")),
+                str(entry.get("text", "")),
+            ]
+        )
     if len(transcript_rows) == 1:
-        transcript_rows.append([
-            "terminal",
-            "",
-            str(transcript.get("reason_code") or transcript.get("reason") or "No transcript recorded"),
-        ])
-    transcript_table = Table(transcript_rows, repeatRows=1, colWidths=[0.7 * inch, 0.9 * inch, 5.5 * inch])
-    transcript_table.setStyle(TableStyle([
-        ("GRID", (0, 0), (-1, -1), 0.25, colors.lightgrey),
-        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#e5e7eb")),
-        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-        ("FONTSIZE", (0, 0), (-1, -1), 7),
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-    ]))
+        transcript_rows.append(
+            [
+                "terminal",
+                "",
+                str(
+                    transcript.get("reason_code")
+                    or transcript.get("reason")
+                    or "No transcript recorded"
+                ),
+            ]
+        )
+    transcript_table = Table(
+        transcript_rows, repeatRows=1, colWidths=[0.7 * inch, 0.9 * inch, 5.5 * inch]
+    )
+    transcript_table.setStyle(
+        TableStyle(
+            [
+                ("GRID", (0, 0), (-1, -1), 0.25, colors.lightgrey),
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#e5e7eb")),
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("FONTSIZE", (0, 0), (-1, -1), 7),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ]
+        )
+    )
     story.append(transcript_table)
     document.build(story)
     return buffer.getvalue()
@@ -346,6 +468,4 @@ def render_export(report: SessionReport, export_format: str) -> tuple[bytes, str
     if export_format == "pdf":
         return render_pdf(report), "application/pdf"
 
-    raise ExportFormatNotImplementedError(
-        f"Export format '{export_format}' is not implemented"
-    )
+    raise ExportFormatNotImplementedError(f"Export format '{export_format}' is not implemented")

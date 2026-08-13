@@ -29,9 +29,7 @@ async def async_engine():
 @pytest_asyncio.fixture
 async def db_session(async_engine):
     """Provide a fresh async database session for each test."""
-    session_factory = async_sessionmaker(
-        async_engine, class_=AsyncSession, expire_on_commit=False
-    )
+    session_factory = async_sessionmaker(async_engine, class_=AsyncSession, expire_on_commit=False)
     async with session_factory() as session:
         yield session
 
@@ -44,8 +42,13 @@ async def session_id(db_session: AsyncSession):
         name="Test Scenario",
         scenario_type="FINANCIAL_HARDSHIP",
         description="A test scenario",
-        debtor_profile={"name": "John", "outstanding_balance": 1000, "days_past_due": 30,
-                        "personality_profile": "cooperative", "conversation_goal": "pay"},
+        debtor_profile={
+            "name": "John",
+            "outstanding_balance": 1000,
+            "days_past_due": 30,
+            "personality_profile": "cooperative",
+            "conversation_goal": "pay",
+        },
     )
     db_session.add(scenario)
     await db_session.flush()
@@ -74,7 +77,9 @@ class TestAppendEntry:
     async def test_append_valid_agent_entry(self, transcript_manager, session_id):
         """Valid agent entry is buffered with correct sequence number."""
         ts = datetime.now(UTC)
-        entry = await transcript_manager.append_entry(session_id, "agent", "Hello, this is collections.", ts)
+        entry = await transcript_manager.append_entry(
+            session_id, "agent", "Hello, this is collections.", ts
+        )
 
         assert entry.speaker == "agent"
         assert entry.utterance_text == "Hello, this is collections."
@@ -86,14 +91,18 @@ class TestAppendEntry:
     async def test_append_valid_debtor_entry(self, transcript_manager, session_id):
         """Valid debtor entry is buffered with correct sequence number."""
         ts = datetime.now(UTC)
-        entry = await transcript_manager.append_entry(session_id, "debtor", "I can't pay right now.", ts)
+        entry = await transcript_manager.append_entry(
+            session_id, "debtor", "I can't pay right now.", ts
+        )
 
         assert entry.speaker == "debtor"
         assert entry.utterance_text == "I can't pay right now."
         assert entry.sequence_number == 0
 
     @pytest.mark.asyncio
-    async def test_append_multiple_entries_increments_sequence(self, transcript_manager, session_id):
+    async def test_append_multiple_entries_increments_sequence(
+        self, transcript_manager, session_id
+    ):
         """Multiple entries get incrementing sequence numbers."""
         ts = datetime.now(UTC)
 
@@ -137,15 +146,35 @@ class TestGetTranscript:
         assert result == []
 
     @pytest.mark.asyncio
-    async def test_get_transcript_returns_ordered_entries(self, transcript_manager, session_id, db_session):
+    async def test_get_transcript_returns_ordered_entries(
+        self, transcript_manager, session_id, db_session
+    ):
         """Persisted entries are returned ordered by sequence_number."""
         ts = datetime.now(UTC)
 
         # Manually insert entries out of order
         entries = [
-            Transcript(session_id=session_id, speaker="debtor", utterance_text="Response", timestamp_ms=ts, sequence_number=2),
-            Transcript(session_id=session_id, speaker="agent", utterance_text="Hello", timestamp_ms=ts, sequence_number=0),
-            Transcript(session_id=session_id, speaker="agent", utterance_text="How are you?", timestamp_ms=ts, sequence_number=1),
+            Transcript(
+                session_id=session_id,
+                speaker="debtor",
+                utterance_text="Response",
+                timestamp_ms=ts,
+                sequence_number=2,
+            ),
+            Transcript(
+                session_id=session_id,
+                speaker="agent",
+                utterance_text="Hello",
+                timestamp_ms=ts,
+                sequence_number=0,
+            ),
+            Transcript(
+                session_id=session_id,
+                speaker="agent",
+                utterance_text="How are you?",
+                timestamp_ms=ts,
+                sequence_number=1,
+            ),
         ]
         for e in entries:
             db_session.add(e)
@@ -177,11 +206,41 @@ class TestGetAgentUtteranceCount:
         ts = datetime.now(UTC)
 
         entries = [
-            Transcript(session_id=session_id, speaker="agent", utterance_text="Hello", timestamp_ms=ts, sequence_number=0),
-            Transcript(session_id=session_id, speaker="debtor", utterance_text="Hi", timestamp_ms=ts, sequence_number=1),
-            Transcript(session_id=session_id, speaker="agent", utterance_text="Can we talk?", timestamp_ms=ts, sequence_number=2),
-            Transcript(session_id=session_id, speaker="debtor", utterance_text="Sure", timestamp_ms=ts, sequence_number=3),
-            Transcript(session_id=session_id, speaker="agent", utterance_text="Great", timestamp_ms=ts, sequence_number=4),
+            Transcript(
+                session_id=session_id,
+                speaker="agent",
+                utterance_text="Hello",
+                timestamp_ms=ts,
+                sequence_number=0,
+            ),
+            Transcript(
+                session_id=session_id,
+                speaker="debtor",
+                utterance_text="Hi",
+                timestamp_ms=ts,
+                sequence_number=1,
+            ),
+            Transcript(
+                session_id=session_id,
+                speaker="agent",
+                utterance_text="Can we talk?",
+                timestamp_ms=ts,
+                sequence_number=2,
+            ),
+            Transcript(
+                session_id=session_id,
+                speaker="debtor",
+                utterance_text="Sure",
+                timestamp_ms=ts,
+                sequence_number=3,
+            ),
+            Transcript(
+                session_id=session_id,
+                speaker="agent",
+                utterance_text="Great",
+                timestamp_ms=ts,
+                sequence_number=4,
+            ),
         ]
         for e in entries:
             db_session.add(e)
@@ -224,7 +283,10 @@ class TestPersist:
         await transcript_manager.persist(session_id)
 
         # Buffer should be empty
-        assert session_id not in transcript_manager._buffer or len(transcript_manager._buffer[session_id]) == 0
+        assert (
+            session_id not in transcript_manager._buffer
+            or len(transcript_manager._buffer[session_id]) == 0
+        )
 
     @pytest.mark.asyncio
     async def test_persist_empty_buffer_is_noop(self, transcript_manager, session_id):

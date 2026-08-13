@@ -229,9 +229,7 @@ class TestAdminOnlyMutationEnforcement:
 
     @settings(max_examples=20, suppress_health_check=[HealthCheck.function_scoped_fixture])
     @given(operation_key=st.sampled_from(OPERATION_KEYS))
-    async def test_admin_permitted_to_proceed(
-        self, unauth_client: AsyncClient, operation_key
-    ):
+    async def test_admin_permitted_to_proceed(self, unauth_client: AsyncClient, operation_key):
         """A User whose role is "admin" is not blocked by authorization:
         the request proceeds past `require_admin` into the underlying
         service-layer function (asserted via call count), rather than

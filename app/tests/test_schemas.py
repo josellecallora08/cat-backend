@@ -520,56 +520,56 @@ class TestEvaluationCategory:
 
 def _valid_script_contract_kwargs() -> dict:
     """Build a complete, valid set of ScriptContract constructor kwargs."""
-    return dict(
-        debtor_persona=DebtorPersona(
+    return {
+        "debtor_persona": DebtorPersona(
             name="Maria Alvarez",
             communication_style="polite but evasive",
             background="Lost her job three months ago and has been juggling bills.",
         ),
-        financial_situation=FinancialSituation(
+        "financial_situation": FinancialSituation(
             outstanding_balance=Decimal("3200.50"),
             days_past_due=60,
             reason_for_delinquency="Job loss",
         ),
-        opening_response="Hello, who is this calling?",
-        expected_replies=[
+        "opening_response": "Hello, who is this calling?",
+        "expected_replies": [
             ExpectedReplyEntry(
                 agent_statement="I'm calling about your overdue account.",
                 debtor_reply="I know, I've just been really short on cash lately.",
             ),
         ],
-        trigger_phrases=[
+        "trigger_phrases": [
             TriggerPhraseEntry(
                 phrase="legal action",
                 behavior="Debtor becomes anxious and asks for more time.",
             ),
         ],
-        emotional_state_rules=[
+        "emotional_state_rules": [
             EmotionalStateRule(
                 trigger="aggressive_tone",
                 state_change="increase_defensiveness",
             ),
         ],
-        payment_conditions=[
+        "payment_conditions": [
             PaymentConditionEntry(
                 condition="offered payment plan under $200/month",
                 term="$150/month for 12 months",
                 accepted=True,
             ),
         ],
-        escalation_conditions=[
+        "escalation_conditions": [
             EscalationConditionEntry(
                 condition="agent threatens debtor",
                 behavior="Debtor hangs up.",
                 ends_call=True,
             ),
         ],
-        prohibited_responses=["I will never pay this debt."],
-        conversation_goal=ConversationGoal(
+        "prohibited_responses": ["I will never pay this debt."],
+        "conversation_goal": ConversationGoal(
             target_outcome="Debtor agrees to a payment plan.",
             completion_condition="Debtor verbally commits to a payment amount and date.",
         ),
-    )
+    }
 
 
 class TestScriptContract:
@@ -597,9 +597,7 @@ class TestScriptContract:
         kwargs = _valid_script_contract_kwargs()
         # Duplicate (trimmed, case-insensitive) the existing expected reply into
         # prohibited_responses to trigger the conflict validator.
-        kwargs["prohibited_responses"] = [
-            "  I KNOW, I'VE JUST BEEN REALLY SHORT ON CASH LATELY.  "
-        ]
+        kwargs["prohibited_responses"] = ["  I KNOW, I'VE JUST BEEN REALLY SHORT ON CASH LATELY.  "]
 
         with pytest.raises(Exception):
             ScriptContract(**kwargs)

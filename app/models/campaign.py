@@ -1,7 +1,7 @@
 """Campaign model for training initiative management."""
 
 import uuid
-from enum import Enum
+from enum import StrEnum
 
 from sqlalchemy import Column, Date, DateTime, ForeignKey, String, Table, Text, Uuid
 from sqlalchemy.orm import relationship
@@ -10,7 +10,7 @@ from sqlalchemy.sql import func
 from app.database import Base
 
 
-class CampaignStatus(str, Enum):
+class CampaignStatus(StrEnum):
     """Valid campaign lifecycle statuses."""
 
     DRAFT = "draft"
@@ -19,7 +19,7 @@ class CampaignStatus(str, Enum):
     ARCHIVED = "archived"
 
 
-class CampaignRole(str, Enum):
+class CampaignRole(StrEnum):
     """Valid roles for users assigned to a campaign."""
 
     TEAM_LEAD = "team_lead"
@@ -83,9 +83,7 @@ class Campaign(Base):
     status = Column(String(20), nullable=False, default=CampaignStatus.DRAFT.value)
     start_date = Column(Date, nullable=True)
     end_date = Column(Date, nullable=True)
-    created_at = Column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(
         DateTime(timezone=True),
         server_default=func.now(),
@@ -95,9 +93,7 @@ class Campaign(Base):
 
     # Relationships
     scenarios = relationship("Scenario", secondary=campaign_scenarios, lazy="selectin")
-    agent_assignments = relationship(
-        "CampaignAgent", lazy="selectin", cascade="all, delete-orphan"
-    )
+    agent_assignments = relationship("CampaignAgent", lazy="selectin", cascade="all, delete-orphan")
     negotiation_standard = relationship(
         "NegotiationStandard",
         back_populates="campaign",

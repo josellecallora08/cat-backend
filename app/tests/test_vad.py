@@ -19,6 +19,7 @@ from app.services.voice.vad import (
 
 # --- Helpers ---
 
+
 def make_silent_frame(num_bytes: int = FRAME_SIZE_BYTES) -> bytes:
     """Create a silent PCM frame (all zeros)."""
     return b"\x00" * num_bytes
@@ -37,6 +38,7 @@ def make_low_energy_frame(amplitude: int = 50, num_bytes: int = FRAME_SIZE_BYTES
 
 
 # --- EnergyVADBackend Tests ---
+
 
 class TestEnergyVADBackend:
     """Tests for the energy-based VAD fallback."""
@@ -77,6 +79,7 @@ class TestEnergyVADBackend:
 
 # --- VADProcessor Tests ---
 
+
 class TestVADProcessor:
     """Tests for the VADProcessor class."""
 
@@ -102,7 +105,7 @@ class TestVADProcessor:
     def test_silence_accumulates(self):
         vad = VADProcessor(backend=EnergyVADBackend())
         # Process 5 silent frames = 100ms
-        for i in range(5):
+        for _i in range(5):
             result = vad.process_frame(make_silent_frame())
         assert result.duration_silent_ms == 100
 
@@ -172,6 +175,7 @@ class TestVADProcessor:
 
 
 # --- AudioBuffer Tests ---
+
 
 class TestAudioBuffer:
     """Tests for the AudioBuffer class."""
@@ -284,6 +288,7 @@ class TestAudioBuffer:
 
 
 # --- Integration: VAD + AudioBuffer ---
+
 
 class TestVADAndBufferIntegration:
     """Tests for VAD and AudioBuffer working together."""

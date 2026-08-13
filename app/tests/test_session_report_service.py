@@ -92,16 +92,16 @@ def _make_session(scenario_id: uuid.UUID, status: str = "completed") -> Session:
         status=status,
         created_at=created_at,
         ended_at=created_at if status == "completed" else None,
-        persona_context={"name": "Test Persona", "communication_style": "calm", "emotional_state": 3},
+        persona_context={
+            "name": "Test Persona",
+            "communication_style": "calm",
+            "emotional_state": 3,
+        },
     )
 
 
 async def _reload_session(async_db: AsyncSession, session_id: uuid.UUID) -> Session:
-    stmt = (
-        select(Session)
-        .options(selectinload(Session.campaign))
-        .where(Session.id == session_id)
-    )
+    stmt = select(Session).options(selectinload(Session.campaign)).where(Session.id == session_id)
     result = await async_db.execute(stmt)
     return result.scalar_one()
 
@@ -118,9 +118,7 @@ async def test_generate_report_creates_ready_row_with_hash(async_db):
 
     reloaded = await _reload_session(async_db, session.id)
     generator_id = uuid.uuid4()
-    with patch(
-        "app.services.session_report_service.log_session_report_generated"
-    ) as audit_log:
+    with patch("app.services.session_report_service.log_session_report_generated") as audit_log:
         report = await generate_report(async_db, reloaded, generated_by=generator_id)
 
     assert report.status == SessionReportStatus.READY
@@ -242,12 +240,16 @@ async def test_failed_assembly_records_failure_without_payload(async_db):
 
     reloaded = await _reload_session(async_db, session.id)
 
-    with patch(
-        "app.services.session_report_service.assemble_report_payload",
-        side_effect=RuntimeError("boom"),
-    ), patch(
-        "app.services.session_report_service.log_session_report_generation_failed"
-    ) as audit_log, pytest.raises(RuntimeError):
+    with (
+        patch(
+            "app.services.session_report_service.assemble_report_payload",
+            side_effect=RuntimeError("boom"),
+        ),
+        patch(
+            "app.services.session_report_service.log_session_report_generation_failed"
+        ) as audit_log,
+        pytest.raises(RuntimeError),
+    ):
         await generate_report(async_db, reloaded)
 
     audit_log.assert_called_once_with(str(session.id), 1, "generation_failed")
@@ -274,10 +276,13 @@ async def test_failed_then_retry_produces_version_2(async_db):
     await async_db.commit()
 
     reloaded = await _reload_session(async_db, session.id)
-    with patch(
-        "app.services.session_report_service.assemble_report_payload",
-        side_effect=RuntimeError("boom"),
-    ), pytest.raises(RuntimeError):
+    with (
+        patch(
+            "app.services.session_report_service.assemble_report_payload",
+            side_effect=RuntimeError("boom"),
+        ),
+        pytest.raises(RuntimeError),
+    ):
         await generate_report(async_db, reloaded)
 
     reloaded = await _reload_session(async_db, session.id)
@@ -309,16 +314,17 @@ async def test_pending_row_is_typed_and_payload_free_before_assembly(async_db):
         assert row.content_hash is None
         raise RuntimeError("private assembly detail")
 
-    with patch(
-        "app.services.session_report_service.assemble_report_payload",
-        side_effect=inspect_pending,
-    ), pytest.raises(RuntimeError):
+    with (
+        patch(
+            "app.services.session_report_service.assemble_report_payload",
+            side_effect=inspect_pending,
+        ),
+        pytest.raises(RuntimeError),
+    ):
         await generate_report(async_db, reloaded)
 
     row = (
-        await async_db.execute(
-            select(SessionReport).where(SessionReport.session_id == session.id)
-        )
+        await async_db.execute(select(SessionReport).where(SessionReport.session_id == session.id))
     ).scalar_one()
     assert row.status == SessionReportStatus.FAILED
     assert row.reason_code == "generation_failed"
@@ -337,16 +343,17 @@ async def test_payload_validation_failure_cannot_create_ready_row(async_db):
     await async_db.commit()
     reloaded = await _reload_session(async_db, session.id)
 
-    with patch(
-        "app.services.session_report_service.assemble_report_payload",
-        return_value={"summary": "invalid"},
-    ), pytest.raises(ValidationError):
+    with (
+        patch(
+            "app.services.session_report_service.assemble_report_payload",
+            return_value={"summary": "invalid"},
+        ),
+        pytest.raises(ValidationError),
+    ):
         await generate_report(async_db, reloaded)
 
     row = (
-        await async_db.execute(
-            select(SessionReport).where(SessionReport.session_id == session.id)
-        )
+        await async_db.execute(select(SessionReport).where(SessionReport.session_id == session.id))
     ).scalar_one()
     assert row.status == SessionReportStatus.FAILED
     assert row.reason_code == "generation_failed"
@@ -365,10 +372,13 @@ async def test_failed_latest_attempt_does_not_hide_older_ready_snapshot(async_db
     await async_db.commit()
 
     first = await generate_report(async_db, await _reload_session(async_db, session.id))
-    with patch(
-        "app.services.session_report_service.assemble_report_payload",
-        side_effect=RuntimeError("regeneration detail"),
-    ), pytest.raises(RuntimeError):
+    with (
+        patch(
+            "app.services.session_report_service.assemble_report_payload",
+            side_effect=RuntimeError("regeneration detail"),
+        ),
+        pytest.raises(RuntimeError),
+    ):
         await generate_report(async_db, await _reload_session(async_db, session.id))
 
     current = await get_current_report(async_db, session.id)
@@ -386,7 +396,6 @@ async def test_failed_latest_attempt_does_not_hide_older_ready_snapshot(async_db
     assert failed.report_version == 2
     assert failed.payload is None
     assert failed.content_hash is None
-
 
 
 def _status_payload(session: Session, variant: str) -> SessionReportPayload:
@@ -439,14 +448,18 @@ def _status_payload(session: Session, variant: str) -> SessionReportPayload:
             legacy=LegacyEvaluationResult(overall_score=80),
         )
     else:
-        evidence = [] if variant == "no_evidence" else [
-            RubricEvidence(
-                sequence_number=0,
-                speaker="agent",
-                excerpt="Hello",
-                explanation="Greeting evidence",
-            )
-        ]
+        evidence = (
+            []
+            if variant == "no_evidence"
+            else [
+                RubricEvidence(
+                    sequence_number=0,
+                    speaker="agent",
+                    excerpt="Hello",
+                    explanation="Greeting evidence",
+                )
+            ]
+        )
         canonical = CanonicalEvaluationResult(
             status="evaluated",
             summary="Evaluated",
@@ -481,9 +494,7 @@ def _status_payload(session: Session, variant: str) -> SessionReportPayload:
         evaluation = EvaluationSection(
             available=True,
             mode="canonical",
-            reason_code=(
-                ReportReasonCode.NO_EVIDENCE if variant == "no_evidence" else None
-            ),
+            reason_code=(ReportReasonCode.NO_EVIDENCE if variant == "no_evidence" else None),
             canonical=canonical,
             weighted_total=80,
             passing_score=70,
@@ -536,9 +547,7 @@ async def _insert_status_row(
         ("no_evidence", "no_evidence"),
     ],
 )
-async def test_get_report_status_resolves_readable_variants(
-    async_db, variant, expected_status
-):
+async def test_get_report_status_resolves_readable_variants(async_db, variant, expected_status):
     scenario = _make_scenario()
     async_db.add(scenario)
     await async_db.flush()

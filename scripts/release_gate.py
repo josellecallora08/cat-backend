@@ -78,9 +78,7 @@ def run_check(
 ) -> GateResult:
     """Execute one check without invoking a shell and redact captured output."""
     # Commands are fixed internal tuples; shell execution remains disabled.
-    completed = subprocess.run(  # noqa: S603
-        command, capture_output=True, text=True, check=False
-    )
+    completed = subprocess.run(command, capture_output=True, text=True, check=False)
     output = redact_sensitive((completed.stdout + "\n" + completed.stderr).strip())
     return GateResult(
         name=name,

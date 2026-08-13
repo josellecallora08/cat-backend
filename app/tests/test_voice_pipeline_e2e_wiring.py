@@ -183,11 +183,11 @@ class TestPipelineEndToEndWiring:
 
         # Verify TTS was called with debtor response
         assert len(mock_tts_service.synthesize_calls) == 1
-        synthesized_text, language = mock_tts_service.synthesize_calls[0]
+        synthesized_text, _language = mock_tts_service.synthesize_calls[0]
         assert "trouble with my finances" in synthesized_text
 
         # Verify output was queued
-        queued_audio = await pipeline.get_next_response_audio()
+        await pipeline.get_next_response_audio()
         # The output queue already has the audio (it was put there internally)
         # response_audio was returned directly from process_audio_frame
 
@@ -229,9 +229,7 @@ class TestPipelineEndToEndWiring:
         assert isinstance(debtor_call.kwargs["timestamp"], datetime)
 
     @pytest.mark.asyncio
-    async def test_transcript_timestamps_are_chronological(
-        self, pipeline, mock_transcript_manager
-    ):
+    async def test_transcript_timestamps_are_chronological(self, pipeline, mock_transcript_manager):
         """Agent timestamp precedes debtor timestamp in each exchange.
 
         Validates: Requirement 4.3 (timestamp with millisecond precision).
@@ -277,13 +275,12 @@ class TestPipelineEndToEndWiring:
                 if result is not None:
                     break
 
-        # 3 exchanges × 2 entries (agent + debtor) = 6 transcript entries
+        # 3 exchanges x 2 entries (agent + debtor) = 6 transcript entries
         assert mock_transcript_manager.append_entry.call_count == 6
 
         # Verify alternating agent/debtor pattern
         speakers = [
-            call.kwargs["speaker"]
-            for call in mock_transcript_manager.append_entry.call_args_list
+            call.kwargs["speaker"] for call in mock_transcript_manager.append_entry.call_args_list
         ]
         assert speakers == ["agent", "debtor", "agent", "debtor", "agent", "debtor"]
 
@@ -319,7 +316,7 @@ class TestPipelineEndToEndWiring:
 
         # Buffer should have accumulated 10 frames
         assert pipeline._audio_buffer.frame_count == 10
-        assert pipeline._audio_buffer.duration_ms == 200  # 10 × 20ms
+        assert pipeline._audio_buffer.duration_ms == 200  # 10 x 20ms
 
     @pytest.mark.asyncio
     async def test_output_queue_receives_tts_audio(self, pipeline):
@@ -449,9 +446,7 @@ class TestPipelineFactory:
         assert orchestrator._audio_buffer.max_duration_ms == 15_000
 
     @pytest.mark.asyncio
-    async def test_factory_pipeline_processes_audio_end_to_end(
-        self, session_id, persona
-    ):
+    async def test_factory_pipeline_processes_audio_end_to_end(self, session_id, persona):
         """Pipeline created by factory correctly processes audio through full chain."""
         mock_db = AsyncMock()
         mock_llm = AsyncMock()

@@ -135,6 +135,7 @@ def _inspect_pdf_objects(reader) -> UploadRejectionReason | None:
             if obj is None:
                 return UploadRejectionReason.PDF_MALFORMED
             from pypdf.generic import NullObject
+
             if isinstance(obj, NullObject):
                 return UploadRejectionReason.PDF_MALFORMED
             # After dereference, re-check id for cycles
@@ -145,7 +146,7 @@ def _inspect_pdf_objects(reader) -> UploadRejectionReason | None:
 
         # Handle DictionaryObject
         if isinstance(obj, DictionaryObject):
-            for key in obj.keys():
+            for key in obj:
                 key_str = str(key)
 
                 # Check dangerous keys

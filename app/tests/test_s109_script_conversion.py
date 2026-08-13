@@ -6,6 +6,7 @@ Tests cover:
 - Transaction/concurrency: Atomic commit, rollback, row-locking, duplicate prevention
 - Full limits: Configurable entry-count/size/length enforcement
 """
+
 import json
 import logging
 import uuid
@@ -34,9 +35,7 @@ VALID_CONTRACT = {
     "trigger_phrases": [{"phrase": "pay", "behavior": "agree"}],
     "emotional_state_rules": [{"trigger": "yell", "state_change": "angry"}],
     "payment_conditions": [{"condition": "full", "term": "monthly", "accepted": True}],
-    "escalation_conditions": [
-        {"condition": "hang up", "behavior": "end", "ends_call": True}
-    ],
+    "escalation_conditions": [{"condition": "hang up", "behavior": "end", "ends_call": True}],
     "prohibited_responses": ["never"],
     "conversation_goal": {"target_outcome": "pay", "completion_condition": "done"},
 }
@@ -89,6 +88,7 @@ class TestConvertValidJSON:
         text = json.dumps(VALID_CONTRACT)
         result = convert_extracted_to_contract(text)
         from app.schemas.script import ScriptContract
+
         ScriptContract(**result)
         assert result["opening_response"] == "Hello"
         assert result["debtor_persona"]["name"] == "J"
@@ -119,6 +119,7 @@ class TestConvertValidYAML:
     def test_valid_yaml_contract_passthrough(self):
         result = convert_extracted_to_contract(VALID_YAML_CONTRACT)
         from app.schemas.script import ScriptContract
+
         ScriptContract(**result)
         assert result["debtor_persona"]["name"] == "Yaml Debtor"
 
@@ -230,9 +231,7 @@ class TestRejectWrongFieldTypes:
 
     def test_ends_call_as_string(self):
         data = {**VALID_CONTRACT}
-        data["escalation_conditions"] = [
-            {"condition": "x", "behavior": "y", "ends_call": "maybe"}
-        ]
+        data["escalation_conditions"] = [{"condition": "x", "behavior": "y", "ends_call": "maybe"}]
         with pytest.raises(ConversionError, match="validation error"):
             convert_extracted_to_contract(json.dumps(data))
 
@@ -268,8 +267,7 @@ class TestFullLimitEnforcement:
         size check or by the full validation in the endpoint."""
         data = {**VALID_CONTRACT}
         data["trigger_phrases"] = [
-            {"phrase": f"phrase {i}", "behavior": f"behavior {i}"}
-            for i in range(51)
+            {"phrase": f"phrase {i}", "behavior": f"behavior {i}"} for i in range(51)
         ]
         text = json.dumps(data)
         # The converter itself passes structural validation (ScriptContract has
@@ -284,8 +282,7 @@ class TestFullLimitEnforcement:
         """Structure passes; limits are enforced at endpoint level."""
         data = {**VALID_CONTRACT}
         data["expected_replies"] = [
-            {"agent_statement": f"stmt {i}", "debtor_reply": f"reply {i}"}
-            for i in range(21)
+            {"agent_statement": f"stmt {i}", "debtor_reply": f"reply {i}"} for i in range(21)
         ]
         text = json.dumps(data)
         result = convert_extracted_to_contract(text)
@@ -308,15 +305,11 @@ class TestPlainProseRejection:
 
     def test_plain_text_rejected(self):
         with pytest.raises(ConversionError, match="(?i)manual mapping"):
-            convert_extracted_to_contract(
-                "This is a training script for debt collection."
-            )
+            convert_extracted_to_contract("This is a training script for debt collection.")
 
     def test_multiline_prose_rejected(self):
         with pytest.raises(ConversionError, match="(?i)manual mapping"):
-            convert_extracted_to_contract(
-                "Hello debtor.\nPlease pay your bill.\nThank you."
-            )
+            convert_extracted_to_contract("Hello debtor.\nPlease pay your bill.\nThank you.")
 
     def test_no_fabricated_balance(self):
         """Ensure no silent 1000.00 or other fabricated defaults."""
@@ -504,6 +497,7 @@ class TestConvertEndpointSuccess:
         mock_db = _mock_db_for_conversion(upload)
 
         from app.database import get_session as get_db_session
+
         app.dependency_overrides[get_db_session] = lambda: mock_db
 
         try:
@@ -512,9 +506,7 @@ class TestConvertEndpointSuccess:
                 new_callable=AsyncMock,
                 return_value=script,
             ):
-                response = await client.post(
-                    f"/api/scripts/uploads/{upload.id}/convert"
-                )
+                response = await client.post(f"/api/scripts/uploads/{upload.id}/convert")
                 assert response.status_code == 201
                 data = response.json()
                 assert data["upload_id"] == str(upload.id)
@@ -533,6 +525,7 @@ class TestConvertEndpointSuccess:
         mock_db = _mock_db_for_conversion(upload)
 
         from app.database import get_session as get_db_session
+
         app.dependency_overrides[get_db_session] = lambda: mock_db
 
         try:
@@ -541,9 +534,7 @@ class TestConvertEndpointSuccess:
                 new_callable=AsyncMock,
                 return_value=script,
             ) as mock_create:
-                response = await client.post(
-                    f"/api/scripts/uploads/{upload.id}/convert"
-                )
+                response = await client.post(f"/api/scripts/uploads/{upload.id}/convert")
                 assert response.status_code == 201
                 call_args = mock_create.call_args
                 raw_def = call_args.kwargs.get("raw_definition")
@@ -553,7 +544,6 @@ class TestConvertEndpointSuccess:
         finally:
             app.dependency_overrides.pop(get_db_session, None)
 
-
     async def test_upload_script_id_is_set_atomically(self, client, admin_override):
         """Upload.script_id is set within the same transaction as Script creation."""
         upload = _make_upload()
@@ -561,6 +551,7 @@ class TestConvertEndpointSuccess:
         mock_db = _mock_db_for_conversion(upload)
 
         from app.database import get_session as get_db_session
+
         app.dependency_overrides[get_db_session] = lambda: mock_db
 
         try:
@@ -569,9 +560,7 @@ class TestConvertEndpointSuccess:
                 new_callable=AsyncMock,
                 return_value=script,
             ):
-                response = await client.post(
-                    f"/api/scripts/uploads/{upload.id}/convert"
-                )
+                response = await client.post(f"/api/scripts/uploads/{upload.id}/convert")
                 assert response.status_code == 201
                 # script_id was set before the single commit
                 assert upload.script_id == script.id
@@ -587,6 +576,7 @@ class TestConvertEndpointSuccess:
         mock_db = _mock_db_for_conversion(upload)
 
         from app.database import get_session as get_db_session
+
         app.dependency_overrides[get_db_session] = lambda: mock_db
 
         try:
@@ -604,14 +594,16 @@ class TestConvertEndpointSuccess:
                     return await original_execute(stmt)
 
                 mock_db.execute = capture_execute
-                response = await client.post(
-                    f"/api/scripts/uploads/{upload.id}/convert"
-                )
+                response = await client.post(f"/api/scripts/uploads/{upload.id}/convert")
                 assert response.status_code == 201
                 # First statement should have with_for_update
                 first_stmt = calls[0]
                 # The compiled statement should contain FOR UPDATE
-                assert hasattr(first_stmt, '_for_update_arg') or 'for_update' in str(first_stmt.compile()).lower() or True
+                assert (
+                    hasattr(first_stmt, "_for_update_arg")
+                    or "for_update" in str(first_stmt.compile()).lower()
+                    or True
+                )
                 # We verify this by the presence of with_for_update in the source
         finally:
             app.dependency_overrides.pop(get_db_session, None)
@@ -624,17 +616,13 @@ class TestConvertEndpointAuth:
         mock_user = _mock_non_admin_user()
         app.dependency_overrides[get_current_user] = lambda: mock_user
         try:
-            response = await unauth_client.post(
-                f"/api/scripts/uploads/{uuid.uuid4()}/convert"
-            )
+            response = await unauth_client.post(f"/api/scripts/uploads/{uuid.uuid4()}/convert")
             assert response.status_code == 403
         finally:
             app.dependency_overrides.clear()
 
     async def test_unauthenticated_rejected(self, unauth_client):
-        response = await unauth_client.post(
-            f"/api/scripts/uploads/{uuid.uuid4()}/convert"
-        )
+        response = await unauth_client.post(f"/api/scripts/uploads/{uuid.uuid4()}/convert")
         assert response.status_code in (401, 403)
 
 
@@ -644,11 +632,10 @@ class TestConvertEndpointEligibility:
     async def test_missing_upload_returns_404(self, client, admin_override):
         mock_db = _mock_db_returning_upload(None)
         from app.database import get_session as get_db_session
+
         app.dependency_overrides[get_db_session] = lambda: mock_db
         try:
-            response = await client.post(
-                f"/api/scripts/uploads/{uuid.uuid4()}/convert"
-            )
+            response = await client.post(f"/api/scripts/uploads/{uuid.uuid4()}/convert")
             assert response.status_code == 404
         finally:
             app.dependency_overrides.pop(get_db_session, None)
@@ -657,11 +644,10 @@ class TestConvertEndpointEligibility:
         upload = _make_upload(status="pending", scan_status="pending")
         mock_db = _mock_db_returning_upload(upload)
         from app.database import get_session as get_db_session
+
         app.dependency_overrides[get_db_session] = lambda: mock_db
         try:
-            response = await client.post(
-                f"/api/scripts/uploads/{upload.id}/convert"
-            )
+            response = await client.post(f"/api/scripts/uploads/{upload.id}/convert")
             assert response.status_code == 422
         finally:
             app.dependency_overrides.pop(get_db_session, None)
@@ -670,26 +656,23 @@ class TestConvertEndpointEligibility:
         upload = _make_upload(scan_status="infected", status="failed")
         mock_db = _mock_db_returning_upload(upload)
         from app.database import get_session as get_db_session
+
         app.dependency_overrides[get_db_session] = lambda: mock_db
         try:
-            response = await client.post(
-                f"/api/scripts/uploads/{upload.id}/convert"
-            )
+            response = await client.post(f"/api/scripts/uploads/{upload.id}/convert")
             assert response.status_code == 422
             assert "infected" in response.json()["detail"]["message"]
         finally:
             app.dependency_overrides.pop(get_db_session, None)
 
-
     async def test_scan_error_upload_rejected(self, client, admin_override):
         upload = _make_upload(scan_status="error", status="failed")
         mock_db = _mock_db_returning_upload(upload)
         from app.database import get_session as get_db_session
+
         app.dependency_overrides[get_db_session] = lambda: mock_db
         try:
-            response = await client.post(
-                f"/api/scripts/uploads/{upload.id}/convert"
-            )
+            response = await client.post(f"/api/scripts/uploads/{upload.id}/convert")
             assert response.status_code == 422
             assert "scan failed" in response.json()["detail"]["message"]
         finally:
@@ -699,11 +682,10 @@ class TestConvertEndpointEligibility:
         upload = _make_upload(extraction_status="failed")
         mock_db = _mock_db_returning_upload(upload)
         from app.database import get_session as get_db_session
+
         app.dependency_overrides[get_db_session] = lambda: mock_db
         try:
-            response = await client.post(
-                f"/api/scripts/uploads/{upload.id}/convert"
-            )
+            response = await client.post(f"/api/scripts/uploads/{upload.id}/convert")
             assert response.status_code == 422
         finally:
             app.dependency_overrides.pop(get_db_session, None)
@@ -712,11 +694,10 @@ class TestConvertEndpointEligibility:
         upload = _make_upload(status="deleted", scan_status="clean")
         mock_db = _mock_db_returning_upload(upload)
         from app.database import get_session as get_db_session
+
         app.dependency_overrides[get_db_session] = lambda: mock_db
         try:
-            response = await client.post(
-                f"/api/scripts/uploads/{upload.id}/convert"
-            )
+            response = await client.post(f"/api/scripts/uploads/{upload.id}/convert")
             assert response.status_code == 422
             assert "deleted" in response.json()["detail"]["message"]
         finally:
@@ -726,26 +707,23 @@ class TestConvertEndpointEligibility:
         upload = _make_upload(extracted_content="")
         mock_db = _mock_db_returning_upload(upload)
         from app.database import get_session as get_db_session
+
         app.dependency_overrides[get_db_session] = lambda: mock_db
         try:
-            response = await client.post(
-                f"/api/scripts/uploads/{upload.id}/convert"
-            )
+            response = await client.post(f"/api/scripts/uploads/{upload.id}/convert")
             assert response.status_code == 422
             assert "extracted content" in response.json()["detail"]["message"].lower()
         finally:
             app.dependency_overrides.pop(get_db_session, None)
 
-
     async def test_missing_scenario_rejected(self, client, admin_override):
         upload = _make_upload(scenario_id=None)
         mock_db = _mock_db_returning_upload(upload)
         from app.database import get_session as get_db_session
+
         app.dependency_overrides[get_db_session] = lambda: mock_db
         try:
-            response = await client.post(
-                f"/api/scripts/uploads/{upload.id}/convert"
-            )
+            response = await client.post(f"/api/scripts/uploads/{upload.id}/convert")
             assert response.status_code == 422
             assert "scenario" in response.json()["detail"]["message"].lower()
         finally:
@@ -755,11 +733,10 @@ class TestConvertEndpointEligibility:
         upload = _make_upload()
         mock_db = _mock_db_for_conversion(upload, scenario_exists=False)
         from app.database import get_session as get_db_session
+
         app.dependency_overrides[get_db_session] = lambda: mock_db
         try:
-            response = await client.post(
-                f"/api/scripts/uploads/{upload.id}/convert"
-            )
+            response = await client.post(f"/api/scripts/uploads/{upload.id}/convert")
             assert response.status_code == 422
             assert "scenario" in response.json()["detail"]["message"].lower()
         finally:
@@ -774,11 +751,10 @@ class TestConvertEndpointDuplicatePrevention:
         upload = _make_upload(script_id=existing_script_id)
         mock_db = _mock_db_returning_upload(upload)
         from app.database import get_session as get_db_session
+
         app.dependency_overrides[get_db_session] = lambda: mock_db
         try:
-            response = await client.post(
-                f"/api/scripts/uploads/{upload.id}/convert"
-            )
+            response = await client.post(f"/api/scripts/uploads/{upload.id}/convert")
             assert response.status_code == 409
             assert "already_converted" in response.json()["detail"]["error"]
             assert str(existing_script_id) in response.json()["detail"]["script_id"]
@@ -789,15 +765,12 @@ class TestConvertEndpointDuplicatePrevention:
         """If the scenario already has a Script, return 409."""
         upload = _make_upload()
         existing_script = _make_script_mock(scenario_id=upload.scenario_id)
-        mock_db = _mock_db_for_conversion(
-            upload, existing_scenario_script=existing_script
-        )
+        mock_db = _mock_db_for_conversion(upload, existing_scenario_script=existing_script)
         from app.database import get_session as get_db_session
+
         app.dependency_overrides[get_db_session] = lambda: mock_db
         try:
-            response = await client.post(
-                f"/api/scripts/uploads/{upload.id}/convert"
-            )
+            response = await client.post(f"/api/scripts/uploads/{upload.id}/convert")
             assert response.status_code == 409
             assert "scenario_has_script" in response.json()["detail"]["error"]
             assert str(existing_script.id) in response.json()["detail"]["existing_script_id"]
@@ -810,16 +783,13 @@ class TestConvertEndpointTransactionSafety:
 
     async def test_conversion_failure_creates_no_script(self, client, admin_override):
         """Conversion failure creates no script and leaves script_id unset."""
-        upload = _make_upload(
-            extracted_content="This is just plain text, not a script."
-        )
+        upload = _make_upload(extracted_content="This is just plain text, not a script.")
         mock_db = _mock_db_for_conversion(upload)
         from app.database import get_session as get_db_session
+
         app.dependency_overrides[get_db_session] = lambda: mock_db
         try:
-            response = await client.post(
-                f"/api/scripts/uploads/{upload.id}/convert"
-            )
+            response = await client.post(f"/api/scripts/uploads/{upload.id}/convert")
             assert response.status_code == 422
             assert upload.script_id is None
             mock_db.commit.assert_not_called()
@@ -831,6 +801,7 @@ class TestConvertEndpointTransactionSafety:
         upload = _make_upload()
         mock_db = _mock_db_for_conversion(upload)
         from app.database import get_session as get_db_session
+
         app.dependency_overrides[get_db_session] = lambda: mock_db
         try:
             with patch(
@@ -838,9 +809,7 @@ class TestConvertEndpointTransactionSafety:
                 new_callable=AsyncMock,
                 side_effect=Exception("DB flush failed"),
             ):
-                response = await client.post(
-                    f"/api/scripts/uploads/{upload.id}/convert"
-                )
+                response = await client.post(f"/api/scripts/uploads/{upload.id}/convert")
                 assert response.status_code == 500
                 assert upload.script_id is None
                 mock_db.rollback.assert_called()
@@ -856,6 +825,7 @@ class TestConvertEndpointTransactionSafety:
         mock_db.commit = AsyncMock(side_effect=Exception("Commit failed"))
 
         from app.database import get_session as get_db_session
+
         app.dependency_overrides[get_db_session] = lambda: mock_db
 
         try:
@@ -864,35 +834,36 @@ class TestConvertEndpointTransactionSafety:
                 new_callable=AsyncMock,
                 return_value=script,
             ):
-                response = await client.post(
-                    f"/api/scripts/uploads/{upload.id}/convert"
-                )
+                response = await client.post(f"/api/scripts/uploads/{upload.id}/convert")
                 assert response.status_code == 500
                 # Rollback was called after commit failure
                 mock_db.rollback.assert_called()
         finally:
             app.dependency_overrides.pop(get_db_session, None)
 
-
     async def test_validation_failure_creates_no_script(self, client, admin_override):
         """If validate_script raises (limits exceeded), no script is created."""
         upload = _make_upload()
         mock_db = _mock_db_for_conversion(upload)
         from app.database import get_session as get_db_session
+
         app.dependency_overrides[get_db_session] = lambda: mock_db
         try:
             from app.services.script_validator import ScriptValidationError
+
             with patch(
                 "app.services.conversion_service.validate_script",
-                side_effect=ScriptValidationError([{
-                    "loc": ("trigger_phrases",),
-                    "msg": "too many entries",
-                    "type": "limit_exceeded.count",
-                }]),
+                side_effect=ScriptValidationError(
+                    [
+                        {
+                            "loc": ("trigger_phrases",),
+                            "msg": "too many entries",
+                            "type": "limit_exceeded.count",
+                        }
+                    ]
+                ),
             ):
-                response = await client.post(
-                    f"/api/scripts/uploads/{upload.id}/convert"
-                )
+                response = await client.post(f"/api/scripts/uploads/{upload.id}/convert")
                 assert response.status_code == 422
                 assert "publication requirements" in response.json()["detail"]["message"]
                 assert upload.script_id is None
@@ -907,6 +878,7 @@ class TestConvertEndpointTransactionSafety:
         mock_db = _mock_db_for_conversion(upload)
 
         from app.database import get_session as get_db_session
+
         app.dependency_overrides[get_db_session] = lambda: mock_db
 
         try:
@@ -915,17 +887,13 @@ class TestConvertEndpointTransactionSafety:
                 new_callable=AsyncMock,
                 return_value=script,
             ):
-                response1 = await client.post(
-                    f"/api/scripts/uploads/{upload.id}/convert"
-                )
+                response1 = await client.post(f"/api/scripts/uploads/{upload.id}/convert")
                 assert response1.status_code == 201
 
             # upload.script_id is now set from the first request
             mock_db2 = _mock_db_returning_upload(upload)
             app.dependency_overrides[get_db_session] = lambda: mock_db2
-            response2 = await client.post(
-                f"/api/scripts/uploads/{upload.id}/convert"
-            )
+            response2 = await client.post(f"/api/scripts/uploads/{upload.id}/convert")
             assert response2.status_code == 409
         finally:
             app.dependency_overrides.pop(get_db_session, None)
@@ -1008,6 +976,7 @@ class TestConvertEndpointConcurrency:
         mock_db.rollback = AsyncMock()
 
         from app.database import get_session as get_db_session
+
         app.dependency_overrides[get_db_session] = lambda: mock_db
 
         try:
@@ -1016,9 +985,7 @@ class TestConvertEndpointConcurrency:
                 new_callable=AsyncMock,
                 return_value=script,
             ):
-                response = await client.post(
-                    f"/api/scripts/uploads/{upload.id}/convert"
-                )
+                response = await client.post(f"/api/scripts/uploads/{upload.id}/convert")
                 assert response.status_code == 201
                 # First statement should have _for_update_arg set
                 first_stmt = executed_stmts[0]
@@ -1034,17 +1001,15 @@ class TestConvertEndpointLimitsEnforcement:
         """Exceeding max_trigger_phrases (default 50) is rejected at endpoint."""
         data = {**VALID_CONTRACT}
         data["trigger_phrases"] = [
-            {"phrase": f"phrase {i}", "behavior": f"behavior {i}"}
-            for i in range(51)
+            {"phrase": f"phrase {i}", "behavior": f"behavior {i}"} for i in range(51)
         ]
         upload = _make_upload(extracted_content=json.dumps(data))
         mock_db = _mock_db_for_conversion(upload)
         from app.database import get_session as get_db_session
+
         app.dependency_overrides[get_db_session] = lambda: mock_db
         try:
-            response = await client.post(
-                f"/api/scripts/uploads/{upload.id}/convert"
-            )
+            response = await client.post(f"/api/scripts/uploads/{upload.id}/convert")
             assert response.status_code == 422
             detail = response.json()["detail"]
             assert "publication requirements" in detail["message"]
@@ -1056,17 +1021,15 @@ class TestConvertEndpointLimitsEnforcement:
         """Exceeding max_expected_replies (default 20) is rejected."""
         data = {**VALID_CONTRACT}
         data["expected_replies"] = [
-            {"agent_statement": f"stmt {i}", "debtor_reply": f"reply {i}"}
-            for i in range(21)
+            {"agent_statement": f"stmt {i}", "debtor_reply": f"reply {i}"} for i in range(21)
         ]
         upload = _make_upload(extracted_content=json.dumps(data))
         mock_db = _mock_db_for_conversion(upload)
         from app.database import get_session as get_db_session
+
         app.dependency_overrides[get_db_session] = lambda: mock_db
         try:
-            response = await client.post(
-                f"/api/scripts/uploads/{upload.id}/convert"
-            )
+            response = await client.post(f"/api/scripts/uploads/{upload.id}/convert")
             assert response.status_code == 422
             assert upload.script_id is None
         finally:
@@ -1082,16 +1045,14 @@ class TestConvertEndpointLimitsEnforcement:
         upload = _make_upload(extracted_content=json.dumps(data))
         mock_db = _mock_db_for_conversion(upload)
         from app.database import get_session as get_db_session
+
         app.dependency_overrides[get_db_session] = lambda: mock_db
         try:
-            response = await client.post(
-                f"/api/scripts/uploads/{upload.id}/convert"
-            )
+            response = await client.post(f"/api/scripts/uploads/{upload.id}/convert")
             assert response.status_code == 422
             assert upload.script_id is None
         finally:
             app.dependency_overrides.pop(get_db_session, None)
-
 
     async def test_excessive_field_length_rejected(self, client, admin_override):
         """Field exceeding max_field_text_length (default 2000) is rejected."""
@@ -1101,11 +1062,10 @@ class TestConvertEndpointLimitsEnforcement:
         upload = _make_upload(extracted_content=json.dumps(data))
         mock_db = _mock_db_for_conversion(upload)
         from app.database import get_session as get_db_session
+
         app.dependency_overrides[get_db_session] = lambda: mock_db
         try:
-            response = await client.post(
-                f"/api/scripts/uploads/{upload.id}/convert"
-            )
+            response = await client.post(f"/api/scripts/uploads/{upload.id}/convert")
             # ScriptContract has max_length=2000 on FreeText fields,
             # so this fails at structural validation in the converter
             assert response.status_code == 422
@@ -1119,6 +1079,7 @@ class TestConvertEndpointLimitsEnforcement:
         script = _make_script_mock(scenario_id=upload.scenario_id)
         mock_db = _mock_db_for_conversion(upload)
         from app.database import get_session as get_db_session
+
         app.dependency_overrides[get_db_session] = lambda: mock_db
         try:
             with patch(
@@ -1126,9 +1087,7 @@ class TestConvertEndpointLimitsEnforcement:
                 new_callable=AsyncMock,
                 return_value=script,
             ):
-                response = await client.post(
-                    f"/api/scripts/uploads/{upload.id}/convert"
-                )
+                response = await client.post(f"/api/scripts/uploads/{upload.id}/convert")
                 assert response.status_code == 201
         finally:
             app.dependency_overrides.pop(get_db_session, None)
@@ -1140,11 +1099,10 @@ class TestConvertEndpointLimitsEnforcement:
         upload = _make_upload(extracted_content=json.dumps(data))
         mock_db = _mock_db_for_conversion(upload)
         from app.database import get_session as get_db_session
+
         app.dependency_overrides[get_db_session] = lambda: mock_db
         try:
-            response = await client.post(
-                f"/api/scripts/uploads/{upload.id}/convert"
-            )
+            response = await client.post(f"/api/scripts/uploads/{upload.id}/convert")
             assert response.status_code == 422
             assert upload.script_id is None
         finally:
@@ -1154,23 +1112,23 @@ class TestConvertEndpointLimitsEnforcement:
 class TestConvertEndpointLogging:
     """Logs do not contain the extracted content."""
 
-    async def test_audit_log_does_not_contain_content(
-        self, client, admin_override, caplog
-    ):
+    async def test_audit_log_does_not_contain_content(self, client, admin_override, caplog):
         upload = _make_upload()
         script = _make_script_mock(scenario_id=upload.scenario_id)
         mock_db = _mock_db_for_conversion(upload)
         from app.database import get_session as get_db_session
+
         app.dependency_overrides[get_db_session] = lambda: mock_db
         try:
-            with patch(
-                "app.services.conversion_service.create_draft_in_transaction",
-                new_callable=AsyncMock,
-                return_value=script,
-            ), caplog.at_level(logging.INFO, logger="app.services.conversion_service"):
-                response = await client.post(
-                    f"/api/scripts/uploads/{upload.id}/convert"
-                )
+            with (
+                patch(
+                    "app.services.conversion_service.create_draft_in_transaction",
+                    new_callable=AsyncMock,
+                    return_value=script,
+                ),
+                caplog.at_level(logging.INFO, logger="app.services.conversion_service"),
+            ):
+                response = await client.post(f"/api/scripts/uploads/{upload.id}/convert")
                 assert response.status_code == 201
                 events = [
                     record
@@ -1195,9 +1153,7 @@ class TestConvertEndpointLogging:
         finally:
             app.dependency_overrides.pop(get_db_session, None)
 
-    async def test_audit_log_emitted_only_after_commit(
-        self, client, admin_override, caplog
-    ):
+    async def test_audit_log_emitted_only_after_commit(self, client, admin_override, caplog):
         """Success log is emitted only after commit succeeds."""
         upload = _make_upload()
         script = _make_script_mock(scenario_id=upload.scenario_id)
@@ -1205,21 +1161,21 @@ class TestConvertEndpointLogging:
         mock_db.commit = AsyncMock(side_effect=Exception("Commit exploded"))
 
         from app.database import get_session as get_db_session
+
         app.dependency_overrides[get_db_session] = lambda: mock_db
         try:
-            with patch(
-                "app.services.conversion_service.create_draft_in_transaction",
-                new_callable=AsyncMock,
-                return_value=script,
-            ), caplog.at_level(logging.INFO, logger="app.services.conversion_service"):
-                response = await client.post(
-                    f"/api/scripts/uploads/{upload.id}/convert"
-                )
+            with (
+                patch(
+                    "app.services.conversion_service.create_draft_in_transaction",
+                    new_callable=AsyncMock,
+                    return_value=script,
+                ),
+                caplog.at_level(logging.INFO, logger="app.services.conversion_service"),
+            ):
+                response = await client.post(f"/api/scripts/uploads/{upload.id}/convert")
                 assert response.status_code == 500
                 # No success log should be emitted
-                success_logs = [
-                    r for r in caplog.records if "upload_converted" in r.getMessage()
-                ]
+                success_logs = [r for r in caplog.records if "upload_converted" in r.getMessage()]
                 assert len(success_logs) == 0
         finally:
             app.dependency_overrides.pop(get_db_session, None)
@@ -1280,12 +1236,11 @@ class TestConvertServicePathMockedSession:
         mock_db.rollback = AsyncMock()
 
         from app.database import get_session as get_db_session
+
         app.dependency_overrides[get_db_session] = lambda: mock_db
 
         try:
-            response = await client.post(
-                f"/api/scripts/uploads/{upload.id}/convert"
-            )
+            response = await client.post(f"/api/scripts/uploads/{upload.id}/convert")
             assert response.status_code == 201
             data = response.json()
             assert data["status"] == "converted"
@@ -1301,7 +1256,6 @@ class TestConvertServicePathMockedSession:
         finally:
             app.dependency_overrides.pop(get_db_session, None)
 
-
     async def test_real_registry_validation_failure_no_script(self, client, admin_override):
         """Real registry path with invalid content: no script created."""
         # Partial contract — missing fields
@@ -1310,12 +1264,11 @@ class TestConvertServicePathMockedSession:
         mock_db = _mock_db_for_conversion(upload)
 
         from app.database import get_session as get_db_session
+
         app.dependency_overrides[get_db_session] = lambda: mock_db
 
         try:
-            response = await client.post(
-                f"/api/scripts/uploads/{upload.id}/convert"
-            )
+            response = await client.post(f"/api/scripts/uploads/{upload.id}/convert")
             assert response.status_code == 422
             assert upload.script_id is None
             mock_db.commit.assert_not_called()
@@ -1326,19 +1279,17 @@ class TestConvertServicePathMockedSession:
         """Real pipeline rejects content exceeding configured limits."""
         data = {**VALID_CONTRACT}
         data["trigger_phrases"] = [
-            {"phrase": f"phrase number {i}", "behavior": f"behavior for {i}"}
-            for i in range(51)
+            {"phrase": f"phrase number {i}", "behavior": f"behavior for {i}"} for i in range(51)
         ]
         upload = _make_upload(extracted_content=json.dumps(data))
         mock_db = _mock_db_for_conversion(upload)
 
         from app.database import get_session as get_db_session
+
         app.dependency_overrides[get_db_session] = lambda: mock_db
 
         try:
-            response = await client.post(
-                f"/api/scripts/uploads/{upload.id}/convert"
-            )
+            response = await client.post(f"/api/scripts/uploads/{upload.id}/convert")
             assert response.status_code == 422
             detail = response.json()["detail"]
             assert "publication requirements" in detail["message"]
@@ -1354,12 +1305,11 @@ class TestConvertServicePathMockedSession:
         mock_db = _mock_db_for_conversion(upload)
 
         from app.database import get_session as get_db_session
+
         app.dependency_overrides[get_db_session] = lambda: mock_db
 
         try:
-            response = await client.post(
-                f"/api/scripts/uploads/{upload.id}/convert"
-            )
+            response = await client.post(f"/api/scripts/uploads/{upload.id}/convert")
             assert response.status_code == 422
             assert upload.script_id is None
         finally:
@@ -1392,12 +1342,11 @@ class TestConvertServicePathMockedSession:
         mock_db.rollback = AsyncMock()
 
         from app.database import get_session as get_db_session
+
         app.dependency_overrides[get_db_session] = lambda: mock_db
 
         try:
-            response = await client.post(
-                f"/api/scripts/uploads/{upload.id}/convert"
-            )
+            response = await client.post(f"/api/scripts/uploads/{upload.id}/convert")
             assert response.status_code == 500
             assert upload.script_id is None
             mock_db.rollback.assert_called()

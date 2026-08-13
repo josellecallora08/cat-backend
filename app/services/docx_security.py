@@ -107,9 +107,7 @@ def validate_docx_security(
                         return (False, UploadRejectionReason.DOCX_EMBEDDED_OBJECT)
 
             # Inspect all .rels files (case-insensitive discovery)
-            rels_files = [
-                e for e in entries if e.lower().endswith(".rels")
-            ]
+            rels_files = [e for e in entries if e.lower().endswith(".rels")]
             for rels_file in rels_files:
                 result = _check_relationships(zf, rels_file)
                 if result is not None:
@@ -117,10 +115,7 @@ def validate_docx_security(
 
             # Check XML files for safety (case-insensitive discovery)
             # Skip files already checked as .rels (they end with .rels not .xml)
-            xml_files = [
-                e for e in entries
-                if e.lower().endswith(".xml")
-            ]
+            xml_files = [e for e in entries if e.lower().endswith(".xml")]
             for xml_file in xml_files:
                 result = _check_xml_safety(zf, xml_file)
                 if result is not None:
@@ -135,9 +130,7 @@ def validate_docx_security(
     return (True, None)
 
 
-def _check_relationships(
-    zf: zipfile.ZipFile, rels_path: str
-) -> UploadRejectionReason | None:
+def _check_relationships(zf: zipfile.ZipFile, rels_path: str) -> UploadRejectionReason | None:
     """Inspect a .rels file for external targets and unsafe relationship types.
 
     Uses hardened XML parsing. Fail-closed on read or parse errors.
@@ -175,9 +168,7 @@ def _check_relationships(
     return None
 
 
-def _check_xml_safety(
-    zf: zipfile.ZipFile, xml_path: str
-) -> UploadRejectionReason | None:
+def _check_xml_safety(zf: zipfile.ZipFile, xml_path: str) -> UploadRejectionReason | None:
     """Check XML file for safety using hardened parser.
 
     Handles all encodings. Rejects DTD, entities, malformed XML.

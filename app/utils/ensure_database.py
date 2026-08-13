@@ -28,9 +28,7 @@ async def ensure_database_exists(database_url: str) -> None:
     db_name = parsed.path.lstrip("/")
 
     if not db_name:
-        logger.warning(
-            "Could not extract database name from URL, skipping auto-creation"
-        )
+        logger.warning("Could not extract database name from URL, skipping auto-creation")
         return
 
     # Build a connection string pointing to the default 'postgres' database

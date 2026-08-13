@@ -98,9 +98,7 @@ class TestValidateScriptValidSubmissions:
         assert result.opening_response == "Hello, who is this calling?"
 
     def test_valid_yaml_contract_is_accepted(self):
-        raw_text = yaml.dump(
-            _valid_contract_dict(), default_flow_style=False, allow_unicode=True
-        )
+        raw_text = yaml.dump(_valid_contract_dict(), default_flow_style=False, allow_unicode=True)
 
         result = validate_script(raw_text, "yaml", GENEROUS_LIMITS)
 

@@ -34,6 +34,7 @@ def _make_mock_numpy():
     mock_np.frombuffer.return_value = mock_array
     return mock_np
 
+
 from app.services.voice.stt_service import (
     LOW_CONFIDENCE_THRESHOLD,
     SUPPORTED_LANGUAGES,
@@ -203,9 +204,7 @@ class TestSTTService:
 
         # Set up mock model
         mock_model = MagicMock()
-        segments = [
-            self._make_mock_segment("Hello, I'm calling about your account.", -0.2)
-        ]
+        segments = [self._make_mock_segment("Hello, I'm calling about your account.", -0.2)]
         info = self._make_mock_info("en")
         mock_model.transcribe.return_value = (iter(segments), info)
         service._model = mock_model
@@ -317,9 +316,7 @@ class TestSTTService:
         assert result.duration_ms == 3000
 
         # Confidence should be average of all segments
-        expected_confidence = (
-            math.exp(-0.1) + math.exp(-0.2) + math.exp(-0.15)
-        ) / 3
+        expected_confidence = (math.exp(-0.1) + math.exp(-0.2) + math.exp(-0.15)) / 3
         assert result.confidence == pytest.approx(expected_confidence, rel=1e-3)
 
     @patch("app.services.voice.stt_service.STTService._load_model")
@@ -342,9 +339,12 @@ class TestSTTService:
         """STTService raises RuntimeError when faster-whisper is not installed."""
         service = STTService(model_size="tiny", device="cpu")
 
-        with patch.dict("sys.modules", {"faster_whisper": None}), patch(
-            "builtins.__import__",
-            side_effect=ImportError("No module named 'faster_whisper'"),
+        with (
+            patch.dict("sys.modules", {"faster_whisper": None}),
+            patch(
+                "builtins.__import__",
+                side_effect=ImportError("No module named 'faster_whisper'"),
+            ),
         ):
             # Force model load attempt
             with pytest.raises(RuntimeError, match="faster-whisper is not installed"):

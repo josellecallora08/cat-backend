@@ -107,11 +107,7 @@ async def edit_review(
     )
 
     # 1. Load and lock upload row
-    stmt = (
-        select(ScriptUpload)
-        .where(ScriptUpload.id == upload_id)
-        .with_for_update()
-    )
+    stmt = select(ScriptUpload).where(ScriptUpload.id == upload_id).with_for_update()
     result = await db.execute(stmt)
     upload = result.scalar_one_or_none()
     if upload is None:
@@ -128,11 +124,7 @@ async def edit_review(
         )
 
     # 3. Load and lock script
-    script_stmt = (
-        select(Script)
-        .where(Script.id == upload.script_id)
-        .with_for_update()
-    )
+    script_stmt = select(Script).where(Script.id == upload.script_id).with_for_update()
     script_result = await db.execute(script_stmt)
     script = script_result.scalar_one_or_none()
 
@@ -258,11 +250,7 @@ async def retry_review(
     Targets: conversion, scan, extraction.
     """
     # 1. Load and lock upload
-    stmt = (
-        select(ScriptUpload)
-        .where(ScriptUpload.id == upload_id)
-        .with_for_update(nowait=True)
-    )
+    stmt = select(ScriptUpload).where(ScriptUpload.id == upload_id).with_for_update(nowait=True)
     try:
         result = await db.execute(stmt)
     except Exception:
@@ -333,7 +321,7 @@ async def retry_review(
         detail={
             "error": "invalid_target",
             "message": f"Unknown retry target: '{body.target}'. "
-                       "Valid: conversion, scan, extraction.",
+            "Valid: conversion, scan, extraction.",
         },
     )
 
@@ -440,9 +428,7 @@ async def _retry_conversion(
     raise HTTPException(status_code=500, detail="Unexpected conversion result")
 
 
-async def _retry_scan(
-    db: AsyncSession, upload: ScriptUpload, admin: User
-) -> ReviewRetryResponse:
+async def _retry_scan(db: AsyncSession, upload: ScriptUpload, admin: User) -> ReviewRetryResponse:
     """Retry malware scan if quarantine source still exists."""
     from app.services.upload_quarantine import get_quarantine_path
     from app.services.upload_scanner import scan_file
@@ -639,11 +625,7 @@ async def reject_review(
     Preserves the linked draft script (unpublished) for auditability.
     """
     # 1. Load and lock
-    stmt = (
-        select(ScriptUpload)
-        .where(ScriptUpload.id == upload_id)
-        .with_for_update()
-    )
+    stmt = select(ScriptUpload).where(ScriptUpload.id == upload_id).with_for_update()
     result = await db.execute(stmt)
     upload = result.scalar_one_or_none()
     if upload is None:
@@ -652,11 +634,7 @@ async def reject_review(
     # 2. Check current state allows rejection
     script = None
     if upload.script_id:
-        script_stmt = (
-            select(Script)
-            .where(Script.id == upload.script_id)
-            .with_for_update()
-        )
+        script_stmt = select(Script).where(Script.id == upload.script_id).with_for_update()
         sr = await db.execute(script_stmt)
         script = sr.scalar_one_or_none()
 
@@ -704,6 +682,7 @@ async def reject_review(
     # best-effort and must not turn a successful rejection into an HTTP 500.
     try:
         from app.services.upload_quarantine import get_quarantine_path
+
         source_path = get_quarantine_path() / upload.storage_key
         source_path.unlink(missing_ok=True)
     except Exception:

@@ -61,16 +61,16 @@ def _make_minimal_valid_docx(path: Path) -> Path:
             "[Content_Types].xml",
             '<?xml version="1.0"?>'
             '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
-            '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'  # noqa: E501
+            '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
             '<Default Extension="xml" ContentType="application/xml"/>'
-            '<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>'  # noqa: E501
+            '<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>'
             "</Types>",
         )
         zf.writestr(
             "_rels/.rels",
             '<?xml version="1.0"?>'
             '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
-            '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>'  # noqa: E501
+            '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>'
             "</Relationships>",
         )
         zf.writestr(
@@ -362,7 +362,7 @@ class TestAtomicWriteFailureCleanup:
     def test_write_failure_no_partial_file(self, tmp_path):
         """If os.write fails, no temp or final file remains."""
         with patch.object(upload_quarantine.settings, "upload_quarantine_path", str(tmp_path)):
-            with patch("app.services.upload_quarantine.os.write", side_effect=OSError("disk full")):  # noqa: SIM117
+            with patch("app.services.upload_quarantine.os.write", side_effect=OSError("disk full")):
                 with pytest.raises(OSError):
                     store_in_quarantine(b"data", ".pdf")
 
@@ -411,7 +411,7 @@ class TestPartialWriteHandling:
             chunk = buf[:100]
             return original_write(fd, chunk)
 
-        with patch.object(upload_quarantine.settings, "upload_quarantine_path", str(tmp_path)):  # noqa: SIM117
+        with patch.object(upload_quarantine.settings, "upload_quarantine_path", str(tmp_path)):
             with patch("app.services.upload_quarantine.os.write", side_effect=mock_partial_write):
                 path = store_in_quarantine(data, ".txt")
 
@@ -431,7 +431,7 @@ class TestPartialWriteHandling:
                 return 0  # Zero-byte write on third call
             return original_write(fd, buf[:100])
 
-        with patch.object(upload_quarantine.settings, "upload_quarantine_path", str(tmp_path)):  # noqa: SIM117
+        with patch.object(upload_quarantine.settings, "upload_quarantine_path", str(tmp_path)):
             with patch("app.services.upload_quarantine.os.write", side_effect=mock_zero_write):
                 with pytest.raises(OSError, match="returned 0"):
                     store_in_quarantine(data, ".txt")
@@ -462,7 +462,7 @@ class TestPartialWriteHandling:
                 return mock_result
             return result
 
-        with patch.object(upload_quarantine.settings, "upload_quarantine_path", str(tmp_path)):  # noqa: SIM117
+        with patch.object(upload_quarantine.settings, "upload_quarantine_path", str(tmp_path)):
             with patch.object(Path, "stat", fake_stat):
                 with pytest.raises(OSError, match="Size mismatch"):
                     store_in_quarantine(data, ".pdf")

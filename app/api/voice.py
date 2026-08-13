@@ -122,9 +122,7 @@ async def voice_signaling_websocket(websocket: WebSocket, session_id: UUID) -> N
             persona=PersonaContext(
                 persona_id=session_id,
                 name=persona_data.get("name", "Debtor"),
-                communication_style=persona_data.get(
-                    "communication_style", "cooperative"
-                ),
+                communication_style=persona_data.get("communication_style", "cooperative"),
                 financial_circumstances=persona_data.get("financial_circumstances", {}),
                 emotional_state=EmotionalState(persona_data.get("emotional_state", 3)),
                 language=persona_data.get("language", "TAGLISH"),
@@ -170,9 +168,7 @@ async def voice_signaling_websocket(websocket: WebSocket, session_id: UUID) -> N
             try:
                 message = json.loads(raw_data)
             except json.JSONDecodeError:
-                await websocket.send_json(
-                    {"type": "error", "message": "Invalid JSON message"}
-                )
+                await websocket.send_json({"type": "error", "message": "Invalid JSON message"})
                 continue
 
             msg_type = message.get("type")
@@ -194,9 +190,7 @@ async def voice_signaling_websocket(websocket: WebSocket, session_id: UUID) -> N
                         on_track=pipeline.handle_audio_track if pipeline else None,
                     )
                     await websocket.send_json({"type": "answer", "sdp": answer["sdp"]})
-                    logger.info(
-                        f"Session {session_id}: SDP offer processed, answer sent"
-                    )
+                    logger.info(f"Session {session_id}: SDP offer processed, answer sent")
                 except Exception as e:
                     logger.error(f"Session {session_id}: error handling offer: {e}")
                     await websocket.send_json(
@@ -245,13 +239,9 @@ async def voice_signaling_websocket(websocket: WebSocket, session_id: UUID) -> N
                         sdp_mid=sdp_mid,
                         sdp_mline_index=sdp_mline_index,
                     )
-                    await websocket.send_json(
-                        {"type": "ice_candidate_ack", "status": "added"}
-                    )
+                    await websocket.send_json({"type": "ice_candidate_ack", "status": "added"})
                 except Exception as e:
-                    logger.error(
-                        f"Session {session_id}: error adding ICE candidate: {e}"
-                    )
+                    logger.error(f"Session {session_id}: error adding ICE candidate: {e}")
                     await websocket.send_json(
                         {
                             "type": "error",

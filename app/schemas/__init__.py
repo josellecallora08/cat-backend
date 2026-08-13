@@ -2,8 +2,8 @@
 
 from datetime import datetime
 from decimal import Decimal
-from enum import Enum
-from typing import Dict, List, Literal, Optional
+from enum import StrEnum
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 # --- Enums ---
 
 
-class ScenarioType(str, Enum):
+class ScenarioType(StrEnum):
     """Available training scenario types."""
 
     FINANCIAL_HARDSHIP = "FINANCIAL_HARDSHIP"
@@ -21,7 +21,7 @@ class ScenarioType(str, Enum):
     BALANCE_DISPUTE = "BALANCE_DISPUTE"
 
 
-class SessionStatus(str, Enum):
+class SessionStatus(StrEnum):
     """Session lifecycle states."""
 
     PENDING = "pending"
@@ -30,7 +30,7 @@ class SessionStatus(str, Enum):
     ERROR = "error"
 
 
-class EvaluationCategory(str, Enum):
+class EvaluationCategory(StrEnum):
     """Competency evaluation categories with defined weights."""
 
     CALL_OPENING = "call_opening"
@@ -231,7 +231,9 @@ class CoachingReportSchema(BaseModel):
     no_mistakes: bool = False
     rubric_coaching: RubricCoaching | None = None
     rubric_recommendations: list[RubricRecommendation] = Field(default_factory=list)
-    rubric_recommendations_by_block: dict[str, list[RubricRecommendation]] = Field(default_factory=dict)
+    rubric_recommendations_by_block: dict[str, list[RubricRecommendation]] = Field(
+        default_factory=dict
+    )
 
 
 # --- Learning Plan Schemas ---

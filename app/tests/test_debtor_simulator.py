@@ -158,7 +158,11 @@ class TestParsePersonaResponse:
             {
                 "name": "",
                 "communication_style": "cooperative",
-                "financial_circumstances": {"income_level": "high", "debt_amount": 1000, "reason_for_delinquency": "Forgot"},
+                "financial_circumstances": {
+                    "income_level": "high",
+                    "debt_amount": 1000,
+                    "reason_for_delinquency": "Forgot",
+                },
                 "emotional_state": 5,
                 "language": "EN",
             }
@@ -171,7 +175,11 @@ class TestParsePersonaResponse:
             {
                 "name": "Test Person",
                 "communication_style": "aggressive",
-                "financial_circumstances": {"income_level": "low", "debt_amount": 1000, "reason_for_delinquency": "Unknown"},
+                "financial_circumstances": {
+                    "income_level": "low",
+                    "debt_amount": 1000,
+                    "reason_for_delinquency": "Unknown",
+                },
                 "emotional_state": 3,
                 "language": "EN",
             }
@@ -197,7 +205,11 @@ class TestParsePersonaResponse:
             {
                 "name": "Test Person",
                 "communication_style": "cooperative",
-                "financial_circumstances": {"income_level": "high", "debt_amount": 500, "reason_for_delinquency": "Oversight"},
+                "financial_circumstances": {
+                    "income_level": "high",
+                    "debt_amount": 500,
+                    "reason_for_delinquency": "Oversight",
+                },
                 "emotional_state": 99,
                 "language": "EN",
             }
@@ -210,7 +222,11 @@ class TestParsePersonaResponse:
             {
                 "name": "Test Person",
                 "communication_style": "anxious",
-                "financial_circumstances": {"income_level": "low", "debt_amount": 2000, "reason_for_delinquency": "Lost job"},
+                "financial_circumstances": {
+                    "income_level": "low",
+                    "debt_amount": 2000,
+                    "reason_for_delinquency": "Lost job",
+                },
                 "emotional_state": 2,
                 "language": "FR",
             }
@@ -224,7 +240,11 @@ class TestParsePersonaResponse:
                 {
                     "name": "Test Person",
                     "communication_style": style,
-                    "financial_circumstances": {"income_level": "medium", "debt_amount": 3000, "reason_for_delinquency": "Test"},
+                    "financial_circumstances": {
+                        "income_level": "medium",
+                        "debt_amount": 3000,
+                        "reason_for_delinquency": "Test",
+                    },
                     "emotional_state": 3,
                     "language": "EN",
                 }
@@ -238,7 +258,11 @@ class TestParsePersonaResponse:
                 {
                     "name": "Test Person",
                     "communication_style": "cooperative",
-                    "financial_circumstances": {"income_level": "low", "debt_amount": 1000, "reason_for_delinquency": "Test"},
+                    "financial_circumstances": {
+                        "income_level": "low",
+                        "debt_amount": 1000,
+                        "reason_for_delinquency": "Test",
+                    },
                     "emotional_state": state.value,
                     "language": "EN",
                 }
@@ -396,10 +420,7 @@ class TestScriptVersionPinningIsolation:
     ):
         """Req 4.4: the opening utterance comes verbatim from the pinned
         Script_Version's content."""
-        assert (
-            select_opening_response(script_content_v1)
-            == script_content_v1["opening_response"]
-        )
+        assert select_opening_response(script_content_v1) == script_content_v1["opening_response"]
 
     @pytest.mark.asyncio
     async def test_generate_response_stays_pinned_after_mid_call_publish(

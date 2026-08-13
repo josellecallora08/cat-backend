@@ -646,7 +646,7 @@ class TestIntegrityErrorClassifier:
             constraint_name = None
 
             def __str__(self):
-                return 'duplicate key value violates unique constraint "scripts_scenario_id_key_backup"'  # noqa: E501
+                return 'duplicate key value violates unique constraint "scripts_scenario_id_key_backup"'
 
         exc = IntegrityError("", {}, FakeOrig())
         assert is_scenario_script_unique_violation(exc) is False

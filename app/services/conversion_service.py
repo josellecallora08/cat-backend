@@ -83,6 +83,7 @@ def is_scenario_script_unique_violation(exc: IntegrityError) -> bool:
     # 3. Message-only fallback: parse the quoted constraint identifier
     #    PostgreSQL format: ... unique constraint "constraint_name"
     import re
+
     orig_msg = str(orig)
     match = re.search(r'"([^"]+)"', orig_msg)
     if match:
@@ -99,6 +100,7 @@ def is_scenario_script_unique_violation(exc: IntegrityError) -> bool:
 @dataclass
 class ConversionSuccess:
     """Successful conversion result."""
+
     upload_id: UUID
     script_id: UUID
     scenario_id: UUID
@@ -107,6 +109,7 @@ class ConversionSuccess:
 @dataclass
 class ConversionConflict:
     """Conflict: upload already converted or scenario already has a script."""
+
     error: str  # "already_converted" or "scenario_has_script"
     message: str
     existing_script_id: UUID | None = None
@@ -115,6 +118,7 @@ class ConversionConflict:
 @dataclass
 class ConversionRejection:
     """Eligibility or validation rejection."""
+
     error: str  # "upload_ineligible" or "conversion_failed"
     message: str
     details: dict | None = None
@@ -147,18 +151,12 @@ async def convert_upload_to_script_draft(
         ConversionInternalError: Unrecoverable DB error after rollback.
     """
     # 1. Load and lock upload row
-    stmt = (
-        select(ScriptUpload)
-        .where(ScriptUpload.id == upload_id)
-        .with_for_update()
-    )
+    stmt = select(ScriptUpload).where(ScriptUpload.id == upload_id).with_for_update()
     result = await db.execute(stmt)
     upload = result.scalar_one_or_none()
 
     if upload is None:
-        return ConversionRejection(
-            error="not_found", message="Upload not found"
-        )
+        return ConversionRejection(error="not_found", message="Upload not found")
 
     # 2. Duplicate conversion check (under lock)
     if upload.script_id is not None:
@@ -175,9 +173,8 @@ async def convert_upload_to_script_draft(
 
     # 4. Validate scenario exists
     from app.models import Scenario
-    scenario_result = await db.execute(
-        select(Scenario).where(Scenario.id == upload.scenario_id)
-    )
+
+    scenario_result = await db.execute(select(Scenario).where(Scenario.id == upload.scenario_id))
     if scenario_result.scalar_one_or_none() is None:
         return ConversionRejection(
             error="upload_ineligible",
@@ -337,19 +334,39 @@ def _check_eligibility(upload: ScriptUpload) -> ConversionRejection | None:
     if upload.status == UploadStatus.DELETED.value:
         return ConversionRejection(error="upload_ineligible", message="Upload has been deleted.")
     if upload.scan_status == "infected":
-        return ConversionRejection(error="upload_ineligible", message="Upload is infected and cannot be converted.")
+        return ConversionRejection(
+            error="upload_ineligible", message="Upload is infected and cannot be converted."
+        )
     if upload.scan_status == "error":
-        return ConversionRejection(error="upload_ineligible", message="Upload scan failed and cannot be converted.")
+        return ConversionRejection(
+            error="upload_ineligible", message="Upload scan failed and cannot be converted."
+        )
     if upload.scan_status == "pending":
-        return ConversionRejection(error="upload_ineligible", message="Upload scan is still pending.")
+        return ConversionRejection(
+            error="upload_ineligible", message="Upload scan is still pending."
+        )
     if upload.scan_status != "clean":
-        return ConversionRejection(error="upload_ineligible", message=f"Upload scan status '{upload.scan_status}' is not eligible for conversion.")
+        return ConversionRejection(
+            error="upload_ineligible",
+            message=f"Upload scan status '{upload.scan_status}' is not eligible for conversion.",
+        )
     if upload.extraction_status != "completed":
-        return ConversionRejection(error="upload_ineligible", message=f"Extraction status '{upload.extraction_status}' is not eligible for conversion.")
+        return ConversionRejection(
+            error="upload_ineligible",
+            message=f"Extraction status '{upload.extraction_status}' is not eligible for conversion.",
+        )
     if upload.status != UploadStatus.COMPLETED.value:
-        return ConversionRejection(error="upload_ineligible", message=f"Upload status '{upload.status}' is not eligible for conversion. Must be 'completed'.")
+        return ConversionRejection(
+            error="upload_ineligible",
+            message=f"Upload status '{upload.status}' is not eligible for conversion. Must be 'completed'.",
+        )
     if not upload.extracted_content or not upload.extracted_content.strip():
-        return ConversionRejection(error="upload_ineligible", message="Upload has no extracted content available.")
+        return ConversionRejection(
+            error="upload_ineligible", message="Upload has no extracted content available."
+        )
     if upload.scenario_id is None:
-        return ConversionRejection(error="upload_ineligible", message="Upload has no scenario_id. A valid scenario is required for conversion.")
+        return ConversionRejection(
+            error="upload_ineligible",
+            message="Upload has no scenario_id. A valid scenario is required for conversion.",
+        )
     return None

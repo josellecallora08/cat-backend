@@ -89,6 +89,7 @@ class TestUploadAuth:
 
         async def mock_reject():
             from fastapi import HTTPException
+
             raise HTTPException(status_code=403, detail="Admin access required")
 
         app.dependency_overrides[require_admin] = mock_reject
@@ -123,6 +124,7 @@ class TestUploadAuth:
 
         async def mock_reject():
             from fastapi import HTTPException
+
             raise HTTPException(status_code=403, detail="Admin access required")
 
         app.dependency_overrides[require_admin] = mock_reject
@@ -140,6 +142,7 @@ class TestUploadAuth:
 
         async def mock_reject():
             from fastapi import HTTPException
+
             raise HTTPException(status_code=403, detail="Admin access required")
 
         app.dependency_overrides[require_admin] = mock_reject
@@ -161,10 +164,12 @@ class TestUploadValidation:
         from app.services.auth import require_admin
 
         mock_db = _mock_db_session()
+
         # Make refresh set created_at on the record
         async def _refresh(obj):
-            if not hasattr(obj, 'created_at') or obj.created_at is None:
+            if not hasattr(obj, "created_at") or obj.created_at is None:
                 obj.created_at = datetime.now(UTC)
+
         mock_db.refresh = AsyncMock(side_effect=_refresh)
 
         app.dependency_overrides[require_admin] = lambda: admin_user
@@ -266,8 +271,9 @@ class TestUploadValidation:
         mock_db.execute = AsyncMock(return_value=mock_scenario_result)
 
         async def _refresh(obj):
-            if not hasattr(obj, 'created_at') or obj.created_at is None:
+            if not hasattr(obj, "created_at") or obj.created_at is None:
                 obj.created_at = datetime.now(UTC)
+
         mock_db.refresh = AsyncMock(side_effect=_refresh)
 
         app.dependency_overrides[require_admin] = lambda: admin_user
@@ -281,7 +287,9 @@ class TestUploadValidation:
                     with patch("app.api.uploads.extract_content") as mock_extract:
                         mock_extract.return_value = "extracted content"
                         transport = ASGITransport(app=app)
-                        async with AsyncClient(transport=transport, base_url="http://test") as client:
+                        async with AsyncClient(
+                            transport=transport, base_url="http://test"
+                        ) as client:
                             resp = await client.post(
                                 "/api/scripts/upload",
                                 data={"scenario_id": str(fake_scenario_id)},
@@ -341,6 +349,7 @@ class TestDatabaseErrorHandling:
 
         async def _refresh(obj):
             obj.created_at = datetime.now(UTC)
+
         mock_db.refresh = AsyncMock(side_effect=_refresh)
 
         app.dependency_overrides[require_admin] = lambda: admin_user
@@ -354,7 +363,9 @@ class TestDatabaseErrorHandling:
                     with patch("app.api.uploads.extract_content") as mock_extract:
                         mock_extract.return_value = "text"
                         transport = ASGITransport(app=app)
-                        async with AsyncClient(transport=transport, base_url="http://test") as client:
+                        async with AsyncClient(
+                            transport=transport, base_url="http://test"
+                        ) as client:
                             resp = await client.post(
                                 "/api/scripts/upload",
                                 files={"file": ("doc.pdf", b"%PDF-1.4 x", "application/pdf")},

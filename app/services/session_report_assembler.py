@@ -7,6 +7,7 @@ recommendations, coaching grouping, or learning-plan ranking).
 """
 
 import hashlib
+import itertools
 import json
 from datetime import UTC, datetime
 from uuid import UUID
@@ -105,9 +106,7 @@ def _build_summary(session: Session) -> SessionReportSummary:
     if standard_id is not None:
         _require_uuid(standard_id, "standard_id")
 
-    duration_seconds = (
-        (ended_at - created_at).total_seconds() if ended_at is not None else None
-    )
+    duration_seconds = (ended_at - created_at).total_seconds() if ended_at is not None else None
     if duration_seconds is not None and duration_seconds < 0:
         raise ValueError("duration_seconds must be non-negative")
 
@@ -124,9 +123,7 @@ def _build_summary(session: Session) -> SessionReportSummary:
         duration_seconds=duration_seconds,
         standard_id=standard_id,
         standard_version_id=standard_version_id,
-        standard_version_number=(
-            version.version_number if version is not None else None
-        ),
+        standard_version_number=(version.version_number if version is not None else None),
         standard_name=standard.name if standard is not None else None,
     )
 
@@ -146,7 +143,9 @@ def _transcript_index(
         if transcript_id in seen_ids:
             raise ValueError("duplicate transcript identity")
         seen_ids.add(transcript_id)
-        timestamp = _require_timestamp(getattr(transcript, "timestamp_ms", None), "transcript timestamp")
+        timestamp = _require_timestamp(
+            getattr(transcript, "timestamp_ms", None), "transcript timestamp"
+        )
         text = getattr(transcript, "utterance_text", None)
         if not isinstance(text, str) or not text.strip():
             raise ValueError("transcript text is missing or invalid")
@@ -171,7 +170,7 @@ def _transcript_index(
 
     entries.sort(key=lambda entry: entry.sequence_number)
     sequences = [entry.sequence_number for entry in entries]
-    if any(left >= right for left, right in zip(sequences, sequences[1:])):
+    if any(left >= right for left, right in itertools.pairwise(sequences)):
         raise ValueError("transcript sequence numbers must be strictly increasing")
     return {entry.sequence_number: entry for entry in entries}
 
@@ -212,10 +211,18 @@ def _validate_pinned_version(obj: object, session: Session) -> None:
     version_id = getattr(obj, "standard_version_id", None)
     if version_id is not None and expected_id is not None and version_id != expected_id:
         raise ValueError("artifact standard version does not match the pinned session standard")
-    expected_version = getattr(getattr(session, "negotiation_standard_version", None), "version_number", None)
+    expected_version = getattr(
+        getattr(session, "negotiation_standard_version", None), "version_number", None
+    )
     version_number = getattr(obj, "standard_version_number", None)
-    if version_number is not None and expected_version is not None and version_number != expected_version:
-        raise ValueError("artifact standard version number does not match the pinned session standard")
+    if (
+        version_number is not None
+        and expected_version is not None
+        and version_number != expected_version
+    ):
+        raise ValueError(
+            "artifact standard version number does not match the pinned session standard"
+        )
 
 
 def _validate_canonical_references(
@@ -295,8 +302,14 @@ def _build_evaluation_section(
     if session is not None:
         expected_version_id = getattr(session, "negotiation_standard_version_id", None)
         evaluation_version_id = getattr(evaluation, "negotiation_standard_version_id", None)
-        if evaluation_version_id is not None and expected_version_id is not None and evaluation_version_id != expected_version_id:
-            raise ValueError("evaluation standard version does not match the pinned session standard")
+        if (
+            evaluation_version_id is not None
+            and expected_version_id is not None
+            and evaluation_version_id != expected_version_id
+        ):
+            raise ValueError(
+                "evaluation standard version does not match the pinned session standard"
+            )
 
     rubric_result = evaluation.rubric_result
     if rubric_result is not None and not isinstance(rubric_result, dict):
@@ -311,16 +324,29 @@ def _build_evaluation_section(
     standard_version_number = getattr(version, "version_number", None)
     if session is not None and version is not None:
         _validate_pinned_version(
-            type("VersionReference", (), {
-                "standard_version_id": getattr(version, "id", None),
-                "standard_version_number": standard_version_number,
-            })(),
+            type(
+                "VersionReference",
+                (),
+                {
+                    "standard_version_id": getattr(version, "id", None),
+                    "standard_version_number": standard_version_number,
+                },
+            )(),
             session,
         )
 
     if evaluation.is_too_short:
-        if has_canonical or evaluation.category_scores or any(
-            value is not None for value in (evaluation.weighted_total, evaluation.passing_score, evaluation.passed)
+        if (
+            has_canonical
+            or evaluation.category_scores
+            or any(
+                value is not None
+                for value in (
+                    evaluation.weighted_total,
+                    evaluation.passing_score,
+                    evaluation.passed,
+                )
+            )
         ):
             raise ValueError("too-short evaluation contains scored data")
         return EvaluationSection(
@@ -332,14 +358,25 @@ def _build_evaluation_section(
 
     if has_canonical:
         canonical = CanonicalEvaluationResult.model_validate(rubric_result)
-        if canonical.status == "evaluated" and any(category.raw_score is None for category in canonical.categories):
+        if canonical.status == "evaluated" and any(
+            category.raw_score is None for category in canonical.categories
+        ):
             raise ValueError("evaluated canonical results require scores")
-        if canonical.status == "not_applicable" and any(category.raw_score is not None for category in canonical.categories):
+        if canonical.status == "not_applicable" and any(
+            category.raw_score is not None for category in canonical.categories
+        ):
             raise ValueError("not-applicable canonical results must not contain scores")
         if transcripts is not None:
             _validate_canonical_references(canonical, transcript_by_sequence)
         if canonical.status == "not_applicable":
-            if any(value is not None for value in (evaluation.weighted_total, evaluation.passing_score, evaluation.passed)):
+            if any(
+                value is not None
+                for value in (
+                    evaluation.weighted_total,
+                    evaluation.passing_score,
+                    evaluation.passed,
+                )
+            ):
                 raise ValueError("not-applicable evaluation contains scored outcome fields")
             return EvaluationSection(
                 available=True,
@@ -370,8 +407,7 @@ def _build_evaluation_section(
         raise ValueError("duplicate legacy evaluation category identity")
     legacy = LegacyEvaluationResult(
         category_scores=[
-            {**cs, "category": EvaluationCategory(cs["category"])}
-            for cs in category_scores
+            {**cs, "category": EvaluationCategory(cs["category"])} for cs in category_scores
         ],
         overall_score=evaluation.overall_score,
         strengths=[
@@ -509,7 +545,11 @@ def _build_learning_plan_section(
     items: list[LearningPlanItem] = []
     identities: set[tuple[str, str]] = set()
     canonical_blocks: dict[str, set[str]] = {}
-    if evaluation is not None and evaluation.rubric_result and evaluation.rubric_result.get("categories"):
+    if (
+        evaluation is not None
+        and evaluation.rubric_result
+        and evaluation.rubric_result.get("categories")
+    ):
         for category in evaluation.rubric_result["categories"]:
             block_id = category.get("rubric_block_id")
             canonical_blocks[block_id] = set(category.get("failed_criteria") or [])
@@ -522,7 +562,11 @@ def _build_learning_plan_section(
         if (item.rubric_block_id is None) != (item.criterion_id is None):
             raise ValueError("learning-plan rubric block and criterion must be paired")
         if item.rubric_block_id is not None:
-            if not item.rubric_block_id.strip() or not item.criterion_id or not item.criterion_id.strip():
+            if (
+                not item.rubric_block_id.strip()
+                or not item.criterion_id
+                or not item.criterion_id.strip()
+            ):
                 raise ValueError("learning-plan rubric identity is invalid")
             identity = (item.rubric_block_id, item.criterion_id)
             if identity in identities:

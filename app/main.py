@@ -73,7 +73,7 @@ async def _fix_orphaned_sessions():
     async with async_session_factory() as db:
         # Get all valid user IDs
         user_result = await db.execute(select(User.id))
-        valid_user_ids = set(row[0] for row in user_result.all())
+        valid_user_ids = {row[0] for row in user_result.all()}
 
         if not valid_user_ids:
             return

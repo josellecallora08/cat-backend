@@ -39,9 +39,7 @@ def _content() -> dict:
                         "evidence_instructions": "Cite the wording.",
                     }
                 ],
-                "penalties": [
-                    {"violation_id": "rude-tone", "deduction": 10, "max_occurrences": 1}
-                ],
+                "penalties": [{"violation_id": "rude-tone", "deduction": 10, "max_occurrences": 1}],
                 "recommendation_guidance": "Use respectful language.",
                 "display_order": 0,
             }

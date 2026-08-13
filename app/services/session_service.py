@@ -123,9 +123,7 @@ async def create_session(
     if scenario is None:
         raise ValueError(f"Scenario with id {scenario_id} not found or inactive")
 
-    standard_version = await _resolve_published_version(
-        db, scenario_id, agent_id, campaign_id
-    )
+    standard_version = await _resolve_published_version(db, scenario_id, agent_id, campaign_id)
     script_version = await get_active_published_version(db, scenario_id)
 
     scenario_data = {
@@ -138,9 +136,7 @@ async def create_session(
     # waiting on the external LLM; otherwise each concurrent session creation
     # holds a database connection for the full LLM timeout.
     script_version_id = script_version.id if script_version is not None else None
-    negotiation_standard_version_id = (
-        standard_version.id if standard_version is not None else None
-    )
+    negotiation_standard_version_id = standard_version.id if standard_version is not None else None
     await db.close()
 
     persona: PersonaContext = await _generate_persona_with_fallback(
@@ -215,11 +211,7 @@ async def get_session(db: AsyncSession, session_id: UUID) -> Session | None:
     Returns:
         The Session if found, otherwise None.
     """
-    stmt = (
-        select(Session)
-        .options(selectinload(Session.campaign))
-        .where(Session.id == session_id)
-    )
+    stmt = select(Session).options(selectinload(Session.campaign)).where(Session.id == session_id)
     result = await db.execute(stmt)
     return result.scalar_one_or_none()
 

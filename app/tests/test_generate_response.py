@@ -129,7 +129,9 @@ class TestGenerateResponse:
         self, mock_llm_service: AsyncMock, sample_persona: PersonaContext
     ):
         service = DebtorSimulatorService(llm_service=mock_llm_service)
-        result = await service.generate_response(sample_persona, "Hi, I'm calling about your balance.")
+        result = await service.generate_response(
+            sample_persona, "Hi, I'm calling about your balance."
+        )
 
         assert isinstance(result, SimulatorResponse)
         assert result.text != ""

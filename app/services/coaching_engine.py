@@ -202,12 +202,10 @@ class CoachingEngine:
                     else block.get("display_order", 0)
                 ),
                 "standard_version_id": (
-                    recommendation.standard_version_id
-                    or evaluation.negotiation_standard_version_id
+                    recommendation.standard_version_id or evaluation.negotiation_standard_version_id
                 ),
                 "standard_version_number": (
-                    recommendation.standard_version_number
-                    or evaluation.standard_version_number
+                    recommendation.standard_version_number or evaluation.standard_version_number
                 ),
             }
         )
@@ -222,8 +220,7 @@ class CoachingEngine:
             evaluation.standard_version_number,
         )
         blocks_by_id = {
-            block.get("id"): block
-            for block in evaluation.standard_snapshot.get("blocks", [])
+            block.get("id"): block for block in evaluation.standard_snapshot.get("blocks", [])
         }
         recommendations_by_block: dict[str, list[RubricRecommendation]] = {}
         for recommendation in recommendations:
@@ -257,9 +254,7 @@ class CoachingEngine:
             rubric_recommendations_by_block=recommendations_by_block,
         )
 
-    def _build_user_prompt(
-        self, transcript: list[dict], evaluation: EvaluationResult
-    ) -> str:
+    def _build_user_prompt(self, transcript: list[dict], evaluation: EvaluationResult) -> str:
         """Build the user prompt combining transcript and evaluation context.
 
         Args:
@@ -283,7 +278,7 @@ class CoachingEngine:
             weakness_lines.append(
                 f"- Category: {weakness.category.value}, "
                 f"Issue: {weakness.description}, "
-                f"Excerpt: \"{weakness.transcript_excerpt}\""
+                f'Excerpt: "{weakness.transcript_excerpt}"'
             )
         weaknesses_text = "\n".join(weakness_lines) if weakness_lines else "None identified"
 
@@ -301,9 +296,7 @@ class CoachingEngine:
             f"Please identify specific mistakes in the transcript based on the weaknesses above."
         )
 
-    async def _persist_report(
-        self, session_id: UUID, report: CoachingReportSchema, db
-    ) -> None:
+    async def _persist_report(self, session_id: UUID, report: CoachingReportSchema, db) -> None:
         """Persist the coaching report to the database with retry logic.
 
         Args:
@@ -320,11 +313,12 @@ class CoachingEngine:
                 for category, items in report.mistakes_by_category.items()
             }
             if report.rubric_coaching is not None:
-                serialized_mistakes["_rubric_coaching"] = report.rubric_coaching.model_dump(mode="json")
+                serialized_mistakes["_rubric_coaching"] = report.rubric_coaching.model_dump(
+                    mode="json"
+                )
             if report.rubric_recommendations:
                 serialized_mistakes["_rubric_recommendations"] = [
-                    item.model_dump(mode="json")
-                    for item in report.rubric_recommendations
+                    item.model_dump(mode="json") for item in report.rubric_recommendations
                 ]
                 serialized_mistakes["_rubric_recommendations_by_block"] = {
                     block_id: [item.model_dump(mode="json") for item in items]

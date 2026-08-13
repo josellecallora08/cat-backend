@@ -44,9 +44,7 @@ class TranscriptionResult:
 class STTServiceProtocol(Protocol):
     """Protocol for STT service implementations, enabling easy mocking."""
 
-    def transcribe(
-        self, audio: bytes, *, language: str | None = None
-    ) -> TranscriptionResult:
+    def transcribe(self, audio: bytes, *, language: str | None = None) -> TranscriptionResult:
         """Transcribe a PCM 16kHz audio buffer to text.
 
         Args:
@@ -90,8 +88,7 @@ class STTService:
             from faster_whisper import WhisperModel
         except ImportError as e:
             raise RuntimeError(
-                "faster-whisper is not installed. "
-                "Install it with: pip install faster-whisper"
+                "faster-whisper is not installed. Install it with: pip install faster-whisper"
             ) from e
 
         logger.info(
@@ -116,9 +113,7 @@ class STTService:
         duration_seconds = len(audio) / bytes_per_second
         return int(duration_seconds * 1000)
 
-    def transcribe(
-        self, audio: bytes, *, language: str | None = None
-    ) -> TranscriptionResult:
+    def transcribe(self, audio: bytes, *, language: str | None = None) -> TranscriptionResult:
         """Transcribe a PCM 16kHz audio buffer to text.
 
         Args:
@@ -177,9 +172,7 @@ class STTService:
         full_text = " ".join(text_parts).strip()
 
         # Calculate average confidence
-        avg_confidence = (
-            sum(confidences) / len(confidences) if confidences else 0.0
-        )
+        avg_confidence = sum(confidences) / len(confidences) if confidences else 0.0
 
         # Determine detected language
         detected_language = info.language if info.language else "en"
@@ -253,9 +246,7 @@ class MockSTTService:
         duration_seconds = len(audio) / bytes_per_second
         return int(duration_seconds * 1000)
 
-    def transcribe(
-        self, audio: bytes, *, language: str | None = None
-    ) -> TranscriptionResult:
+    def transcribe(self, audio: bytes, *, language: str | None = None) -> TranscriptionResult:
         """Return a mock transcription result.
 
         Args:

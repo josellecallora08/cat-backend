@@ -8,7 +8,7 @@ Requirements: 3.2
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+from typing import TYPE_CHECKING
 
 import pytest
 
@@ -20,6 +20,10 @@ from app.services.voice.tts_service import (
     TTSSynthesisError,
     _split_sentences,
 )
+
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
 
 
 # --- Helpers ---

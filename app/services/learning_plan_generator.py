@@ -106,8 +106,7 @@ class LearningPlanGenerator:
         snapshot = evaluation.standard_snapshot or {}
         blocks = {block.get("id"): block for block in snapshot.get("blocks", [])}
         display_order = {
-            block_id: block.get("display_order", 0)
-            for block_id, block in blocks.items()
+            block_id: block.get("display_order", 0) for block_id, block in blocks.items()
         }
         ranked = sorted(
             canonical.categories,
@@ -121,8 +120,7 @@ class LearningPlanGenerator:
         items: list[LearningPlanItem] = []
         for category in ranked:
             criteria = sorted(
-                set(category.failed_criteria)
-                | {item.violation_id for item in category.violations}
+                set(category.failed_criteria) | {item.violation_id for item in category.violations}
             )
             if category.passed and not criteria:
                 continue
@@ -130,9 +128,7 @@ class LearningPlanGenerator:
             score = category.penalized_score or 0
             block = blocks.get(category.rubric_block_id, {})
             for criterion_id in targets:
-                focus = self._build_practice_focus(
-                    category.category, criterion_id, block
-                )
+                focus = self._build_practice_focus(category.category, criterion_id, block)
                 items.append(
                     LearningPlanItem(
                         category=category.category,
@@ -151,9 +147,7 @@ class LearningPlanGenerator:
         )
 
     @staticmethod
-    def _build_practice_focus(
-        category_name: str, criterion_id: str | None, block: dict
-    ) -> str:
+    def _build_practice_focus(category_name: str, criterion_id: str | None, block: dict) -> str:
         """Build actionable focus from the pinned rubric, never from a CTA."""
         if criterion_id:
             criterion = next(
@@ -166,9 +160,7 @@ class LearningPlanGenerator:
                 {},
             )
             criterion_name = criterion.get("name", criterion_id)
-            detail = criterion.get("evidence_instructions") or criterion.get(
-                "description", ""
-            )
+            detail = criterion.get("evidence_instructions") or criterion.get("description", "")
             focus = f"Practice {criterion_name} ({criterion_id})."
             if detail:
                 focus += f" Focus on {detail}"
@@ -269,9 +261,7 @@ class LearningPlanGenerator:
             learning_plan = LearningPlan(
                 session_id=session_id,
                 agent_id=agent_id,
-                weak_competencies=[
-                    item.model_dump(mode="json") for item in plan.weak_competencies
-                ],
+                weak_competencies=[item.model_dump(mode="json") for item in plan.weak_competencies],
                 all_passing=plan.all_passing,
             )
             db.add(learning_plan)

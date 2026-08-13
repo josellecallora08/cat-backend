@@ -63,15 +63,12 @@ def is_rate_limited(user_id: str) -> bool:
 
     with _tracker_lock:
         # Check cooldown first
-        if user_id in _cooldown_tracker:
-            if _cooldown_tracker[user_id] > now:
-                return True
+        if user_id in _cooldown_tracker and _cooldown_tracker[user_id] > now:
+            return True
 
         # Check sliding window
         if user_id in _rejection_tracker:
-            window_start = now - timedelta(
-                minutes=settings.upload_rejection_window_minutes
-            )
+            window_start = now - timedelta(minutes=settings.upload_rejection_window_minutes)
             recent = [t for t in _rejection_tracker[user_id] if t > window_start]
             if len(recent) >= settings.upload_rejection_max_attempts:
                 return True
@@ -104,16 +101,12 @@ def get_retry_after(user_id: str) -> int:
 
         # Check sliding window
         if user_id in _rejection_tracker:
-            window_start = now - timedelta(
-                minutes=settings.upload_rejection_window_minutes
-            )
+            window_start = now - timedelta(minutes=settings.upload_rejection_window_minutes)
             recent = sorted(t for t in _rejection_tracker[user_id] if t > window_start)
             if len(recent) >= settings.upload_rejection_max_attempts:
                 # Oldest entry in window — when it expires, a slot opens
                 oldest = recent[0]
-                expires_at = oldest + timedelta(
-                    minutes=settings.upload_rejection_window_minutes
-                )
+                expires_at = oldest + timedelta(minutes=settings.upload_rejection_window_minutes)
                 return int((expires_at - now).total_seconds()) + 1
 
         return 0

@@ -4,7 +4,6 @@ Tests classify_agent_tone() and transition_emotional_state() functions.
 Validates Requirements 2.3 and 2.4.
 """
 
-
 from app.services.debtor_simulator import (
     AgentTone,
     EmotionalState,
@@ -49,7 +48,9 @@ class TestClassifyAgentTone:
 
     def test_mixed_signals_more_aggressive(self):
         # More aggressive keywords than empathetic
-        message = "I understand, but you must pay immediately or face consequences and legal action."
+        message = (
+            "I understand, but you must pay immediately or face consequences and legal action."
+        )
         assert classify_agent_tone(message) == AgentTone.AGGRESSIVE
 
     def test_equal_signals_returns_neutral(self):

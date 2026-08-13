@@ -99,9 +99,7 @@ async def register(body: RegisterRequest, db: AsyncSession = Depends(get_session
 
     # Validate role
     if body.role not in (UserRole.ADMIN.value, UserRole.USER.value):
-        raise HTTPException(
-            status_code=400, detail="Invalid role. Must be 'admin' or 'user'"
-        )
+        raise HTTPException(status_code=400, detail="Invalid role. Must be 'admin' or 'user'")
 
     # Determine user_type for non-admin registrations
     user_type = UserType.AGENT.value if body.role == UserRole.USER.value else None
@@ -166,11 +164,7 @@ async def login(
     result = await db.execute(stmt)
     user = result.scalar_one_or_none()
 
-    if (
-        not user
-        or not user.hashed_password
-        or not verify_password(password, user.hashed_password)
-    ):
+    if not user or not user.hashed_password or not verify_password(password, user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password",

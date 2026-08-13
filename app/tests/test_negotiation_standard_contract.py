@@ -71,7 +71,9 @@ def test_valid_contract_accepts_numeric_boundaries() -> None:
                 scoring_instructions="Score the observed behavior.",
                 positive_behaviors=[RubricCriterion(**_criterion())],
                 violations=[RubricViolation(**_violation())],
-                penalties=[RubricPenalty(violation_id="legal-threat", deduction=0, max_occurrences=0)],
+                penalties=[
+                    RubricPenalty(violation_id="legal-threat", deduction=0, max_occurrences=0)
+                ],
                 recommendation_guidance="Use a safer alternative.",
                 display_order=0,
             )
@@ -84,7 +86,9 @@ def test_valid_contract_accepts_numeric_boundaries() -> None:
     assert result.weight_total == 100
 
 
-@pytest.mark.parametrize("field,value", [("weight", -1), ("weight", 101), ("passing_score", -1), ("passing_score", 101)])
+@pytest.mark.parametrize(
+    "field,value", [("weight", -1), ("weight", 101), ("passing_score", -1), ("passing_score", 101)]
+)
 def test_numeric_boundaries_are_rejected(field: str, value: int) -> None:
     block = _block("opening", 100)
     block[field] = value

@@ -187,6 +187,7 @@ async def assign_script_endpoint(
     if script is None:
         raise HTTPException(status_code=404, detail="Script not found")
     from app.models import Scenario
+
     scenario = await db.get(Scenario, body.scenario_id)
     if scenario is None:
         raise HTTPException(status_code=404, detail="Scenario not found")

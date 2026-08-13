@@ -1,4 +1,5 @@
 """S1-08: Extraction hardening tests — encoding, CSV, Markdown, HTML."""
+
 import csv
 import io
 from unittest.mock import patch
@@ -25,6 +26,7 @@ from app.services.upload_extractor import (
 
 
 # ═══ BOM Handling ═════════════════════════════════════════════════════════
+
 
 class TestBomHandling:
     """BOMs are consumed; decoded text never starts with U+FEFF from BOM."""
@@ -64,7 +66,7 @@ class TestBomHandling:
 
     def test_embedded_feff_not_stripped(self):
         """U+FEFF in non-BOM position is preserved."""
-        raw = "A\ufeffB".encode("utf-8")
+        raw = "A\ufeffB".encode()
         result = _normalize_encoding(raw)
         assert "\ufeff" in result
 
@@ -107,6 +109,7 @@ class TestBomCsvFormulaProbes:
 
 
 # ═══ Encoding Detection ═══════════════════════════════════════════════════
+
 
 class TestEncodingDetection:
     """Encoding normalization: short inputs, chardet, fallback."""
@@ -177,6 +180,7 @@ class TestChardetConfidence:
 
 # ═══ Control Chars ════════════════════════════════════════════════════════
 
+
 class TestControlChars:
     def test_null_removed(self):
         assert _strip_control_chars("A\x00B") == "AB"
@@ -199,6 +203,7 @@ class TestControlChars:
 
 # ═══ CSV Serialization ════════════════════════════════════════════════════
 
+
 class TestCsvSerialization:
     """csv.writer preserves cell boundaries through round-trip."""
 
@@ -216,21 +221,24 @@ class TestCsvSerialization:
 
     def test_multiple_commas(self, tmp_path):
         path = tmp_path / "c.csv"
-        buf = io.StringIO(); csv.writer(buf).writerow(["a,b,c,d"])
+        buf = io.StringIO()
+        csv.writer(buf).writerow(["a,b,c,d"])
         path.write_text(buf.getvalue())
         rows = list(csv.reader(io.StringIO(extract_csv(path))))
         assert rows[0] == ["a,b,c,d"]
 
     def test_double_quotes(self, tmp_path):
         path = tmp_path / "dq.csv"
-        buf = io.StringIO(); csv.writer(buf).writerow(['He said "hi"'])
+        buf = io.StringIO()
+        csv.writer(buf).writerow(['He said "hi"'])
         path.write_text(buf.getvalue())
         rows = list(csv.reader(io.StringIO(extract_csv(path))))
         assert rows[0][0] == 'He said "hi"'
 
     def test_embedded_newline(self, tmp_path):
         path = tmp_path / "nl.csv"
-        buf = io.StringIO(); csv.writer(buf).writerow(["line1\nline2"])
+        buf = io.StringIO()
+        csv.writer(buf).writerow(["line1\nline2"])
         path.write_text(buf.getvalue())
         rows = list(csv.reader(io.StringIO(extract_csv(path))))
         assert len(rows) == 1
@@ -238,7 +246,8 @@ class TestCsvSerialization:
 
     def test_empty_cells(self, tmp_path):
         path = tmp_path / "e.csv"
-        buf = io.StringIO(); csv.writer(buf).writerow(["a", "", "b", ""])
+        buf = io.StringIO()
+        csv.writer(buf).writerow(["a", "", "b", ""])
         path.write_text(buf.getvalue())
         rows = list(csv.reader(io.StringIO(extract_csv(path))))
         assert rows[0] == ["a", "", "b", ""]
@@ -246,13 +255,15 @@ class TestCsvSerialization:
     def test_round_trip(self, tmp_path):
         path = tmp_path / "rt.csv"
         original = [["name", "note"], ["Alice", "has, comma"], ["Bob", 'says "hi"']]
-        buf = io.StringIO(); csv.writer(buf).writerows(original)
+        buf = io.StringIO()
+        csv.writer(buf).writerows(original)
         path.write_text(buf.getvalue())
         rows = list(csv.reader(io.StringIO(extract_csv(path))))
         assert rows == original
 
 
 # ═══ CSV Size Limits (UTF-8 Bytes) ════════════════════════════════════════
+
 
 class TestCsvByteLimits:
     """Size limit enforced in UTF-8 bytes, not characters."""
@@ -298,7 +309,8 @@ class TestCsvByteLimits:
     def test_quoting_in_byte_count(self, tmp_path):
         path = tmp_path / "qt.csv"
         # Cell "a,b" quoted becomes '"a,b"\r\n' = 7 bytes
-        buf = io.StringIO(); csv.writer(buf).writerow(["a,b"])
+        buf = io.StringIO()
+        csv.writer(buf).writerow(["a,b"])
         path.write_text(buf.getvalue())
         with pytest.raises(ExtractionError, match="size limit"):
             extract_csv(path, max_bytes=6)
@@ -306,17 +318,31 @@ class TestCsvByteLimits:
 
 # ═══ CSV Formula Neutralization ═══════════════════════════════════════════
 
+
 class TestFormulaNeutralization:
-    @pytest.mark.parametrize("cell,expect_prefix", [
-        ("=CMD()", True), ("+100", True), ("-50", True),
-        ("@SUM(1,2)", True), ("|cmd", True),
-        ("\t=CMD()", True), (" =CMD()", True), ("  @SUM(1,2)", True),
-        ("\r=CMD()", True), ("\n=CMD()", True), (" \t =CMD()", True),
-        ("\u00a0=CMD()", True),  # NBSP
-        ("\ufeff=CMD()", True),  # BOM artifact
-        ("Normal", False), ("123", False), ("", False),
-        ("   ", False), ("'quoted", False),
-    ])
+    @pytest.mark.parametrize(
+        "cell,expect_prefix",
+        [
+            ("=CMD()", True),
+            ("+100", True),
+            ("-50", True),
+            ("@SUM(1,2)", True),
+            ("|cmd", True),
+            ("\t=CMD()", True),
+            (" =CMD()", True),
+            ("  @SUM(1,2)", True),
+            ("\r=CMD()", True),
+            ("\n=CMD()", True),
+            (" \t =CMD()", True),
+            ("\u00a0=CMD()", True),  # NBSP
+            ("\ufeff=CMD()", True),  # BOM artifact
+            ("Normal", False),
+            ("123", False),
+            ("", False),
+            ("   ", False),
+            ("'quoted", False),
+        ],
+    )
     def test_neutralization(self, cell, expect_prefix):
         result = _neutralize_csv_cell(cell)
         if expect_prefix:
@@ -336,45 +362,51 @@ class TestFormulaNeutralization:
 
 # ═══ Markdown URI Normalization ═══════════════════════════════════════════
 
+
 class TestMarkdownUri:
-    @pytest.mark.parametrize("uri,dangerous", [
-        ("data:text/html,hello", True),
-        ("data:text/html;base64,abc", True),
-        ("DaTa:image/svg+xml,x", True),
-        ("javascript:alert(1)", True),
-        ("JaVaScRiPt:void(0)", True),
-        ("vbscript:x", True),
-        ("file:///etc/passwd", True),
-        (" javascript:x", True),
-        ("java%73cript:alert(1)", True),      # percent-encoded 's'
-        ("javascript%3Aalert(1)", True),       # percent-encoded ':'
-        ("javascript%253Aalert(1)", True),     # double-encoded ':'
-        ("javascript%2525253Aalert(1)", True), # 4-level encoded ':'
-        ("javascript&#58;alert(1)", True),     # HTML entity ':'
-        ("javascript&#00058;alert(1)", True),  # padded entity
-        ("javascript&#x3a;alert(1)", True),    # hex entity
-        # Embedded whitespace/control in scheme
-        ("java\tscript:alert(1)", True),
-        ("java\nscript:alert(1)", True),
-        ("java\rscript:alert(1)", True),
-        ("java%09script:alert(1)", True),
-        ("java%0Ascript:alert(1)", True),
-        ("java%0Dscript:alert(1)", True),
-        ("java&#9;script:alert(1)", True),
-        ("java&#10;script:alert(1)", True),
-        ("java&#13;script:alert(1)", True),
-        ("vb%0Ascript:x", True),
-        ("da%0Dta:text/html,x", True),
-        ("fi&#9;le:///etc/passwd", True),
-        # Safe
-        ("https://safe.com", False),
-        ("http://example.org", False),
-        ("mailto:u@x.com", False),
-        ("/relative", False), ("#frag", False), ("./x.md", False),
-        ("https://x.com/path%20here", False),
-        ("./file%20name.md", False),
-        ("http://example.org/a?q=%3D", False),
-    ])
+    @pytest.mark.parametrize(
+        "uri,dangerous",
+        [
+            ("data:text/html,hello", True),
+            ("data:text/html;base64,abc", True),
+            ("DaTa:image/svg+xml,x", True),
+            ("javascript:alert(1)", True),
+            ("JaVaScRiPt:void(0)", True),
+            ("vbscript:x", True),
+            ("file:///etc/passwd", True),
+            (" javascript:x", True),
+            ("java%73cript:alert(1)", True),  # percent-encoded 's'
+            ("javascript%3Aalert(1)", True),  # percent-encoded ':'
+            ("javascript%253Aalert(1)", True),  # double-encoded ':'
+            ("javascript%2525253Aalert(1)", True),  # 4-level encoded ':'
+            ("javascript&#58;alert(1)", True),  # HTML entity ':'
+            ("javascript&#00058;alert(1)", True),  # padded entity
+            ("javascript&#x3a;alert(1)", True),  # hex entity
+            # Embedded whitespace/control in scheme
+            ("java\tscript:alert(1)", True),
+            ("java\nscript:alert(1)", True),
+            ("java\rscript:alert(1)", True),
+            ("java%09script:alert(1)", True),
+            ("java%0Ascript:alert(1)", True),
+            ("java%0Dscript:alert(1)", True),
+            ("java&#9;script:alert(1)", True),
+            ("java&#10;script:alert(1)", True),
+            ("java&#13;script:alert(1)", True),
+            ("vb%0Ascript:x", True),
+            ("da%0Dta:text/html,x", True),
+            ("fi&#9;le:///etc/passwd", True),
+            # Safe
+            ("https://safe.com", False),
+            ("http://example.org", False),
+            ("mailto:u@x.com", False),
+            ("/relative", False),
+            ("#frag", False),
+            ("./x.md", False),
+            ("https://x.com/path%20here", False),
+            ("./file%20name.md", False),
+            ("http://example.org/a?q=%3D", False),
+        ],
+    )
     def test_is_dangerous(self, uri, dangerous):
         assert _is_dangerous_uri(uri) == dangerous, f"URI {uri!r}"
 
@@ -408,6 +440,7 @@ class TestMarkdownUri:
 
 
 # ═══ Reference-Style Markdown Links ══════════════════════════════════════
+
 
 class TestMarkdownRefLinks:
     """Dangerous reference definitions are neutralized."""
@@ -466,6 +499,7 @@ class TestMarkdownRefLinks:
 
 # ═══ Raw HTML Sanitation ══════════════════════════════════════════════════
 
+
 class TestHtmlSanitation:
     def test_mixed_case_script(self, tmp_path):
         path = tmp_path / "s.md"
@@ -500,6 +534,7 @@ class TestHtmlSanitation:
 
 # ═══ Content Limits ═══════════════════════════════════════════════════════
 
+
 class TestLimits:
     def test_txt_over_limit(self, tmp_path):
         path = tmp_path / "big.txt"
@@ -520,23 +555,28 @@ class TestLimits:
 
 # ═══ Dispatch and Hash ════════════════════════════════════════════════════
 
+
 class TestDispatch:
     def test_txt(self, tmp_path):
-        p = tmp_path / "t.txt"; p.write_bytes(b"hello")
+        p = tmp_path / "t.txt"
+        p.write_bytes(b"hello")
         assert extract_content(p, ".txt") == "hello"
 
     def test_csv(self, tmp_path):
-        p = tmp_path / "t.csv"; p.write_bytes(b"a,b\n1,2\n")
+        p = tmp_path / "t.csv"
+        p.write_bytes(b"a,b\n1,2\n")
         r = extract_content(p, ".csv")
         rows = list(csv.reader(io.StringIO(r)))
         assert rows == [["a", "b"], ["1", "2"]]
 
     def test_md(self, tmp_path):
-        p = tmp_path / "t.md"; p.write_bytes(b"# Hi")
+        p = tmp_path / "t.md"
+        p.write_bytes(b"# Hi")
         assert "# Hi" in extract_content(p, ".md")
 
     def test_unsupported(self, tmp_path):
-        p = tmp_path / "x.xyz"; p.write_bytes(b"x")
+        p = tmp_path / "x.xyz"
+        p.write_bytes(b"x")
         with pytest.raises(ValueError):
             extract_content(p, ".xyz")
 
@@ -546,6 +586,7 @@ class TestDispatch:
 
 
 # ═══ Independent Regression Probes ════════════════════════════════════════
+
 
 class TestRegressionProbes:
     """All previously demonstrated bypasses must be neutralized."""
@@ -620,23 +661,27 @@ class TestRegressionProbes:
 
 # ═══ URI Scheme Normalization Bypass Regression ═══════════════════════════
 
+
 class TestUriSchemeBypassRegression:
     """Embedded whitespace/control chars and deep encoding in schemes."""
 
-    @pytest.mark.parametrize("uri", [
-        "java\tscript:alert(1)",
-        "java%09script:alert(1)",
-        "java&#9;script:alert(1)",
-        "java\nscript:x",
-        "java%0Ascript:x",
-        "java&#10;script:x",
-        "java\rscript:x",
-        "java%0Dscript:x",
-        "java&#13;script:x",
-        "vb%0Ascript:x",
-        "da%0Dta:text/html,x",
-        "fi&#9;le:///etc/passwd",
-    ])
+    @pytest.mark.parametrize(
+        "uri",
+        [
+            "java\tscript:alert(1)",
+            "java%09script:alert(1)",
+            "java&#9;script:alert(1)",
+            "java\nscript:x",
+            "java%0Ascript:x",
+            "java&#10;script:x",
+            "java\rscript:x",
+            "java%0Dscript:x",
+            "java&#13;script:x",
+            "vb%0Ascript:x",
+            "da%0Dta:text/html,x",
+            "fi&#9;le:///etc/passwd",
+        ],
+    )
     def test_embedded_whitespace_dangerous(self, uri):
         assert _is_dangerous_uri(uri), f"NOT detected: {uri!r}"
 
@@ -714,6 +759,7 @@ class TestUriSchemeBypassRegression:
 
 # ═══ Fully Encoded URI Scheme Bypass Tests ════════════════════════════════
 
+
 def _full_percent_encode(s: str) -> str:
     """Percent-encode every byte of a string."""
     return "".join(f"%{b:02X}" for b in s.encode("ascii"))
@@ -727,28 +773,35 @@ def _encode_to_depth(s: str, depth: int) -> str:
     return result
 
 
-
-
 # ═══ Fully Encoded and Boundary Tests ═════════════════════════════════════
+
 
 class TestFullyEncodedSchemes:
     """Dangerous schemes encoded at depth 1 must be rejected."""
 
-    @pytest.mark.parametrize("uri", [
-        _encode_to_depth("javascript:x", 1),
-        _encode_to_depth("data:x", 1),
-        _encode_to_depth("vbscript:x", 1),
-        _encode_to_depth("file:x", 1),
-    ], ids=["js-d1", "data-d1", "vbs-d1", "file-d1"])
+    @pytest.mark.parametrize(
+        "uri",
+        [
+            _encode_to_depth("javascript:x", 1),
+            _encode_to_depth("data:x", 1),
+            _encode_to_depth("vbscript:x", 1),
+            _encode_to_depth("file:x", 1),
+        ],
+        ids=["js-d1", "data-d1", "vbs-d1", "file-d1"],
+    )
     def test_depth1(self, uri):
         assert _is_dangerous_uri(uri)
 
-    @pytest.mark.parametrize("uri", [
-        "java\tscript:x",
-        "java%09script:x",
-        "java&#9;script:x",
-        "javascript%2525253Aalert(1)",
-    ], ids=["lit-tab", "pct-tab", "ent-tab", "mixed-colon"])
+    @pytest.mark.parametrize(
+        "uri",
+        [
+            "java\tscript:x",
+            "java%09script:x",
+            "java&#9;script:x",
+            "javascript%2525253Aalert(1)",
+        ],
+        ids=["lit-tab", "pct-tab", "ent-tab", "mixed-colon"],
+    )
     def test_controls(self, uri):
         assert _is_dangerous_uri(uri)
 
@@ -791,11 +844,15 @@ class TestCustomSchemes:
 class TestSafeEncodedInMarkdown:
     """Safe encoded URLs preserved in markdown output."""
 
-    @pytest.mark.parametrize("url", [
-        "https://safe.example/path%2520with%2520space",
-        "https://x.com/?q=%2525encoded",
-        "http://example.org/double%2520encode",
-    ], ids=["double-enc-path", "double-enc-query", "double-enc-http"])
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "https://safe.example/path%2520with%2520space",
+            "https://x.com/?q=%2525encoded",
+            "http://example.org/double%2520encode",
+        ],
+        ids=["double-enc-path", "double-enc-query", "double-enc-http"],
+    )
     def test_preserved(self, tmp_path, url):
         md = f"[link]({url})"
         path = tmp_path / "s.md"
@@ -822,50 +879,72 @@ class TestCompletionProbes:
 
 # ═══ Restored Deep-Encoding Tests (with short IDs) ═══════════════════════
 
+
 class TestDeepEncodedSchemes:
     """Deeply encoded dangerous schemes at various depths."""
 
-    @pytest.mark.parametrize("uri", [
-        _encode_to_depth("javascript:alert(1)", 1),
-        _encode_to_depth("javascript:alert(1)", 3),
-        _encode_to_depth("javascript:alert(1)", 8),
-        _encode_to_depth("data:text/html,x", 5),
-        _encode_to_depth("vbscript:x", 4),
-        _encode_to_depth("file:///etc/passwd", 6),
-    ], ids=["js-d1", "js-d3", "js-d8", "data-d5", "vbs-d4", "file-d6"])
+    @pytest.mark.parametrize(
+        "uri",
+        [
+            _encode_to_depth("javascript:alert(1)", 1),
+            _encode_to_depth("javascript:alert(1)", 3),
+            _encode_to_depth("javascript:alert(1)", 8),
+            _encode_to_depth("data:text/html,x", 5),
+            _encode_to_depth("vbscript:x", 4),
+            _encode_to_depth("file:///etc/passwd", 6),
+        ],
+        ids=["js-d1", "js-d3", "js-d8", "data-d5", "vbs-d4", "file-d6"],
+    )
     def test_deep_encoded_rejected(self, uri):
         assert _is_dangerous_uri(uri)
 
-    @pytest.mark.parametrize("uri", [
-        "java\tscript:alert(1)",
-        "java%09script:alert(1)",
-        "java&#9;script:alert(1)",
-        "java\nscript:x",
-        "java%0Ascript:x",
-        "java&#10;script:x",
-        "java\rscript:x",
-        "java%0Dscript:x",
-        "java&#13;script:x",
-        "vb%0Ascript:x",
-        "da%0Dta:text/html,x",
-        "fi&#9;le:///etc/passwd",
-    ], ids=[
-        "tab-lit", "tab-pct", "tab-ent", "lf-lit", "lf-pct", "lf-ent",
-        "cr-lit", "cr-pct", "cr-ent", "vb-lf", "data-cr", "file-tab",
-    ])
+    @pytest.mark.parametrize(
+        "uri",
+        [
+            "java\tscript:alert(1)",
+            "java%09script:alert(1)",
+            "java&#9;script:alert(1)",
+            "java\nscript:x",
+            "java%0Ascript:x",
+            "java&#10;script:x",
+            "java\rscript:x",
+            "java%0Dscript:x",
+            "java&#13;script:x",
+            "vb%0Ascript:x",
+            "da%0Dta:text/html,x",
+            "fi&#9;le:///etc/passwd",
+        ],
+        ids=[
+            "tab-lit",
+            "tab-pct",
+            "tab-ent",
+            "lf-lit",
+            "lf-pct",
+            "lf-ent",
+            "cr-lit",
+            "cr-pct",
+            "cr-ent",
+            "vb-lf",
+            "data-cr",
+            "file-tab",
+        ],
+    )
     def test_embedded_controls_rejected(self, uri):
         assert _is_dangerous_uri(uri)
 
-    @pytest.mark.parametrize("uri", [
-        "java%73cript:alert(1)",
-        "javascript%3Aalert(1)",
-        "javascript%253Aalert(1)",
-        "javascript%2525253Aalert(1)",
-        "javascript&#58;alert(1)",
-        "javascript&#00058;alert(1)",
-        "javascript&#x3a;alert(1)",
-    ], ids=["pct-s", "pct-colon", "dbl-colon", "quad-colon",
-            "ent-dec", "ent-pad", "ent-hex"])
+    @pytest.mark.parametrize(
+        "uri",
+        [
+            "java%73cript:alert(1)",
+            "javascript%3Aalert(1)",
+            "javascript%253Aalert(1)",
+            "javascript%2525253Aalert(1)",
+            "javascript&#58;alert(1)",
+            "javascript&#00058;alert(1)",
+            "javascript&#x3a;alert(1)",
+        ],
+        ids=["pct-s", "pct-colon", "dbl-colon", "quad-colon", "ent-dec", "ent-pad", "ent-hex"],
+    )
     def test_encoded_colons_rejected(self, uri):
         assert _is_dangerous_uri(uri)
 
@@ -873,12 +952,16 @@ class TestDeepEncodedSchemes:
 class TestDeepEncodedMarkdown:
     """Encoded schemes in Markdown inline links, images, and refs."""
 
-    @pytest.mark.parametrize("uri", [
-        _encode_to_depth("javascript:x", 1),
-        _encode_to_depth("data:x", 1),
-        _encode_to_depth("vbscript:x", 1),
-        _encode_to_depth("file:x", 1),
-    ], ids=["js-inline", "data-inline", "vbs-inline", "file-inline"])
+    @pytest.mark.parametrize(
+        "uri",
+        [
+            _encode_to_depth("javascript:x", 1),
+            _encode_to_depth("data:x", 1),
+            _encode_to_depth("vbscript:x", 1),
+            _encode_to_depth("file:x", 1),
+        ],
+        ids=["js-inline", "data-inline", "vbs-inline", "file-inline"],
+    )
     def test_inline_link_neutralized(self, tmp_path, uri):
         path = tmp_path / "t.md"
         path.write_bytes(f"[click]({uri})".encode())
@@ -887,10 +970,14 @@ class TestDeepEncodedMarkdown:
         assert uri not in result
         assert "](" not in result
 
-    @pytest.mark.parametrize("uri", [
-        _encode_to_depth("javascript:x", 1),
-        _encode_to_depth("data:x", 1),
-    ], ids=["js-img", "data-img"])
+    @pytest.mark.parametrize(
+        "uri",
+        [
+            _encode_to_depth("javascript:x", 1),
+            _encode_to_depth("data:x", 1),
+        ],
+        ids=["js-img", "data-img"],
+    )
     def test_image_neutralized(self, tmp_path, uri):
         path = tmp_path / "t.md"
         path.write_bytes(f"![img]({uri})".encode())
@@ -899,12 +986,16 @@ class TestDeepEncodedMarkdown:
         assert uri not in result
         assert "](" not in result
 
-    @pytest.mark.parametrize("uri", [
-        _encode_to_depth("javascript:x", 1),
-        _encode_to_depth("data:x", 1),
-        _encode_to_depth("vbscript:x", 1),
-        _encode_to_depth("file:x", 1),
-    ], ids=["js-ref", "data-ref", "vbs-ref", "file-ref"])
+    @pytest.mark.parametrize(
+        "uri",
+        [
+            _encode_to_depth("javascript:x", 1),
+            _encode_to_depth("data:x", 1),
+            _encode_to_depth("vbscript:x", 1),
+            _encode_to_depth("file:x", 1),
+        ],
+        ids=["js-ref", "data-ref", "vbs-ref", "file-ref"],
+    )
     def test_ref_definition_neutralized(self, tmp_path, uri):
         path = tmp_path / "t.md"
         md = f"[x][r]\n\n[r]: {uri}\n"
@@ -917,9 +1008,11 @@ class TestDeepEncodedMarkdown:
 class TestSchemeBoundaryLengths:
     """Custom scheme lengths at and around configured boundaries."""
 
-    @pytest.mark.parametrize("length", [1, 10, 30, 31, 40, 60, 100, 124],
-                             ids=["len1", "len10", "len30", "len31",
-                                  "len40", "len60", "len100", "len124"])
+    @pytest.mark.parametrize(
+        "length",
+        [1, 10, 30, 31, 40, 60, 100, 124],
+        ids=["len1", "len10", "len30", "len31", "len40", "len60", "len100", "len124"],
+    )
     def test_custom_scheme_accepted(self, length):
         scheme = "x" * length
         uri = f"{scheme}%3A//safe.example/"
@@ -971,30 +1064,45 @@ class TestNormBoundaryRestore:
 class TestSafeDestinationsRestore:
     """Safe encoded destinations preserved unchanged."""
 
-    @pytest.mark.parametrize("url", [
-        "https://safe.example/path%20with%20spaces",
-        "https://safe.example/?next=%2Fdashboard",
-        "http://example.org/a%20b",
-        "mailto:user@example.com?subject=Hello%20World",
-        "./relative%20file.md",
-        "../docs/file%20name.md",
-        "#section%201",
-        "https://safe.example/path%2520with%2520space",
-        "https://safe.example/path%252520triple",
-        "https://x.com/?next=%252Fdashboard",
-    ], ids=[
-        "https-space", "https-query", "http-space", "mailto-subject",
-        "rel-space", "rel-parent", "frag-space",
-        "dbl-enc-path", "triple-enc-path", "dbl-enc-query",
-    ])
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "https://safe.example/path%20with%20spaces",
+            "https://safe.example/?next=%2Fdashboard",
+            "http://example.org/a%20b",
+            "mailto:user@example.com?subject=Hello%20World",
+            "./relative%20file.md",
+            "../docs/file%20name.md",
+            "#section%201",
+            "https://safe.example/path%2520with%2520space",
+            "https://safe.example/path%252520triple",
+            "https://x.com/?next=%252Fdashboard",
+        ],
+        ids=[
+            "https-space",
+            "https-query",
+            "http-space",
+            "mailto-subject",
+            "rel-space",
+            "rel-parent",
+            "frag-space",
+            "dbl-enc-path",
+            "triple-enc-path",
+            "dbl-enc-query",
+        ],
+    )
     def test_safe_url_not_rejected(self, url):
         assert not _is_dangerous_uri(url)
 
-    @pytest.mark.parametrize("url", [
-        "https://safe.example/path%2520with%2520space",
-        "https://x.com/?q=%2525encoded",
-        "http://example.org/double%2520encode",
-    ], ids=["dbl-path-md", "dbl-query-md", "dbl-http-md"])
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "https://safe.example/path%2520with%2520space",
+            "https://x.com/?q=%2525encoded",
+            "http://example.org/double%2520encode",
+        ],
+        ids=["dbl-path-md", "dbl-query-md", "dbl-http-md"],
+    )
     def test_safe_in_markdown(self, tmp_path, url):
         path = tmp_path / "s.md"
         path.write_bytes(f"[link]({url})".encode())
@@ -1004,15 +1112,20 @@ class TestSafeDestinationsRestore:
 
 # ═══ Strengthened Markdown Sanitization Exact-Output Tests ════════════════
 
+
 class TestExactMarkdownNeutralization:
     """Verify dangerous destinations are completely absent from output."""
 
-    @pytest.mark.parametrize("scheme_uri", [
-        "javascript:alert(1)",
-        "data:text/html,hello",
-        "vbscript:MsgBox(1)",
-        "file:///etc/passwd",
-    ], ids=["js-exact", "data-exact", "vbs-exact", "file-exact"])
+    @pytest.mark.parametrize(
+        "scheme_uri",
+        [
+            "javascript:alert(1)",
+            "data:text/html,hello",
+            "vbscript:MsgBox(1)",
+            "file:///etc/passwd",
+        ],
+        ids=["js-exact", "data-exact", "vbs-exact", "file-exact"],
+    )
     def test_inline_link_exact_output(self, tmp_path, scheme_uri):
         path = tmp_path / "t.md"
         path.write_bytes(f"[click]({scheme_uri})".encode())
@@ -1021,12 +1134,16 @@ class TestExactMarkdownNeutralization:
         assert scheme_uri not in result
         assert "](" not in result
 
-    @pytest.mark.parametrize("scheme_uri", [
-        "javascript:alert(1)",
-        "data:image/svg+xml,<svg/>",
-        "vbscript:x",
-        "file:///x",
-    ], ids=["js-img-ex", "data-img-ex", "vbs-img-ex", "file-img-ex"])
+    @pytest.mark.parametrize(
+        "scheme_uri",
+        [
+            "javascript:alert(1)",
+            "data:image/svg+xml,<svg/>",
+            "vbscript:x",
+            "file:///x",
+        ],
+        ids=["js-img-ex", "data-img-ex", "vbs-img-ex", "file-img-ex"],
+    )
     def test_image_exact_output(self, tmp_path, scheme_uri):
         path = tmp_path / "t.md"
         path.write_bytes(f"![alt]({scheme_uri})".encode())
@@ -1035,12 +1152,16 @@ class TestExactMarkdownNeutralization:
         assert scheme_uri not in result
         assert "](" not in result
 
-    @pytest.mark.parametrize("scheme_uri", [
-        "javascript:alert(1)",
-        "data:text/html,x",
-        "vbscript:x",
-        "file:///etc/passwd",
-    ], ids=["js-ref-ex", "data-ref-ex", "vbs-ref-ex", "file-ref-ex"])
+    @pytest.mark.parametrize(
+        "scheme_uri",
+        [
+            "javascript:alert(1)",
+            "data:text/html,x",
+            "vbscript:x",
+            "file:///etc/passwd",
+        ],
+        ids=["js-ref-ex", "data-ref-ex", "vbs-ref-ex", "file-ref-ex"],
+    )
     def test_ref_definition_exact(self, tmp_path, scheme_uri):
         path = tmp_path / "t.md"
         md = f"[x][r]\n\n[r]: {scheme_uri}\n"
@@ -1049,12 +1170,16 @@ class TestExactMarkdownNeutralization:
         assert "[r]: #" in result
         assert scheme_uri not in result
 
-    @pytest.mark.parametrize("uri", [
-        "java%73cript:x",
-        "javascript&#58;x",
-        "java%09script:x",
-        " javascript:x",
-    ], ids=["pct-s-ex", "entity-ex", "tab-ex", "space-ex"])
+    @pytest.mark.parametrize(
+        "uri",
+        [
+            "java%73cript:x",
+            "javascript&#58;x",
+            "java%09script:x",
+            " javascript:x",
+        ],
+        ids=["pct-s-ex", "entity-ex", "tab-ex", "space-ex"],
+    )
     def test_encoded_inline_exact(self, tmp_path, uri):
         path = tmp_path / "t.md"
         path.write_bytes(f"[txt]({uri})".encode())

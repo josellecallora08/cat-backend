@@ -79,9 +79,7 @@ class Scenario(Base):
     description = Column(Text)
     debtor_profile = Column(JSONVariant, nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)
-    created_at = Column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(
         DateTime(timezone=True),
         server_default=func.now(),
@@ -114,9 +112,7 @@ class Session(Base):
         ForeignKey("negotiation_standard_versions.id", ondelete="RESTRICT"),
         nullable=True,
     )
-    created_at = Column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     ended_at = Column(DateTime(timezone=True), nullable=True)
 
     # Relationships
@@ -129,15 +125,9 @@ class Session(Base):
         back_populates="sessions",
         lazy="selectin",
     )
-    coaching_report = relationship(
-        "CoachingReport", back_populates="session", uselist=False
-    )
-    learning_plan = relationship(
-        "LearningPlan", back_populates="session", uselist=False
-    )
-    reports = relationship(
-        "SessionReport", back_populates="session", cascade="all, delete-orphan"
-    )
+    coaching_report = relationship("CoachingReport", back_populates="session", uselist=False)
+    learning_plan = relationship("LearningPlan", back_populates="session", uselist=False)
+    reports = relationship("SessionReport", back_populates="session", cascade="all, delete-orphan")
 
 
 class Transcript(Base):
@@ -178,9 +168,7 @@ class Evaluation(Base):
     passed = Column(Boolean, nullable=True)
     rubric_result = Column(JSONVariant, nullable=True)
     is_too_short = Column(Boolean, default=False, nullable=False)
-    created_at = Column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     # Relationships
     session = relationship("Session", back_populates="evaluation")
@@ -188,6 +176,8 @@ class Evaluation(Base):
         "NegotiationStandardVersion",
         back_populates="evaluations",
     )
+
+
 class CoachingReport(Base):
     """Coaching report identifying mistakes and recommended alternatives."""
 
@@ -198,9 +188,7 @@ class CoachingReport(Base):
     mistakes_by_category = Column(JSONVariant, nullable=False)
     total_mistakes = Column(Integer, nullable=False)
     no_mistakes = Column(Boolean, default=False, nullable=False)
-    created_at = Column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     # Relationships
     session = relationship("Session", back_populates="coaching_report")
@@ -216,9 +204,7 @@ class LearningPlan(Base):
     agent_id = Column(Uuid, nullable=False)
     weak_competencies = Column(JSONVariant, nullable=False)
     all_passing = Column(Boolean, default=False, nullable=False)
-    created_at = Column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     # Relationships
     session = relationship("Session", back_populates="learning_plan")

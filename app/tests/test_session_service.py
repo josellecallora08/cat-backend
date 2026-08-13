@@ -47,12 +47,8 @@ VALID_SCRIPT_CONTRACT = {
             "debtor_reply": "I can try to pay something small.",
         }
     ],
-    "trigger_phrases": [
-        {"phrase": "legal action", "behavior": "become distressed"}
-    ],
-    "emotional_state_rules": [
-        {"trigger": "threat", "state_change": "increase anxiety"}
-    ],
+    "trigger_phrases": [{"phrase": "legal action", "behavior": "become distressed"}],
+    "emotional_state_rules": [{"trigger": "threat", "state_change": "increase anxiety"}],
     "payment_conditions": [
         {"condition": "partial payment", "term": "50 dollars now", "accepted": True}
     ],
@@ -80,9 +76,7 @@ def _make_admin_user() -> User:
     )
 
 
-async def _publish_script_for_scenario(
-    db: AsyncSession, scenario_id: uuid.UUID
-) -> ScriptVersion:
+async def _publish_script_for_scenario(db: AsyncSession, scenario_id: uuid.UUID) -> ScriptVersion:
     """Create and publish a minimal valid Script for `scenario_id`, so
     `create_session` (which now requires an active Published_Script) can
     succeed in tests exercising the happy path.
@@ -333,9 +327,7 @@ class TestCreateSession:
         session = await create_session(async_db, scenario.id, agent_id, simulator)
         assert session.script_version_id is None
 
-    async def test_starts_without_script_when_no_script_exists(
-        self, async_db: AsyncSession
-    ):
+    async def test_starts_without_script_when_no_script_exists(self, async_db: AsyncSession):
         scenario = _make_scenario()
         async_db.add(scenario)
         await async_db.commit()

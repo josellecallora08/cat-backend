@@ -83,11 +83,7 @@ async def _next_report_version(db: AsyncSession, session_id: UUID) -> int:
     The unique session/version constraint remains the final guard for dialects
     that do not provide row locks (including SQLite test databases).
     """
-    lock_stmt = (
-        select(Session.id)
-        .where(Session.id == session_id)
-        .with_for_update()
-    )
+    lock_stmt = select(Session.id).where(Session.id == session_id).with_for_update()
     locked_session = (await db.execute(lock_stmt)).scalar_one_or_none()
     if locked_session is None:
         raise ValueError(f"Session with id {session_id} not found")
@@ -112,7 +108,7 @@ async def _next_report_version(db: AsyncSession, session_id: UUID) -> int:
 
 def _is_serialization_conflict(exc: Exception) -> bool:
     """Classify database errors that must become the public 409 outcome."""
-    return isinstance(exc, (IntegrityError, OperationalError))
+    return isinstance(exc, IntegrityError | OperationalError)
 
 
 async def _commit_report_transaction(db: AsyncSession, session_id: UUID) -> None:
@@ -243,9 +239,7 @@ def _safe_failure_reason(exc: Exception) -> str:
     return "Report generation failed"
 
 
-async def get_current_report(
-    db: AsyncSession, session_id: UUID
-) -> SessionReport | None:
+async def get_current_report(db: AsyncSession, session_id: UUID) -> SessionReport | None:
     """Return the highest-versioned `ready` report for a session, or None."""
     stmt = (
         select(SessionReport)
@@ -369,9 +363,7 @@ def _resolve_ready_status(
     )
 
 
-async def _probe_report_artifacts(
-    db: AsyncSession, session_id: UUID
-) -> list[str]:
+async def _probe_report_artifacts(db: AsyncSession, session_id: UUID) -> list[str]:
     """Probe required artifact presence with a fixed, payload-free query bound."""
     missing = False
     for model in (Transcript, Evaluation, CoachingReport, LearningPlan):
@@ -420,9 +412,7 @@ async def get_report_status(db: AsyncSession, session_id: UUID) -> ReportStatusE
         )
         .where(
             SessionReport.session_id == session_id,
-            SessionReport.status.in_(
-                (SessionReportStatus.PENDING, SessionReportStatus.FAILED)
-            ),
+            SessionReport.status.in_((SessionReportStatus.PENDING, SessionReportStatus.FAILED)),
         )
         .order_by(SessionReport.report_version.desc())
         .limit(1)
@@ -432,10 +422,7 @@ async def get_report_status(db: AsyncSession, session_id: UUID) -> ReportStatusE
     if ready_row is not None:
         ready = _ready_envelope(ready_row)
         latest_attempt = None
-        if (
-            attempt_row is not None
-            and attempt_row.report_version > ready.report_version
-        ):
+        if attempt_row is not None and attempt_row.report_version > ready.report_version:
             latest_attempt = _attempt_metadata(attempt_row)
         return _resolve_ready_status(ready, latest_attempt)
 

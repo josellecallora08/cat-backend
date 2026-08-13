@@ -60,9 +60,7 @@ class TestExchangeCodeForUserToken:
     @pytest.mark.asyncio
     @patch("app.services.lark_oauth._get_app_access_token")
     @patch("app.services.lark_oauth.httpx.AsyncClient")
-    async def test_successful_token_exchange(
-        self, mock_client_class, mock_get_app_token
-    ):
+    async def test_successful_token_exchange(self, mock_client_class, mock_get_app_token):
         """Successful code exchange returns user_access_token."""
         mock_get_app_token.return_value = "app-token-123"
 
@@ -289,9 +287,7 @@ class TestLarkCallbackEndpoint:
         mock_settings.lark_redirect_uri = "http://localhost:3000/callback"
         mock_settings.google_client_id = ""
 
-        mock_exchange.side_effect = ValueError(
-            "Lark token exchange error: invalid code"
-        )
+        mock_exchange.side_effect = ValueError("Lark token exchange error: invalid code")
 
         resp = await client.post(
             "/api/auth/lark/callback",

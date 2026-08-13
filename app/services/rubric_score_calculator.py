@@ -22,8 +22,7 @@ def _penalty_total(category: Any, block: Any) -> int:
     """Calculate configured deductions with per-violation finding caps."""
     occurrences = Counter(finding.violation_id for finding in category.violations)
     return sum(
-        min(occurrences.get(penalty.violation_id, 0), penalty.max_occurrences)
-        * penalty.deduction
+        min(occurrences.get(penalty.violation_id, 0), penalty.max_occurrences) * penalty.deduction
         for penalty in block.penalties
     )
 
@@ -40,7 +39,9 @@ def calculate_rubric_score(
     else:
         rubric = NegotiationStandardContent.model_validate(snapshot)
     if rubric.model_dump() != validated.snapshot.model_dump():
-        raise ScoreInvariantError("Scoring snapshot does not match the validated observation snapshot")
+        raise ScoreInvariantError(
+            "Scoring snapshot does not match the validated observation snapshot"
+        )
     snapshot = rubric
     weight_total = sum(block.weight for block in snapshot.blocks)
     if weight_total != 100:

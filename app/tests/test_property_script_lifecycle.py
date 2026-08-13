@@ -159,7 +159,9 @@ expected_reply_entries = st.fixed_dictionaries(
     {"agent_statement": safe_text, "debtor_reply": safe_text}
 )
 
-emotional_state_rule_entries = st.fixed_dictionaries({"trigger": safe_text, "state_change": safe_text})
+emotional_state_rule_entries = st.fixed_dictionaries(
+    {"trigger": safe_text, "state_change": safe_text}
+)
 
 escalation_condition_entries = st.fixed_dictionaries(
     {"condition": safe_text, "behavior": safe_text, "ends_call": st.booleans()}
@@ -276,9 +278,7 @@ class TestNewScriptsStartAsDraft:
 
     @settings(max_examples=100, suppress_health_check=[HealthCheck.function_scoped_fixture])
     @given(case=raw_definition_and_format_cases())
-    async def test_create_draft_always_persists_draft_status(
-        self, async_db: AsyncSession, case
-    ):
+    async def test_create_draft_always_persists_draft_status(self, async_db: AsyncSession, case):
         """For any varied but structurally valid script creation request,
         `create_draft` SHALL persist a `Script` row whose `status` is
         `"draft"` immediately after creation, regardless of the varied
@@ -387,15 +387,13 @@ class TestPublishedScriptEditIsolation:
         )
 
         expected_new_content = parse_script_definition(new_raw_definition, new_format)
-        assert updated_script.draft_content == expected_new_content, (
-            "Expected update_draft to overwrite draft_content with the new "
-            "edited content"
-        )
+        assert (
+            updated_script.draft_content == expected_new_content
+        ), "Expected update_draft to overwrite draft_content with the new edited content"
 
-        assert updated_script.current_version_id == version_id, (
-            "Expected editing a Published_Script to leave current_version_id "
-            "unchanged"
-        )
+        assert (
+            updated_script.current_version_id == version_id
+        ), "Expected editing a Published_Script to leave current_version_id unchanged"
 
         # Re-fetch the ScriptVersion row directly to confirm it was not
         # touched by the edit (not just relying on the in-memory object).
@@ -492,8 +490,10 @@ class TestPublishCorrectness:
         assert refetched_version.version_number == 1
 
         # Exactly one ScriptVersion row exists for this script.
-        count_stmt = select(func.count()).select_from(ScriptVersion).where(
-            ScriptVersion.script_id == script_id
+        count_stmt = (
+            select(func.count())
+            .select_from(ScriptVersion)
+            .where(ScriptVersion.script_id == script_id)
         )
         count_result = await async_db.execute(count_stmt)
         assert count_result.scalar() == 1, (
@@ -575,8 +575,10 @@ class TestPublishCorrectness:
         )
 
         # No ScriptVersion row must have been created for this script.
-        count_stmt = select(func.count()).select_from(ScriptVersion).where(
-            ScriptVersion.script_id == script_id
+        count_stmt = (
+            select(func.count())
+            .select_from(ScriptVersion)
+            .where(ScriptVersion.script_id == script_id)
         )
         count_result = await async_db.execute(count_stmt)
         assert count_result.scalar() == 0, (

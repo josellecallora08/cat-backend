@@ -128,9 +128,7 @@ class TestGenerateReport:
         mock_llm_service.chat_completion.return_value = _make_llm_response(mistakes_data)
 
         session_id = sample_evaluation.session_id
-        report = await engine.generate_report(
-            session_id, sample_transcript, sample_evaluation
-        )
+        report = await engine.generate_report(session_id, sample_transcript, sample_evaluation)
 
         assert isinstance(report, CoachingReportSchema)
         assert report.session_id == session_id
@@ -251,7 +249,9 @@ class TestGenerateReport:
         assert item.transcript_excerpt == "You need to pay $5000 today."
         assert item.category == EvaluationCategory.COMPLIANCE
         assert item.explanation == "Agent demanded immediate full payment."
-        assert item.recommended_alternative == "Let's discuss your options for resolving this balance."
+        assert (
+            item.recommended_alternative == "Let's discuss your options for resolving this balance."
+        )
 
     @pytest.mark.asyncio
     async def test_malformed_mistake_items_are_skipped(
@@ -336,7 +336,7 @@ class TestGenerateReport:
         mock_db = MagicMock()
         mock_db.commit = AsyncMock()
 
-        report = await engine.generate_report(
+        await engine.generate_report(
             sample_evaluation.session_id, sample_transcript, sample_evaluation, db=mock_db
         )
 
@@ -399,56 +399,100 @@ async def test_rubric_coaching_uses_validated_recommendations_without_calling_ll
         session_id=session_id,
         category_scores=[],
         overall_score=55,
-        strengths=[StrengthItem(description="Grounded", category=EvaluationCategory.CALL_OPENING, transcript_excerpt="Evidence")],
-        weaknesses=[WeaknessItem(description="Needs work", category=EvaluationCategory.CALL_OPENING, transcript_excerpt="Evidence")],
+        strengths=[
+            StrengthItem(
+                description="Grounded",
+                category=EvaluationCategory.CALL_OPENING,
+                transcript_excerpt="Evidence",
+            )
+        ],
+        weaknesses=[
+            WeaknessItem(
+                description="Needs work",
+                category=EvaluationCategory.CALL_OPENING,
+                transcript_excerpt="Evidence",
+            )
+        ],
         rubric_result={
             "status": "evaluated",
             "summary": "Grounded.",
-            "categories": [{
-                "rubric_block_id": "opening",
-                "category": "Call Opening",
-                "raw_score": 55,
-                "penalty_total": 0,
-                "penalized_score": 55,
-                "weight": 100,
-                "weighted_contribution": 55,
-                "passing_score": 70,
-                "passed": False,
-                "evidence": [{"sequence_number": 4, "speaker": "agent", "excerpt": "Evidence", "explanation": "The evidence shows a missing greeting."}],
-                "strengths": [{"criterion_id": "greeting", "explanation": "The evidence shows a missing greeting.", "evidence_sequence_numbers": [4]}],
-                "violations": [],
-                "failed_criteria": [],
-                "recommendation_inputs": [{"criterion_id": "greeting", "transcript_sequence_number": 4, "need": "Use a clear greeting."}],
-            }],
+            "categories": [
+                {
+                    "rubric_block_id": "opening",
+                    "category": "Call Opening",
+                    "raw_score": 55,
+                    "penalty_total": 0,
+                    "penalized_score": 55,
+                    "weight": 100,
+                    "weighted_contribution": 55,
+                    "passing_score": 70,
+                    "passed": False,
+                    "evidence": [
+                        {
+                            "sequence_number": 4,
+                            "speaker": "agent",
+                            "excerpt": "Evidence",
+                            "explanation": "The evidence shows a missing greeting.",
+                        }
+                    ],
+                    "strengths": [
+                        {
+                            "criterion_id": "greeting",
+                            "explanation": "The evidence shows a missing greeting.",
+                            "evidence_sequence_numbers": [4],
+                        }
+                    ],
+                    "violations": [],
+                    "failed_criteria": [],
+                    "recommendation_inputs": [
+                        {
+                            "criterion_id": "greeting",
+                            "transcript_sequence_number": 4,
+                            "need": "Use a clear greeting.",
+                        }
+                    ],
+                }
+            ],
             "weighted_total": "55.00",
             "passing_score": 70,
             "passed": False,
             "applied_techniques": {"techniques_used": [], "reason_if_empty": "None."},
             "missed_opportunities": {"missed_techniques": [], "reason_if_empty": "None."},
-            "recommendations": [{
-                "rubric_block_id": "opening",
-                "criterion_id": "greeting",
-                "evidence_sequence_number": 4,
-                "explanation": "The evidence shows a missing greeting.",
-                "recommended_response": "I understand your concern. Let us review options.",
-                "coaching_advice": "Use a clear greeting before discussing the account.",
-            }],
+            "recommendations": [
+                {
+                    "rubric_block_id": "opening",
+                    "criterion_id": "greeting",
+                    "evidence_sequence_number": 4,
+                    "explanation": "The evidence shows a missing greeting.",
+                    "recommended_response": "I understand your concern. Let us review options.",
+                    "coaching_advice": "Use a clear greeting before discussing the account.",
+                }
+            ],
         },
         standard_snapshot={
             "schema_version": 1,
             "overall_passing_score": 70,
-            "blocks": [{
-                "id": "opening",
-                "category": "Call Opening",
-                "weight": 100,
-                "passing_score": 70,
-                "scoring_instructions": "Use evidence.",
-                "positive_behaviors": [{"id": "greeting", "name": "Greeting", "description": "Greets clearly.", "evidence_instructions": "Cite the greeting."}],
-                "violations": [],
-                "penalties": [],
-                "recommendation_guidance": "Use a clear greeting before discussing the account.",
-                "display_order": 0,
-            }],
+            "blocks": [
+                {
+                    "id": "opening",
+                    "category": "Call Opening",
+                    "weight": 100,
+                    "passing_score": 70,
+                    "scoring_instructions": "Use evidence.",
+                    "positive_behaviors": [
+                        {
+                            "id": "greeting",
+                            "name": "Greeting",
+                            "description": "Greets clearly.",
+                            "evidence_instructions": "Cite the greeting.",
+                        }
+                    ],
+                    "violations": [],
+                    "penalties": [],
+                    "recommendation_guidance": "Use a clear greeting before discussing the account.",
+                    "display_order": 0,
+                }
+            ],
         },
     )
 

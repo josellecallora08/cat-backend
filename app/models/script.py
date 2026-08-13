@@ -1,7 +1,7 @@
 """Script and ScriptVersion models for the Script_Registry subsystem."""
 
 import uuid
-from enum import Enum
+from enum import StrEnum
 
 from sqlalchemy import (
     JSON,
@@ -25,7 +25,7 @@ from app.database import Base
 JSONVariant = JSON().with_variant(JSONB, "postgresql")
 
 
-class ScriptStatus(str, Enum):
+class ScriptStatus(StrEnum):
     """Valid script lifecycle statuses."""
 
     DRAFT = "draft"
@@ -39,9 +39,7 @@ class Script(Base):
     __tablename__ = "scripts"
 
     id = Column(Uuid, primary_key=True, default=uuid.uuid4)
-    scenario_id = Column(
-        Uuid, ForeignKey("scenarios.id"), nullable=False, unique=True
-    )
+    scenario_id = Column(Uuid, ForeignKey("scenarios.id"), nullable=False, unique=True)
     name = Column(String(255), nullable=False)
     status = Column(String(20), nullable=False, default=ScriptStatus.DRAFT.value)
     format = Column(String(10), nullable=False)
@@ -57,9 +55,7 @@ class Script(Base):
     )
     is_deleted = Column(Boolean, nullable=False, default=False)
     created_by = Column(Uuid, ForeignKey("users.id"), nullable=False)
-    created_at = Column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(
         DateTime(timezone=True),
         server_default=func.now(),
@@ -85,13 +81,9 @@ class ScriptVersion(Base):
     version_number = Column(Integer, nullable=False)
     content = Column(JSONVariant, nullable=False)
     published_by = Column(Uuid, ForeignKey("users.id"), nullable=False)
-    published_at = Column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
+    published_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     # Relationships
-    script = relationship(
-        "Script", back_populates="versions", foreign_keys=[script_id]
-    )
+    script = relationship("Script", back_populates="versions", foreign_keys=[script_id])
 
     __table_args__ = (UniqueConstraint("script_id", "version_number"),)

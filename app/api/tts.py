@@ -66,9 +66,8 @@ async def synthesize_speech(body: TTSRequest):
         raise HTTPException(status_code=400, detail="Text cannot be empty")
 
     # Try ElevenLabs
-    use_elevenlabs = (
-        settings.tts_provider == "elevenlabs" or
-        (settings.tts_provider == "auto" and settings.elevenlabs_api_key)
+    use_elevenlabs = settings.tts_provider == "elevenlabs" or (
+        settings.tts_provider == "auto" and settings.elevenlabs_api_key
     )
 
     if use_elevenlabs and settings.elevenlabs_api_key:

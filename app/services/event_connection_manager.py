@@ -211,9 +211,7 @@ class EventConnectionManager:
 
         # Trainer: receives events for their assigned campaigns
         if client.user_type == "trainer":
-            if meta.campaign_id and meta.campaign_id in client.campaign_ids:
-                return True
-            return False
+            return bool(meta.campaign_id and meta.campaign_id in client.campaign_ids)
 
         # Agent: receives events for own sessions or own campaign scenarios
         if client.user_type == "agent":

@@ -153,7 +153,9 @@ expected_reply_entries = st.fixed_dictionaries(
     {"agent_statement": safe_text, "debtor_reply": safe_text}
 )
 
-emotional_state_rule_entries = st.fixed_dictionaries({"trigger": safe_text, "state_change": safe_text})
+emotional_state_rule_entries = st.fixed_dictionaries(
+    {"trigger": safe_text, "state_change": safe_text}
+)
 
 escalation_condition_entries = st.fixed_dictionaries(
     {"condition": safe_text, "behavior": safe_text, "ends_call": st.booleans()}
@@ -393,10 +395,9 @@ class TestRestrictedVersionLoading:
             f"got {refetched_script.current_version_id!r}"
         )
         refetched_version = await async_db.get(ScriptVersion, version_id)
-        assert refetched_version is not None, (
-            "Expected the ScriptVersion row to still exist after "
-            "unpublishing"
-        )
+        assert (
+            refetched_version is not None
+        ), "Expected the ScriptVersion row to still exist after unpublishing"
 
         await async_db.rollback()
 
@@ -454,9 +455,7 @@ class TestTrainingCallLegacyScriptCompatibility:
         assert session.scenario_id == scenario_id
         assert session.status == "pending"
         assert session.script_version_id is None
-        result = await async_db.execute(
-            select(Session).where(Session.scenario_id == scenario_id)
-        )
+        result = await async_db.execute(select(Session).where(Session.scenario_id == scenario_id))
         sessions = result.scalars().all()
         assert len(sessions) == 1
         assert sessions[0].script_version_id is None

@@ -10,6 +10,7 @@ Security invariants:
 """
 
 import asyncio
+import contextlib
 import logging
 import os
 import platform
@@ -118,9 +119,7 @@ def store_in_quarantine(file_bytes: bytes, extension: str) -> Path:
     tmp_fd = None
     tmp_path = None
     try:
-        tmp_fd, tmp_path_str = tempfile.mkstemp(
-            dir=str(quarantine_dir), prefix=".tmp_upload_"
-        )
+        tmp_fd, tmp_path_str = tempfile.mkstemp(dir=str(quarantine_dir), prefix=".tmp_upload_")
         tmp_path = Path(tmp_path_str)
 
         # Write ALL bytes using a loop (os.write may return partial counts)
@@ -129,9 +128,7 @@ def store_in_quarantine(file_bytes: bytes, extension: str) -> Path:
         while offset < total:
             written = os.write(tmp_fd, file_bytes[offset:])
             if written <= 0:
-                raise OSError(
-                    f"os.write returned {written} at offset {offset}/{total}"
-                )
+                raise OSError(f"os.write returned {written} at offset {offset}/{total}")
             offset += written
 
         # Verify size before fsync
@@ -142,9 +139,7 @@ def store_in_quarantine(file_bytes: bytes, extension: str) -> Path:
         # Confirm file size matches expected
         actual_size = tmp_path.stat().st_size
         if actual_size != total:
-            raise OSError(
-                f"Size mismatch: expected {total}, got {actual_size}"
-            )
+            raise OSError(f"Size mismatch: expected {total}, got {actual_size}")
 
         # Apply restricted permissions on Unix
         if platform.system() != "Windows":
@@ -157,21 +152,15 @@ def store_in_quarantine(file_bytes: bytes, extension: str) -> Path:
     except Exception:
         # Cleanup: close fd if still open, remove temp file
         if tmp_fd is not None:
-            try:
+            with contextlib.suppress(OSError):
                 os.close(tmp_fd)
-            except OSError:
-                pass
         if tmp_path is not None and tmp_path.exists():
-            try:
+            with contextlib.suppress(OSError):
                 tmp_path.unlink()
-            except OSError:
-                pass
         # Also remove final_path if somehow partially created
         if final_path.exists():
-            try:
+            with contextlib.suppress(OSError):
                 final_path.unlink()
-            except OSError:
-                pass
         raise
 
 
@@ -196,9 +185,7 @@ async def cleanup_expired_files(session_factory: async_sessionmaker) -> CleanupR
     failure therefore leaves the raw file intact for a later cleanup pass.
     """
     quarantine_dir = get_quarantine_path()
-    retention_hours = validate_retention_hours(
-        settings.upload_quarantine_retention_hours
-    )
+    retention_hours = validate_retention_hours(settings.upload_quarantine_retention_hours)
     retention_seconds = retention_hours * 3600
     now = time.time()
     result = CleanupResult()
@@ -216,9 +203,7 @@ async def cleanup_expired_files(session_factory: async_sessionmaker) -> CleanupR
     for file_path in quarantine_dir.iterdir():
         if not file_path.is_file():
             continue
-        if file_path.name == ".gitkeep" or file_path.name.startswith(
-            ".tmp_upload_"
-        ):
+        if file_path.name == ".gitkeep" or file_path.name.startswith(".tmp_upload_"):
             continue
 
         try:
@@ -259,9 +244,7 @@ async def cleanup_expired_files(session_factory: async_sessionmaker) -> CleanupR
             async with session_factory() as session:
                 upload = (
                     await session.execute(
-                        select(ScriptUpload).where(
-                            ScriptUpload.storage_key == file_path.name
-                        )
+                        select(ScriptUpload).where(ScriptUpload.storage_key == file_path.name)
                     )
                 ).scalar_one_or_none()
 
@@ -369,9 +352,12 @@ async def start_cleanup_scheduler(app) -> None:
             while True:
                 # Read settings for every cycle so runtime configuration changes
                 # take effect without restarting the application.
-                interval_seconds = validate_cleanup_interval_minutes(
-                    settings.upload_quarantine_cleanup_interval_minutes
-                ) * 60
+                interval_seconds = (
+                    validate_cleanup_interval_minutes(
+                        settings.upload_quarantine_cleanup_interval_minutes
+                    )
+                    * 60
+                )
                 await asyncio.sleep(interval_seconds)
                 await cleanup_expired_files(async_session_factory)
         except asyncio.CancelledError:
@@ -400,8 +386,6 @@ async def stop_cleanup_scheduler(app, timeout_seconds: float = 5) -> bool:
     except asyncio.CancelledError:
         return True
     except TimeoutError:
-        logger.warning(
-            "Timed out waiting for quarantine cleanup scheduler cancellation"
-        )
+        logger.warning("Timed out waiting for quarantine cleanup scheduler cancellation")
         return False
     return True

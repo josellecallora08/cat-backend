@@ -70,7 +70,7 @@ class EnergyVADBackend(VADBackend):
             return False
 
         num_samples = len(frame) // SAMPLE_WIDTH
-        samples = struct.unpack(f"<{num_samples}h", frame[:num_samples * SAMPLE_WIDTH])
+        samples = struct.unpack(f"<{num_samples}h", frame[: num_samples * SAMPLE_WIDTH])
 
         if not samples:
             return False

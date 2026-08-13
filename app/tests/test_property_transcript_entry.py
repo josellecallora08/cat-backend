@@ -43,9 +43,7 @@ valid_timestamps = st.datetimes(
 )
 
 # Invalid speakers (anything not "agent" or "debtor")
-invalid_speakers = st.text(min_size=1, max_size=50).filter(
-    lambda s: s not in ("agent", "debtor")
-)
+invalid_speakers = st.text(min_size=1, max_size=50).filter(lambda s: s not in ("agent", "debtor"))
 
 
 # --- Fixtures ---
@@ -64,9 +62,7 @@ async def async_engine():
 @pytest_asyncio.fixture
 async def db_session(async_engine):
     """Provide a fresh async database session for each test."""
-    session_factory = async_sessionmaker(
-        async_engine, class_=AsyncSession, expire_on_commit=False
-    )
+    session_factory = async_sessionmaker(async_engine, class_=AsyncSession, expire_on_commit=False)
     async with session_factory() as session:
         yield session
 
@@ -142,9 +138,13 @@ class TestTranscriptEntryStructuralCompleteness:
                     name="Test",
                     scenario_type="FINANCIAL_HARDSHIP",
                     description="test",
-                    debtor_profile={"name": "John", "outstanding_balance": 1000,
-                                    "days_past_due": 30, "personality_profile": "cooperative",
-                                    "conversation_goal": "pay"},
+                    debtor_profile={
+                        "name": "John",
+                        "outstanding_balance": 1000,
+                        "days_past_due": 30,
+                        "personality_profile": "cooperative",
+                        "conversation_goal": "pay",
+                    },
                 )
                 db_session.add(scenario)
                 await db_session.flush()
@@ -162,15 +162,16 @@ class TestTranscriptEntryStructuralCompleteness:
                 entry = await manager.append_entry(sess.id, speaker, text, timestamp)
 
                 # Verify structural completeness
-                assert entry.speaker in ("agent", "debtor"), (
-                    f"Speaker must be 'agent' or 'debtor', got '{entry.speaker}'"
-                )
-                assert entry.utterance_text and entry.utterance_text.strip() != "", (
-                    f"Utterance text must be non-empty, got '{entry.utterance_text}'"
-                )
-                assert isinstance(entry.timestamp_ms, datetime), (
-                    f"Timestamp must be a datetime, got {type(entry.timestamp_ms)}"
-                )
+                assert entry.speaker in (
+                    "agent",
+                    "debtor",
+                ), f"Speaker must be 'agent' or 'debtor', got '{entry.speaker}'"
+                assert (
+                    entry.utterance_text and entry.utterance_text.strip() != ""
+                ), f"Utterance text must be non-empty, got '{entry.utterance_text}'"
+                assert isinstance(
+                    entry.timestamp_ms, datetime
+                ), f"Timestamp must be a datetime, got {type(entry.timestamp_ms)}"
 
             await engine.dispose()
 
@@ -199,9 +200,13 @@ class TestTranscriptEntryStructuralCompleteness:
                     name="Test",
                     scenario_type="FINANCIAL_HARDSHIP",
                     description="test",
-                    debtor_profile={"name": "John", "outstanding_balance": 1000,
-                                    "days_past_due": 30, "personality_profile": "cooperative",
-                                    "conversation_goal": "pay"},
+                    debtor_profile={
+                        "name": "John",
+                        "outstanding_balance": 1000,
+                        "days_past_due": 30,
+                        "personality_profile": "cooperative",
+                        "conversation_goal": "pay",
+                    },
                 )
                 db_session.add(scenario)
                 await db_session.flush()

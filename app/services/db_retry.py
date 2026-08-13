@@ -50,9 +50,7 @@ class InMemoryFallbackStore:
     def save(self, session_id: str, data: Any) -> None:
         """Save data to the in-memory store for later recovery."""
         self._store[session_id].append(data)
-        logger.warning(
-            "Data saved to in-memory fallback store for session %s", session_id
-        )
+        logger.warning("Data saved to in-memory fallback store for session %s", session_id)
 
     def get(self, session_id: str) -> list[Any]:
         """Retrieve all stored data for a given session."""
@@ -180,9 +178,7 @@ def with_db_retry(
     return decorator
 
 
-def _extract_param(
-    func: Callable, param_name: str | None, args: tuple, kwargs: dict
-) -> Any:
+def _extract_param(func: Callable, param_name: str | None, args: tuple, kwargs: dict) -> Any:
     """Extract a parameter value from function arguments by name."""
     if param_name is None:
         return None

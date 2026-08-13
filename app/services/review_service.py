@@ -189,19 +189,23 @@ def build_warnings(
         safe_msg = upload.extraction_error
         if len(safe_msg) > 200:
             safe_msg = safe_msg[:200] + "..."
-        warnings.append(ReviewWarning(
-            code="extraction_error",
-            message=safe_msg,
-            severity="error",
-        ))
+        warnings.append(
+            ReviewWarning(
+                code="extraction_error",
+                message=safe_msg,
+                severity="error",
+            )
+        )
 
     # No scenario
     if upload.scenario_id is None:
-        warnings.append(ReviewWarning(
-            code="missing_scenario",
-            message="Upload has no associated scenario. A scenario is required for conversion.",
-            severity="error",
-        ))
+        warnings.append(
+            ReviewWarning(
+                code="missing_scenario",
+                message="Upload has no associated scenario. A scenario is required for conversion.",
+                severity="error",
+            )
+        )
 
     # Content validation warnings (if script exists with draft)
     if script and script.draft_content:
@@ -212,11 +216,13 @@ def build_warnings(
     if upload.quarantine_expires_at:
         now = datetime.now(UTC)
         if upload.quarantine_expires_at < now and review_status not in ("published", "rejected"):
-            warnings.append(ReviewWarning(
-                code="quarantine_expired",
-                message="Quarantine source file has expired. Retry of scan/extraction is unavailable.",
-                severity="warning",
-            ))
+            warnings.append(
+                ReviewWarning(
+                    code="quarantine_expired",
+                    message="Quarantine source file has expired. Retry of scan/extraction is unavailable.",
+                    severity="warning",
+                )
+            )
 
     return warnings
 
@@ -236,20 +242,24 @@ def _validate_draft_content(draft_content: dict) -> list[ReviewWarning]:
         )
         validate_script(raw_text, "json", limits)
     except ScriptFormatError:
-        warnings.append(ReviewWarning(
-            code="content_parse_error",
-            message="Persisted script content cannot be parsed. Publication is blocked.",
-            severity="error",
-        ))
+        warnings.append(
+            ReviewWarning(
+                code="content_parse_error",
+                message="Persisted script content cannot be parsed. Publication is blocked.",
+                severity="error",
+            )
+        )
     except ScriptValidationError as exc:
         for error in exc.errors:
             field_path = ".".join(str(p) for p in error.get("loc", ()))
-            warnings.append(ReviewWarning(
-                code="validation_error",
-                message=error.get("msg", "Unknown validation error"),
-                field=field_path or None,
-                severity="error",
-            ))
+            warnings.append(
+                ReviewWarning(
+                    code="validation_error",
+                    message=error.get("msg", "Unknown validation error"),
+                    field=field_path or None,
+                    severity="error",
+                )
+            )
 
     return warnings
 
@@ -325,14 +335,17 @@ def build_review_detail(
         if is_safe and script.draft_content:
             try:
                 from app.schemas.script import ScriptContract as ScriptContractSchema
+
                 contract = ScriptContractSchema(**script.draft_content)
                 script_contract = contract.model_dump(mode="json")
             except Exception:
-                warnings.append(ReviewWarning(
-                    code="content_unparseable",
-                    message="Persisted script content cannot be validated. Publication is blocked.",
-                    severity="error",
-                ))
+                warnings.append(
+                    ReviewWarning(
+                        code="content_unparseable",
+                        message="Persisted script content cannot be validated. Publication is blocked.",
+                        severity="error",
+                    )
+                )
                 script_contract = None
 
     return ReviewDetailResponse(
@@ -366,14 +379,10 @@ def build_review_detail(
     )
 
 
-async def get_published_at(
-    db: AsyncSession, script: Script
-) -> datetime | None:
+async def get_published_at(db: AsyncSession, script: Script) -> datetime | None:
     """Get the published_at timestamp for a published script's current version."""
     if script.status != ScriptStatus.PUBLISHED.value or script.current_version_id is None:
         return None
-    stmt = select(ScriptVersion.published_at).where(
-        ScriptVersion.id == script.current_version_id
-    )
+    stmt = select(ScriptVersion.published_at).where(ScriptVersion.id == script.current_version_id)
     result = await db.execute(stmt)
     return result.scalar_one_or_none()

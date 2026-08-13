@@ -88,9 +88,7 @@ async def events_websocket(websocket: WebSocket) -> None:
             return
 
         # Get user's campaign_ids
-        campaign_stmt = select(CampaignAgent.campaign_id).where(
-            CampaignAgent.agent_id == user.id
-        )
+        campaign_stmt = select(CampaignAgent.campaign_id).where(CampaignAgent.agent_id == user.id)
         campaign_result = await db.execute(campaign_stmt)
         campaign_ids = {row[0] for row in campaign_result.all()}
 

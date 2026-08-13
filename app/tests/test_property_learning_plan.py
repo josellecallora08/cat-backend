@@ -51,22 +51,24 @@ ALL_CATEGORIES = [
 
 scores = st.integers(min_value=0, max_value=100)
 
-category_scores_strategy = st.fixed_dictionaries({
-    EvaluationCategory.CALL_OPENING: scores,
-    EvaluationCategory.COMPLIANCE: scores,
-    EvaluationCategory.EMPATHY_COMMUNICATION: scores,
-    EvaluationCategory.NEGOTIATION_RESOLUTION: scores,
-})
+category_scores_strategy = st.fixed_dictionaries(
+    {
+        EvaluationCategory.CALL_OPENING: scores,
+        EvaluationCategory.COMPLIANCE: scores,
+        EvaluationCategory.EMPATHY_COMMUNICATION: scores,
+        EvaluationCategory.NEGOTIATION_RESOLUTION: scores,
+    }
+)
 
 
 # --- Helpers ---
+
 
 def build_evaluation(category_score_map: dict) -> EvaluationResult:
     """Build an EvaluationResult from a map of category → score."""
     session_id = uuid.uuid4()
     competency_scores = [
-        CompetencyScore(category=cat, score=score)
-        for cat, score in category_score_map.items()
+        CompetencyScore(category=cat, score=score) for cat, score in category_score_map.items()
     ]
     return EvaluationResult(
         session_id=session_id,
@@ -101,9 +103,7 @@ class TestLearningPlanCompetencyMapping:
 
     @given(score_map=category_scores_strategy)
     @settings(max_examples=100)
-    def test_weak_competencies_contains_exactly_categories_below_threshold(
-        self, score_map: dict
-    ):
+    def test_weak_competencies_contains_exactly_categories_below_threshold(self, score_map: dict):
         """**Validates: Requirements 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 7.7**
 
         weak_competencies SHALL contain exactly those categories with
@@ -117,9 +117,7 @@ class TestLearningPlanCompetencyMapping:
         plan = generator.generate(evaluation, session_id, agent_id)
 
         # Determine expected weak categories
-        expected_weak = {
-            cat for cat, score in score_map.items() if score < WEAKNESS_THRESHOLD
-        }
+        expected_weak = {cat for cat, score in score_map.items() if score < WEAKNESS_THRESHOLD}
         actual_weak = {item.category for item in plan.weak_competencies}
 
         assert actual_weak == expected_weak, (
@@ -164,9 +162,7 @@ class TestLearningPlanCompetencyMapping:
 
         plan = generator.generate(evaluation, session_id, agent_id)
 
-        all_above_threshold = all(
-            score >= WEAKNESS_THRESHOLD for score in score_map.values()
-        )
+        all_above_threshold = all(score >= WEAKNESS_THRESHOLD for score in score_map.values())
 
         assert plan.all_passing == all_above_threshold, (
             f"Expected all_passing={all_above_threshold} but got "

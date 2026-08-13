@@ -383,12 +383,12 @@ class TestEntryCountLimitEnforcement:
 
         for violation in field_violations:
             ctx = violation.get("ctx", {})
-            assert ctx.get("limit") == max_count, (
-                f"Expected violation ctx to report limit={max_count}, got: {violation}"
-            )
-            assert ctx.get("actual") == actual_count, (
-                f"Expected violation ctx to report actual={actual_count}, got: {violation}"
-            )
+            assert (
+                ctx.get("limit") == max_count
+            ), f"Expected violation ctx to report limit={max_count}, got: {violation}"
+            assert (
+                ctx.get("actual") == actual_count
+            ), f"Expected violation ctx to report actual={actual_count}, got: {violation}"
             # The limit and actual count must also be human-reportable in
             # the message text, not just the structured ctx.
             assert str(max_count) in violation.get("msg", "")
@@ -422,9 +422,7 @@ class TestEntryCountLimitEnforcement:
 # a string below the length we deliberately constructed it to have.
 _SAFE_TEXT_ALPHABET = st.characters(
     whitelist_categories=(),
-    whitelist_characters=(
-        "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 .,!?-"
-    ),
+    whitelist_characters=("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 .,!?-"),
 )
 
 
@@ -591,13 +589,9 @@ def _contract_dict_with_max_field_text_length(draw, max_field_text_length: int):
         "opening_response": draw(bounded_text),
         "expected_replies": draw(st.lists(expected_reply_entry, min_size=0, max_size=5)),
         "trigger_phrases": draw(st.lists(trigger_phrase_entry, min_size=0, max_size=5)),
-        "emotional_state_rules": draw(
-            st.lists(emotional_state_rule_entry, min_size=0, max_size=5)
-        ),
+        "emotional_state_rules": draw(st.lists(emotional_state_rule_entry, min_size=0, max_size=5)),
         "payment_conditions": draw(st.lists(payment_condition_entry, min_size=0, max_size=5)),
-        "escalation_conditions": draw(
-            st.lists(escalation_condition_entry, min_size=0, max_size=5)
-        ),
+        "escalation_conditions": draw(st.lists(escalation_condition_entry, min_size=0, max_size=5)),
         "prohibited_responses": [],
         "conversation_goal": conversation_goal,
     }
@@ -664,13 +658,12 @@ class TestFreeTextLengthLimitEnforcement:
 
         for violation in field_violations:
             ctx = violation.get("ctx", {})
-            assert ctx.get("limit") == max_field_text_length, (
-                f"Expected violation ctx to report limit={max_field_text_length}, "
-                f"got: {violation}"
-            )
-            assert ctx.get("actual") == actual_length, (
-                f"Expected violation ctx to report actual={actual_length}, got: {violation}"
-            )
+            assert (
+                ctx.get("limit") == max_field_text_length
+            ), f"Expected violation ctx to report limit={max_field_text_length}, got: {violation}"
+            assert (
+                ctx.get("actual") == actual_length
+            ), f"Expected violation ctx to report actual={actual_length}, got: {violation}"
             # The limit and actual length must also be human-reportable in
             # the message text, not just the structured ctx.
             assert str(max_field_text_length) in violation.get("msg", "")

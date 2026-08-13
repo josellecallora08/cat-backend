@@ -73,9 +73,16 @@ def _override_db(db: AsyncSession):
 
 def _make_scenario() -> Scenario:
     return Scenario(
-        id=uuid.uuid4(), name="Test", scenario_type="FINANCIAL_HARDSHIP",
-        debtor_profile={"name": "X", "outstanding_balance": "100", "days_past_due": 1,
-                        "personality_profile": "calm", "conversation_goal": "pay"},
+        id=uuid.uuid4(),
+        name="Test",
+        scenario_type="FINANCIAL_HARDSHIP",
+        debtor_profile={
+            "name": "X",
+            "outstanding_balance": "100",
+            "days_past_due": 1,
+            "personality_profile": "calm",
+            "conversation_goal": "pay",
+        },
         is_active=True,
     )
 
@@ -85,8 +92,11 @@ async def _seed_completed_session_with_report(async_db, owner_agent_id):
     async_db.add(scenario)
     await async_db.flush()
     session = Session(
-        id=uuid.uuid4(), scenario_id=scenario.id, agent_id=owner_agent_id,
-        status="completed", persona_context={"name": "P"},
+        id=uuid.uuid4(),
+        scenario_id=scenario.id,
+        agent_id=owner_agent_id,
+        status="completed",
+        persona_context={"name": "P"},
         created_at=datetime.now(UTC),
     )
     session.ended_at = session.created_at

@@ -328,7 +328,7 @@ async def test_post_report_anonymous_returns_401(client, async_db):
 @pytest.mark.asyncio
 async def test_export_json_returns_payload_with_correct_content_type(client, async_db):
     agent_id = uuid.uuid4()
-    session, report = await _seed_session_with_report(async_db, agent_id=agent_id)
+    session, _report = await _seed_session_with_report(async_db, agent_id=agent_id)
     app.dependency_overrides[get_db_session] = _override_db(async_db)
     app.dependency_overrides[require_auth] = lambda: _admin_user()
 

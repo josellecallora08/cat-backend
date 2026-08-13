@@ -25,7 +25,6 @@ class TranscriptValidationError(Exception):
     """Raised when a transcript entry fails validation."""
 
 
-
 class TranscriptManager:
     """Records utterances in real-time and persists completed transcripts.
 
@@ -187,9 +186,8 @@ class TranscriptManager:
             return next_seq
 
         # Query the database for the current max sequence number
-        stmt = (
-            select(func.max(Transcript.sequence_number))
-            .where(Transcript.session_id == session_id)
+        stmt = select(func.max(Transcript.sequence_number)).where(
+            Transcript.session_id == session_id
         )
         result = await self._db.execute(stmt)
         db_max = result.scalar_one_or_none()

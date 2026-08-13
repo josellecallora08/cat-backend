@@ -198,7 +198,8 @@ def _seed_baseline_reports(engine, ids):
         "(id, session_id, agent_id, campaign_id, negotiation_standard_version_id, "
         " status, report_version, payload, content_hash, generated_by, failure_reason) "
         "VALUES (:id, :session_id, :agent_id, :campaign_id, :standard_version_id, "
-        " :status, :version, CAST(:payload AS jsonb), :content_hash, :generated_by, :failure_reason)"
+        " :status, :version, CAST(:payload AS jsonb), :content_hash, "
+        ":generated_by, :failure_reason)"
     )
     with engine.begin() as conn:
         conn.execute(
@@ -303,7 +304,12 @@ async def test_session_report_hardening_upgrade_downgrade_preserves_data():
             ]
             assert conn.execute(text("SELECT count(*) FROM sessions")).scalar_one() >= 1
             assert conn.execute(text("SELECT count(*) FROM campaigns")).scalar_one() >= 1
-            assert conn.execute(text("SELECT count(*) FROM negotiation_standard_versions")).scalar_one() >= 1
+            assert (
+                conn.execute(
+                    text("SELECT count(*) FROM negotiation_standard_versions")
+                ).scalar_one()
+                >= 1
+            )
             assert conn.execute(text("SELECT count(*) FROM transcripts")).scalar_one() >= 1
             assert conn.execute(text("SELECT count(*) FROM evaluations")).scalar_one() >= 1
             assert conn.execute(text("SELECT count(*) FROM coaching_reports")).scalar_one() >= 1
@@ -318,13 +324,62 @@ async def test_session_report_hardening_upgrade_downgrade_preserves_data():
             "standard_version_id": ids["standard_version_id"],
         }
         invalid_cases = [
-            {**valid, "status": "unknown", "version": 4, "payload": None, "hash": None, "reason": None},
-            {**valid, "status": "ready", "version": 0, "payload": "{}", "hash": "a" * 64, "reason": None},
-            {**valid, "status": "ready", "version": 4, "payload": "{}", "hash": "a" * 63, "reason": None},
-            {**valid, "status": "ready", "version": 4, "payload": None, "hash": "a" * 64, "reason": None},
-            {**valid, "status": "pending", "version": 4, "payload": "{}", "hash": None, "reason": "generation_pending"},
-            {**valid, "status": "failed", "version": 4, "payload": None, "hash": None, "reason": "no_evidence"},
-            {**valid, "status": "ready", "version": 4, "payload": "{}", "hash": "a" * 64, "reason": "not-a-code"},
+            {
+                **valid,
+                "status": "unknown",
+                "version": 4,
+                "payload": None,
+                "hash": None,
+                "reason": None,
+            },
+            {
+                **valid,
+                "status": "ready",
+                "version": 0,
+                "payload": "{}",
+                "hash": "a" * 64,
+                "reason": None,
+            },
+            {
+                **valid,
+                "status": "ready",
+                "version": 4,
+                "payload": "{}",
+                "hash": "a" * 63,
+                "reason": None,
+            },
+            {
+                **valid,
+                "status": "ready",
+                "version": 4,
+                "payload": None,
+                "hash": "a" * 64,
+                "reason": None,
+            },
+            {
+                **valid,
+                "status": "pending",
+                "version": 4,
+                "payload": "{}",
+                "hash": None,
+                "reason": "generation_pending",
+            },
+            {
+                **valid,
+                "status": "failed",
+                "version": 4,
+                "payload": None,
+                "hash": None,
+                "reason": "no_evidence",
+            },
+            {
+                **valid,
+                "status": "ready",
+                "version": 4,
+                "payload": "{}",
+                "hash": "a" * 64,
+                "reason": "not-a-code",
+            },
         ]
         insert_invalid = text(
             "INSERT INTO session_reports "
@@ -340,7 +395,9 @@ async def test_session_report_hardening_upgrade_downgrade_preserves_data():
         result = _run_alembic(project_root, async_url, "downgrade", "-1")
         assert result.returncode == 0, result.stderr
         inspector = inspect(engine)
-        assert "reason_code" not in {column["name"] for column in inspector.get_columns("session_reports")}
+        assert "reason_code" not in {
+            column["name"] for column in inspector.get_columns("session_reports")
+        }
         with engine.connect() as conn:
             assert conn.execute(text("SELECT count(*) FROM session_reports")).scalar_one() == 3
             assert conn.execute(
@@ -350,12 +407,15 @@ async def test_session_report_hardening_upgrade_downgrade_preserves_data():
         result = _run_alembic(project_root, async_url, "upgrade", "head")
         assert result.returncode == 0, result.stderr
         with engine.connect() as conn:
-            assert conn.execute(
-                text(
-                    "SELECT reason_code FROM session_reports "
-                    "WHERE status = 'failed' AND report_version = 3"
-                )
-            ).scalar_one() == "generation_failed"
+            assert (
+                conn.execute(
+                    text(
+                        "SELECT reason_code FROM session_reports "
+                        "WHERE status = 'failed' AND report_version = 3"
+                    )
+                ).scalar_one()
+                == "generation_failed"
+            )
         engine.dispose()
     finally:
         await _drop_scratch_database(db_name)

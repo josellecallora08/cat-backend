@@ -38,62 +38,70 @@ def _payload():
             "available": True,
             "mode": "canonical",
             "canonical": {
-                "categories": [{
-                    "category": "=formula-category",
-                    "raw_score": 80,
-                    "weighted_contribution": 40,
-                    "passed": True,
-                    "penalized_score": 80,
-                    "weight": 50,
-                }],
+                "categories": [
+                    {
+                        "category": "=formula-category",
+                        "raw_score": 80,
+                        "weighted_contribution": 40,
+                        "passed": True,
+                        "penalized_score": 80,
+                        "weight": 50,
+                    }
+                ],
             },
         },
         "coaching": {
             "available": True,
             "mode": "canonical",
-            "blocks": [{
-                "block_name": "Coaching block",
-                "recommendations": [{
-                    "criterion_id": "criterion-1",
-                    "recommended_response": "+safe response",
-                    "coaching_advice": "Advice",
-                }],
-            }],
+            "blocks": [
+                {
+                    "block_name": "Coaching block",
+                    "recommendations": [
+                        {
+                            "criterion_id": "criterion-1",
+                            "recommended_response": "+safe response",
+                            "coaching_advice": "Advice",
+                        }
+                    ],
+                }
+            ],
         },
         "learning_plan": {
             "available": True,
-            "items": [{
-                "rubric_block_id": "block-1",
-                "criterion_id": "criterion-1",
-                "practice_focus": "Practice focus",
-                "score": 50,
-                "scenario_id": "scenario-1",
-            }],
+            "items": [
+                {
+                    "rubric_block_id": "block-1",
+                    "criterion_id": "criterion-1",
+                    "practice_focus": "Practice focus",
+                    "score": 50,
+                    "scenario_id": "scenario-1",
+                }
+            ],
         },
         "transcript": {
             "available": True,
-            "entries": [{
-                "sequence_number": 0,
-                "speaker": "agent",
-                "text": "- transcript text",
-            }],
+            "entries": [
+                {
+                    "sequence_number": 0,
+                    "speaker": "agent",
+                    "text": "- transcript text",
+                }
+            ],
         },
     }
 
 
-@pytest.mark.parametrize("value", ["=formula", "+formula", "-formula", "@formula", "|formula", "\tformula"])
+@pytest.mark.parametrize(
+    "value", ["=formula", "+formula", "-formula", "@formula", "|formula", "\tformula"]
+)
 def test_csv_helper_neutralizes_every_formula_leading_character(value):
     result = _neutralize_csv_cell(value)
     assert result == "'" + value
 
 
 def test_filename_is_deterministic_and_safe_for_content_disposition_parsing():
-    filename = export.build_export_filename(
-        'id/..\\"\r\n;:<>|?*', 7, "csv"
-    )
-    assert filename == export.build_export_filename(
-        'id/..\\"\r\n;:<>|?*', 7, "csv"
-    )
+    filename = export.build_export_filename('id/..\\"\r\n;:<>|?*', 7, "csv")
+    assert filename == export.build_export_filename('id/..\\"\r\n;:<>|?*', 7, "csv")
     assert not re.search(r'[\\/\x00-\x1f\x7f";:<>|?*]', filename)
 
     message = Message()

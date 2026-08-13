@@ -357,9 +357,7 @@ async def delete_script(db: AsyncSession, script_id: UUID, admin_id: UUID) -> No
     return
 
 
-async def get_active_published_version(
-    db: AsyncSession, scenario_id: UUID
-) -> ScriptVersion | None:
+async def get_active_published_version(db: AsyncSession, scenario_id: UUID) -> ScriptVersion | None:
     """Get the active Published_Script's current version for a scenario
     (Requirements 4.1, 4.3).
 
@@ -401,8 +399,6 @@ async def get_active_published_version(
     if script.current_version_id is None:
         return None
 
-    version_stmt = select(ScriptVersion).where(
-        ScriptVersion.id == script.current_version_id
-    )
+    version_stmt = select(ScriptVersion).where(ScriptVersion.id == script.current_version_id)
     version_result = await db.execute(version_stmt)
     return version_result.scalar_one_or_none()

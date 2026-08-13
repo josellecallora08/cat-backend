@@ -23,13 +23,17 @@ SNAPSHOT = {
             "passing_score": 70,
             "scoring_instructions": "Use exact transcript evidence.",
             "positive_behaviors": [],
-            "violations": [{
-                "id": "missing-identity",
-                "name": "Missing identity",
-                "description": "The agent does not identify the organization.",
-                "evidence_instructions": "Quote the opening.",
-            }],
-            "penalties": [{"violation_id": "missing-identity", "deduction": 20, "max_occurrences": 1}],
+            "violations": [
+                {
+                    "id": "missing-identity",
+                    "name": "Missing identity",
+                    "description": "The agent does not identify the organization.",
+                    "evidence_instructions": "Quote the opening.",
+                }
+            ],
+            "penalties": [
+                {"violation_id": "missing-identity", "deduction": 20, "max_occurrences": 1}
+            ],
             "recommendation_guidance": "Identify the organization before discussing the account.",
             "display_order": 0,
         },
@@ -39,12 +43,14 @@ SNAPSHOT = {
             "weight": 60,
             "passing_score": 70,
             "scoring_instructions": "Use exact transcript evidence.",
-            "positive_behaviors": [{
-                "id": "offer-plan",
-                "name": "Offer a plan",
-                "description": "Offer a realistic payment plan.",
-                "evidence_instructions": "Quote the proposed plan or its absence.",
-            }],
+            "positive_behaviors": [
+                {
+                    "id": "offer-plan",
+                    "name": "Offer a plan",
+                    "description": "Offer a realistic payment plan.",
+                    "evidence_instructions": "Quote the proposed plan or its absence.",
+                }
+            ],
             "violations": [],
             "penalties": [],
             "recommendation_guidance": "Offer a realistic plan and confirm the next step.",
@@ -67,42 +73,52 @@ def _observation() -> dict:
             {
                 "rubric_block_id": "opening-quality",
                 "raw_score": 80,
-                "evidence": [{
-                    "sequence_number": 0,
-                    "speaker": "agent",
-                    "excerpt": "We need to discuss your account.",
-                    "explanation": "The opening does not identify the organization.",
-                }],
+                "evidence": [
+                    {
+                        "sequence_number": 0,
+                        "speaker": "agent",
+                        "excerpt": "We need to discuss your account.",
+                        "explanation": "The opening does not identify the organization.",
+                    }
+                ],
                 "strengths": [],
-                "violations": [{
-                    "violation_id": "missing-identity",
-                    "explanation": "The organization was not identified.",
-                    "evidence_sequence_numbers": [0],
-                }],
+                "violations": [
+                    {
+                        "violation_id": "missing-identity",
+                        "explanation": "The organization was not identified.",
+                        "evidence_sequence_numbers": [0],
+                    }
+                ],
                 "failed_criteria": ["missing-identity"],
-                "recommendation_inputs": [{
-                    "criterion_id": "missing-identity",
-                    "transcript_sequence_number": 0,
-                    "need": "Identify the organization before discussing the account.",
-                }],
+                "recommendation_inputs": [
+                    {
+                        "criterion_id": "missing-identity",
+                        "transcript_sequence_number": 0,
+                        "need": "Identify the organization before discussing the account.",
+                    }
+                ],
             },
             {
                 "rubric_block_id": "resolution-quality",
                 "raw_score": 50,
-                "evidence": [{
-                    "sequence_number": 1,
-                    "speaker": "agent",
-                    "excerpt": "The full balance is due today.",
-                    "explanation": "No realistic payment plan was offered.",
-                }],
+                "evidence": [
+                    {
+                        "sequence_number": 1,
+                        "speaker": "agent",
+                        "excerpt": "The full balance is due today.",
+                        "explanation": "No realistic payment plan was offered.",
+                    }
+                ],
                 "strengths": [],
                 "violations": [],
                 "failed_criteria": ["offer-plan"],
-                "recommendation_inputs": [{
-                    "criterion_id": "offer-plan",
-                    "transcript_sequence_number": 1,
-                    "need": "Offer a realistic payment plan.",
-                }],
+                "recommendation_inputs": [
+                    {
+                        "criterion_id": "offer-plan",
+                        "transcript_sequence_number": 1,
+                        "need": "Offer a realistic payment plan.",
+                    }
+                ],
             },
         ],
         "applied_techniques": {"techniques_used": [], "reason_if_empty": "None observed."},
@@ -116,25 +132,27 @@ async def test_two_block_canonical_flow_keeps_scores_coaching_and_practice_align
     version_id = uuid4()
     validated = validate_observation(_observation(), SNAPSHOT, TRANSCRIPT)
     canonical = calculate_rubric_score(validated)
-    canonical = canonical.model_copy(update={
-        "recommendations": build_rubric_recommendations(
-            canonical, SNAPSHOT, version_id, 4
-        )
-    })
+    canonical = canonical.model_copy(
+        update={"recommendations": build_rubric_recommendations(canonical, SNAPSHOT, version_id, 4)}
+    )
     evaluation = EvaluationResult(
         session_id=session_id,
         category_scores=[],
         overall_score=float(canonical.weighted_total),
-        strengths=[{
-            "description": "The transcript was reviewed.",
-            "category": EvaluationCategory.CALL_OPENING,
-            "transcript_excerpt": TRANSCRIPT[0]["text"],
-        }],
-        weaknesses=[{
-            "description": "The transcript needs rubric-grounded improvement.",
-            "category": EvaluationCategory.CALL_OPENING,
-            "transcript_excerpt": TRANSCRIPT[0]["text"],
-        }],
+        strengths=[
+            {
+                "description": "The transcript was reviewed.",
+                "category": EvaluationCategory.CALL_OPENING,
+                "transcript_excerpt": TRANSCRIPT[0]["text"],
+            }
+        ],
+        weaknesses=[
+            {
+                "description": "The transcript needs rubric-grounded improvement.",
+                "category": EvaluationCategory.CALL_OPENING,
+                "transcript_excerpt": TRANSCRIPT[0]["text"],
+            }
+        ],
         is_too_short=False,
         negotiation_standard_version_id=version_id,
         standard_version_number=4,
@@ -142,13 +160,13 @@ async def test_two_block_canonical_flow_keeps_scores_coaching_and_practice_align
         rubric_result=canonical,
     )
 
-    coaching = await CoachingEngine(None).generate_report(
-        session_id, TRANSCRIPT, evaluation
-    )
+    coaching = await CoachingEngine(None).generate_report(session_id, TRANSCRIPT, evaluation)
     learning_plan = LearningPlanGenerator().generate(evaluation, session_id, uuid4())
 
-    assert [(category.rubric_block_id, category.penalty_total, category.penalized_score)
-            for category in canonical.categories] == [
+    assert [
+        (category.rubric_block_id, category.penalty_total, category.penalized_score)
+        for category in canonical.categories
+    ] == [
         ("opening-quality", 20, 60),
         ("resolution-quality", 0, 50),
     ]
@@ -162,7 +180,9 @@ async def test_two_block_canonical_flow_keeps_scores_coaching_and_practice_align
     ]
     assert coaching.mistakes_by_category == {}
     assert coaching.total_mistakes == 2
-    assert [(item.rubric_block_id, item.criterion_id) for item in learning_plan.weak_competencies] == [
+    assert [
+        (item.rubric_block_id, item.criterion_id) for item in learning_plan.weak_competencies
+    ] == [
         ("resolution-quality", "offer-plan"),
         ("opening-quality", "missing-identity"),
     ]

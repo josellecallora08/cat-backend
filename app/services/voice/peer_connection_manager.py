@@ -50,26 +50,20 @@ class PeerConnectionManager:
         Raises RuntimeError if aiortc is not available.
         """
         if not AIORTC_AVAILABLE:
-            raise RuntimeError(
-                "aiortc is not installed. WebRTC functionality is unavailable."
-            )
+            raise RuntimeError("aiortc is not installed. WebRTC functionality is unavailable.")
 
         pc = RTCPeerConnection()
         self._connections[session_id] = pc
 
         @pc.on("connectionstatechange")
         async def on_connectionstatechange() -> None:
-            logger.info(
-                f"Session {session_id}: connection state is {pc.connectionState}"
-            )
+            logger.info(f"Session {session_id}: connection state is {pc.connectionState}")
             if pc.connectionState == "failed":
                 await self.close_peer_connection(session_id)
 
         @pc.on("track")
         async def on_track(track: Any) -> None:
-            logger.info(
-                f"Session {session_id}: received {track.kind} track"
-            )
+            logger.info(f"Session {session_id}: received {track.kind} track")
             if on_track is not None:
                 await on_track(track)
 
@@ -90,9 +84,7 @@ class PeerConnectionManager:
             Dict with 'sdp' and 'type' keys for the answer.
         """
         if not AIORTC_AVAILABLE:
-            raise RuntimeError(
-                "aiortc is not installed. WebRTC functionality is unavailable."
-            )
+            raise RuntimeError("aiortc is not installed. WebRTC functionality is unavailable.")
 
         pc = self._connections.get(session_id)
         if pc is None:
@@ -112,8 +104,11 @@ class PeerConnectionManager:
         }
 
     async def add_ice_candidate(
-        self, session_id: UUID, candidate: str, sdp_mid: str | None = None,
-        sdp_mline_index: int | None = None
+        self,
+        session_id: UUID,
+        candidate: str,
+        sdp_mid: str | None = None,
+        sdp_mline_index: int | None = None,
     ) -> None:
         """Add an ICE candidate received from the client.
 
@@ -124,9 +119,7 @@ class PeerConnectionManager:
             sdp_mline_index: The index of the media description.
         """
         if not AIORTC_AVAILABLE:
-            raise RuntimeError(
-                "aiortc is not installed. WebRTC functionality is unavailable."
-            )
+            raise RuntimeError("aiortc is not installed. WebRTC functionality is unavailable.")
 
         pc = self._connections.get(session_id)
         if pc is None:

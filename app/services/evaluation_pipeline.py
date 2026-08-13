@@ -96,10 +96,7 @@ class EvaluationPipeline:
         result = await db.execute(stmt)
         entries = result.scalars().all()
 
-        return [
-            {"speaker": entry.speaker, "text": entry.utterance_text}
-            for entry in entries
-        ]
+        return [{"speaker": entry.speaker, "text": entry.utterance_text} for entry in entries]
 
     async def run_evaluation(
         self, session_id: UUID, transcript: list[dict], db: AsyncSession
@@ -124,9 +121,7 @@ class EvaluationPipeline:
                 standard_version=standard_version,
                 db=None,
             )
-            return self._canonical_to_legacy_result(
-                session_id, canonical, standard_version
-            )
+            return self._canonical_to_legacy_result(session_id, canonical, standard_version)
 
         # Existing unit callers use lightweight mocks and the legacy contract.
         return await self._evaluation_engine.evaluate(
@@ -152,6 +147,7 @@ class EvaluationPipeline:
                 )
             }
         )
+
         def legacy_category(value: str) -> EvaluationCategory:
             try:
                 return EvaluationCategory(value)
@@ -281,13 +277,12 @@ class EvaluationPipeline:
         }
 
         if coaching_report.rubric_coaching is not None:
-            serialized_coaching["_rubric_coaching"] = (
-                coaching_report.rubric_coaching.model_dump(mode="json")
+            serialized_coaching["_rubric_coaching"] = coaching_report.rubric_coaching.model_dump(
+                mode="json"
             )
         if coaching_report.rubric_recommendations:
             serialized_coaching["_rubric_recommendations"] = [
-                item.model_dump(mode="json")
-                for item in coaching_report.rubric_recommendations
+                item.model_dump(mode="json") for item in coaching_report.rubric_recommendations
             ]
             serialized_coaching["_rubric_recommendations_by_block"] = {
                 block_id: [item.model_dump(mode="json") for item in items]
@@ -324,8 +319,7 @@ class EvaluationPipeline:
                     session_id=evaluation.session_id,
                     agent_id=agent_id,
                     weak_competencies=[
-                        item.model_dump(mode="json")
-                        for item in learning_plan.weak_competencies
+                        item.model_dump(mode="json") for item in learning_plan.weak_competencies
                     ],
                     all_passing=learning_plan.all_passing,
                 )
@@ -342,9 +336,7 @@ class EvaluationPipeline:
             await db.rollback()
             raise
 
-    async def run(
-        self, session_id: UUID, agent_id: UUID, db: AsyncSession
-    ) -> PipelineResult:
+    async def run(self, session_id: UUID, agent_id: UUID, db: AsyncSession) -> PipelineResult:
         """Execute the full evaluation pipeline end-to-end.
 
         Orchestrates: transcript → evaluation → coaching → learning plan.

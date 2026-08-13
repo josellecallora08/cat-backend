@@ -7,6 +7,7 @@ Requirements: 3.1, 3.2, 3.3, 3.4, 3.5
 """
 
 import asyncio
+import contextlib
 import uuid
 from unittest.mock import AsyncMock, MagicMock
 
@@ -176,9 +177,7 @@ class TestSetupPeerConnection:
         """setup_peer_connection delegates to PeerConnectionManager."""
         result = await orchestrator.setup_peer_connection(session_id)
 
-        mock_peer_connection_manager.create_peer_connection.assert_called_once_with(
-            session_id
-        )
+        mock_peer_connection_manager.create_peer_connection.assert_called_once_with(session_id)
         assert result["session_id"] == str(session_id)
         assert result["status"] == "connected"
         assert orchestrator.is_active is True
@@ -260,9 +259,7 @@ class TestProcessAudioFrame:
 
         # Replace STT with one that raises
         orchestrator._stt_service = MagicMock()
-        orchestrator._stt_service.transcribe = MagicMock(
-            side_effect=RuntimeError("STT failed")
-        )
+        orchestrator._stt_service.transcribe = MagicMock(side_effect=RuntimeError("STT failed"))
 
         speech_frame = _make_speech_frame()
         silence_frame = _make_silence_frame()
@@ -283,9 +280,7 @@ class TestProcessAudioFrame:
         orchestrator._state.is_active = True
 
         # Replace STT with one that returns empty text
-        orchestrator._stt_service = MockSTTService(
-            default_text="", default_confidence=0.1
-        )
+        orchestrator._stt_service = MockSTTService(default_text="", default_confidence=0.1)
 
         speech_frame = _make_speech_frame()
         silence_frame = _make_silence_frame()
@@ -307,9 +302,7 @@ class TestTranscriptRecording:
     """Tests for transcript entry recording during pipeline processing."""
 
     @pytest.mark.asyncio
-    async def test_agent_and_debtor_entries_recorded(
-        self, orchestrator, mock_transcript_manager
-    ):
+    async def test_agent_and_debtor_entries_recorded(self, orchestrator, mock_transcript_manager):
         """Both agent and debtor transcript entries are recorded."""
         orchestrator._state.is_active = True
         speech_frame = _make_speech_frame()
@@ -341,9 +334,7 @@ class TestTranscriptRecording:
     ):
         """Transcript recording failure doesn't stop the pipeline."""
         orchestrator._state.is_active = True
-        mock_transcript_manager.append_entry = AsyncMock(
-            side_effect=Exception("DB error")
-        )
+        mock_transcript_manager.append_entry = AsyncMock(side_effect=Exception("DB error"))
 
         speech_frame = _make_speech_frame()
         silence_frame = _make_silence_frame()
@@ -373,9 +364,7 @@ class TestTeardown:
 
         await orchestrator.teardown()
 
-        mock_peer_connection_manager.close_peer_connection.assert_called_once_with(
-            session_id
-        )
+        mock_peer_connection_manager.close_peer_connection.assert_called_once_with(session_id)
         assert orchestrator.is_active is False
 
     @pytest.mark.asyncio
@@ -421,9 +410,7 @@ class TestTeardown:
     ):
         """Teardown handles transcript persist failure gracefully."""
         orchestrator._state.is_active = True
-        mock_transcript_manager.persist = AsyncMock(
-            side_effect=Exception("DB error")
-        )
+        mock_transcript_manager.persist = AsyncMock(side_effect=Exception("DB error"))
 
         # Should not raise
         await orchestrator.teardown()
@@ -470,10 +457,8 @@ class TestHandleAudioTrack:
         # Ensure task can finish
         if not task.done():
             task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await task
-            except asyncio.CancelledError:
-                pass
 
     @pytest.mark.asyncio
     async def test_handle_audio_track_processes_bytes_frames(self, orchestrator):
@@ -534,15 +519,13 @@ class TestEndToEndProcessing:
         assert orchestrator._state.utterance_count == 1
 
     @pytest.mark.asyncio
-    async def test_multiple_utterances_increment_count(
-        self, orchestrator, mock_debtor_simulator
-    ):
+    async def test_multiple_utterances_increment_count(self, orchestrator, mock_debtor_simulator):
         """Multiple utterances increment the utterance counter."""
         orchestrator._state.is_active = True
         speech_frame = _make_speech_frame()
         silence_frame = _make_silence_frame()
 
-        for utterance_num in range(2):
+        for _utterance_num in range(2):
             # Speech
             for _ in range(5):
                 await orchestrator.process_audio_frame(speech_frame)

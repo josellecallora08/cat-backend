@@ -87,9 +87,7 @@ class SessionReport(Base):
     # finite ``reason_code`` is the machine-readable row-level contract.
     failure_reason = Column(Text, nullable=True)
     reason_code = Column(String(40), nullable=True)
-    created_at = Column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(
         DateTime(timezone=True),
         server_default=func.now(),

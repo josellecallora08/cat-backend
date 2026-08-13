@@ -164,9 +164,7 @@ class TestGoogleAuthorizeEndpoint:
         mock_api_settings.google_client_id = "test-client-id.apps.googleusercontent.com"
         mock_api_settings.lark_app_id = ""
         mock_svc_settings.google_client_id = "test-client-id.apps.googleusercontent.com"
-        mock_svc_settings.google_redirect_uri = (
-            "http://localhost:3000/auth/google/callback"
-        )
+        mock_svc_settings.google_redirect_uri = "http://localhost:3000/auth/google/callback"
 
         resp = await client.get("/api/auth/google/authorize")
 
@@ -277,9 +275,7 @@ class TestGoogleCallbackEndpoint:
         mock_settings.google_redirect_uri = "http://localhost:3000/callback"
         mock_settings.lark_app_id = ""
 
-        mock_exchange.side_effect = ValueError(
-            "Google token exchange error: invalid_grant"
-        )
+        mock_exchange.side_effect = ValueError("Google token exchange error: invalid_grant")
 
         resp = await client.post(
             "/api/auth/google/callback",

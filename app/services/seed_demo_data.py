@@ -18,13 +18,17 @@ import logging
 import random
 import uuid
 from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING
 
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Evaluation, Scenario, Session, Transcript
 from app.models.user import User, UserRole, UserType
 from app.services.auth import hash_password
+
+
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
 
 
 logger = logging.getLogger(__name__)
@@ -116,7 +120,7 @@ def _category_score(skill: float, drift: float) -> int:
     """Generate a believable per-category score around the agent's skill."""
     base = skill * 100 + drift
     noise = random.uniform(-8, 8)
-    return max(35, min(99, int(round(base + noise))))
+    return max(35, min(99, round(base + noise)))
 
 
 def _build_category_scores(skill: float, drift: float) -> tuple[list[dict], float]:
@@ -258,9 +262,7 @@ async def seed_demo_data(db: AsyncSession, force: bool = False) -> None:
     ).scalar_one_or_none()
     if sentinel and not force:
         has_sessions = (
-            await db.execute(
-                select(Session.id).where(Session.agent_id == sentinel.id).limit(1)
-            )
+            await db.execute(select(Session.id).where(Session.agent_id == sentinel.id).limit(1))
         ).first()
         if has_sessions:
             logger.info("Demo data already present, skipping seed")

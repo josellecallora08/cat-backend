@@ -42,7 +42,9 @@ class MockLLMService:
     def __init__(self, response_content: str):
         self._response_content = response_content
 
-    async def chat_completion(self, messages, *, temperature=None, max_tokens=None, response_format=None):
+    async def chat_completion(
+        self, messages, *, temperature=None, max_tokens=None, response_format=None
+    ):
         return LLMResponse(
             content=self._response_content,
             model="test-model",
@@ -88,13 +90,15 @@ def llm_coaching_response(draw):
             ).filter(lambda s: s.strip() != "")
         )
 
-        mistakes.append({
-            "transcript_position": position,
-            "transcript_excerpt": excerpt,
-            "category": category,
-            "explanation": explanation,
-            "recommended_alternative": alternative,
-        })
+        mistakes.append(
+            {
+                "transcript_position": position,
+                "transcript_excerpt": excerpt,
+                "category": category,
+                "explanation": explanation,
+                "recommended_alternative": alternative,
+            }
+        )
 
     return {"mistakes": mistakes}
 
@@ -176,16 +180,18 @@ class TestCoachingMistakeStructuralCompleteness:
 
         report = await engine.generate_report(session_id, transcript, evaluation)
 
-        for category, items in report.mistakes_by_category.items():
+        for _category, items in report.mistakes_by_category.items():
             for item in items:
-                assert item.explanation is not None and len(item.explanation) > 0, (
-                    f"Mistake at position {item.transcript_position} has empty explanation"
-                )
+                assert (
+                    item.explanation is not None and len(item.explanation) > 0
+                ), f"Mistake at position {item.transcript_position} has empty explanation"
 
     @given(llm_response_data=llm_coaching_response())
     @settings(max_examples=100)
     @pytest.mark.asyncio
-    async def test_each_mistake_has_non_empty_recommended_alternative(self, llm_response_data: dict):
+    async def test_each_mistake_has_non_empty_recommended_alternative(
+        self, llm_response_data: dict
+    ):
         """**Validates: Requirements 6.2, 6.3**
 
         For any identified mistake in a coaching report, it SHALL contain a non-empty
@@ -199,11 +205,12 @@ class TestCoachingMistakeStructuralCompleteness:
 
         report = await engine.generate_report(session_id, transcript, evaluation)
 
-        for category, items in report.mistakes_by_category.items():
+        for _category, items in report.mistakes_by_category.items():
             for item in items:
-                assert item.recommended_alternative is not None and len(item.recommended_alternative) > 0, (
-                    f"Mistake at position {item.transcript_position} has empty recommended_alternative"
-                )
+                assert (
+                    item.recommended_alternative is not None
+                    and len(item.recommended_alternative) > 0
+                ), f"Mistake at position {item.transcript_position} has empty recommended_alternative"
 
     @given(llm_response_data=llm_coaching_response())
     @settings(max_examples=100)
@@ -222,11 +229,11 @@ class TestCoachingMistakeStructuralCompleteness:
 
         report = await engine.generate_report(session_id, transcript, evaluation)
 
-        for category, items in report.mistakes_by_category.items():
+        for _category, items in report.mistakes_by_category.items():
             for item in items:
-                assert item.transcript_position >= 0, (
-                    f"Mistake has invalid transcript_position: {item.transcript_position}"
-                )
+                assert (
+                    item.transcript_position >= 0
+                ), f"Mistake has invalid transcript_position: {item.transcript_position}"
 
     @given(llm_response_data=llm_coaching_response())
     @settings(max_examples=100)
@@ -245,8 +252,8 @@ class TestCoachingMistakeStructuralCompleteness:
 
         report = await engine.generate_report(session_id, transcript, evaluation)
 
-        for category, items in report.mistakes_by_category.items():
+        for _category, items in report.mistakes_by_category.items():
             for item in items:
-                assert item.category in EvaluationCategory, (
-                    f"Mistake has invalid category: {item.category}"
-                )
+                assert (
+                    item.category in EvaluationCategory
+                ), f"Mistake has invalid category: {item.category}"
