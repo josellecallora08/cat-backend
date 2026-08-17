@@ -53,6 +53,28 @@ MIN_AGENT_UTTERANCES = 4
 MAX_RUBRIC_ATTEMPTS = 3
 
 
+def _complete_optional_observation_summaries(payload: Any) -> Any:
+    """Supply neutral non-scoring summaries omitted by JSON-only providers."""
+    if not isinstance(payload, dict):
+        return payload
+    completed = payload.copy()
+    completed.setdefault(
+        "applied_techniques",
+        {
+            "techniques_used": [],
+            "reason_if_empty": "No applied techniques were identified by the evaluator.",
+        },
+    )
+    completed.setdefault(
+        "missed_opportunities",
+        {
+            "missed_techniques": [],
+            "reason_if_empty": "No missed techniques were identified by the evaluator.",
+        },
+    )
+    return completed
+
+
 class RubricEvaluationError(RuntimeError):
     """Raised when bounded rubric evaluation cannot produce a trusted result."""
 
@@ -357,7 +379,7 @@ class EvaluationEngine:
                 response_format=response_format,
             )
             try:
-                payload = json.loads(response.content)
+                payload = _complete_optional_observation_summaries(json.loads(response.content))
                 validated = validate_observation(payload, snapshot, transcript)
                 canonical = calculate_rubric_score(validated)
             except ObservationValidationError as exc:

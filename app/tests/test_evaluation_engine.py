@@ -7,7 +7,21 @@ Validates: Requirements 5.2, 5.3, 5.7
 import pytest
 
 from app.schemas import EvaluationCategory
-from app.services.evaluation_engine import CATEGORY_WEIGHTS, EvaluationEngine
+from app.services.evaluation_engine import (
+    CATEGORY_WEIGHTS,
+    EvaluationEngine,
+    _complete_optional_observation_summaries,
+)
+
+
+def test_completes_only_omitted_non_scoring_observation_summaries() -> None:
+    payload = {"status": "evaluated", "categories": []}
+
+    completed = _complete_optional_observation_summaries(payload)
+
+    assert completed["applied_techniques"]["techniques_used"] == []
+    assert completed["missed_opportunities"]["missed_techniques"] == []
+    assert "applied_techniques" not in payload
 
 
 @pytest.fixture

@@ -571,6 +571,49 @@ async def get_session_evaluation(
     )
 
 
+@router.post("/{session_id}/evaluation/retry", response_model=SessionResponse)
+async def retry_session_evaluation(
+    session_id: UUID,
+    db: AsyncSession = Depends(get_db_session),
+    current_user: User = Depends(require_auth),
+) -> SessionResponse:
+    """Regenerate missing post-session artifacts for a completed session."""
+    session = await get_authorized_session(db, session_id, current_user)
+    if session.status != "completed":
+        raise HTTPException(status_code=409, detail="Session must be completed first")
+
+    existing = await db.scalar(select(Evaluation.id).where(Evaluation.session_id == session_id))
+    if existing is not None:
+        return _session_to_response(session)
+
+    try:
+        pipeline = EvaluationPipeline(LLMService())
+        await pipeline.run(session_id=session.id, agent_id=session.agent_id, db=db)
+    except Exception:
+        await db.rollback()
+        artifact_ids = await db.execute(
+            select(Evaluation.id, CoachingReport.id, LearningPlan.id)
+            .outerjoin(CoachingReport, CoachingReport.session_id == Evaluation.session_id)
+            .outerjoin(LearningPlan, LearningPlan.session_id == Evaluation.session_id)
+            .where(Evaluation.session_id == session_id)
+        )
+        completed_elsewhere = artifact_ids.one_or_none()
+        if completed_elsewhere is None or any(value is None for value in completed_elsewhere):
+            logger.exception("Evaluation retry failed for session %s", session_id)
+            raise HTTPException(
+                status_code=503,
+                detail="Evaluation generation failed. Please try again.",
+            ) from None
+        logger.info("Evaluation retry completed concurrently for session %s", session_id)
+
+    try:
+        await generate_report_service(db=db, session=session, generated_by=current_user.id)
+    except Exception:
+        logger.exception("Report snapshot retry failed for session %s", session_id)
+
+    return _session_to_response(session)
+
+
 @router.get("/{session_id}/coaching", response_model=CoachingReportSchema)
 async def get_session_coaching(
     session_id: UUID,

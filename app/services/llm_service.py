@@ -1,5 +1,6 @@
 """LLM service interface abstracting calls to Ollama/vLLM OpenAI-compatible API."""
 
+import asyncio
 from dataclasses import dataclass
 from typing import Any, Protocol
 
@@ -84,18 +85,26 @@ class LLMService:
         }
 
         if response_format is not None:
-            payload["response_format"] = response_format
+            payload["response_format"] = (
+                {"type": "json_object"}
+                if "api.groq.com" in self.base_url and response_format.get("type") == "json_schema"
+                else response_format
+            )
 
         headers: dict[str, str] = {"Content-Type": "application/json"}
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
 
         async with httpx.AsyncClient(timeout=self.timeout) as client:
-            response = await client.post(
-                f"{self.base_url}/chat/completions",
-                json=payload,
-                headers=headers,
-            )
+            response = await self._post_with_rate_limit_retry(client, payload, headers)
+            if (
+                response.status_code == 400
+                and response_format is not None
+                and response_format.get("type") == "json_schema"
+                and "does not support response format" in response.text.lower()
+            ):
+                payload["response_format"] = {"type": "json_object"}
+                response = await self._post_with_rate_limit_retry(client, payload, headers)
             response.raise_for_status()
 
         data = response.json()
@@ -107,3 +116,28 @@ class LLMService:
             model=data.get("model", self.model),
             usage=usage,
         )
+
+    async def _post_with_rate_limit_retry(
+        self,
+        client: httpx.AsyncClient,
+        payload: dict[str, Any],
+        headers: dict[str, str],
+    ) -> httpx.Response:
+        """Retry short provider throttles while preserving terminal errors."""
+        response: httpx.Response | None = None
+        for attempt in range(3):
+            response = await client.post(
+                f"{self.base_url}/chat/completions",
+                json=payload,
+                headers=headers,
+            )
+            if response.status_code != 429 or attempt == 2:
+                return response
+            retry_after = response.headers.get("retry-after")
+            try:
+                delay = float(retry_after) if retry_after is not None else 2**attempt
+            except ValueError:
+                delay = 2**attempt
+            await asyncio.sleep(min(max(delay, 0.25), 30.0))
+        assert response is not None
+        return response
