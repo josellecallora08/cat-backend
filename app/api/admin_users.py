@@ -7,7 +7,7 @@ and resetting passwords.
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_session
@@ -28,15 +28,19 @@ router = APIRouter()
 
 @router.get("/", response_model=list[AdminUserResponse])
 async def list_users(
+    search: str | None = Query(default=None),
+    role: str | None = Query(default=None, pattern="^(admin|user)$"),
+    user_type: str | None = Query(default=None, pattern="^(trainer|agent)$"),
+    is_active: bool | None = Query(default=None),
     admin: User = Depends(require_admin),
     db: AsyncSession = Depends(get_session),
 ) -> list[AdminUserResponse]:
     """List all users ordered by creation date descending."""
     service = UserService(db)
-    users = await service.list_users()
-    return [
-        AdminUserResponse.model_validate(user, from_attributes=True) for user in users
-    ]
+    users = await service.list_users(
+        search=search, role=role, user_type=user_type, is_active=is_active
+    )
+    return [AdminUserResponse.model_validate(user, from_attributes=True) for user in users]
 
 
 @router.post("/", response_model=AdminUserResponse, status_code=status.HTTP_201_CREATED)

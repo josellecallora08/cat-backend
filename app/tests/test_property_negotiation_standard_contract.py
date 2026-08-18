@@ -1,6 +1,7 @@
 """Property tests for deterministic negotiation standard validation."""
 
-from hypothesis import given, strategies as st
+from hypothesis import given
+from hypothesis import strategies as st
 
 from app.schemas.negotiation_standard import NegotiationStandardContent
 from app.services.negotiation_standard_validator import validate_standard

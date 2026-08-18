@@ -9,9 +9,9 @@ from httpx import ASGITransport, AsyncClient
 from app.main import app
 from app.services.lark_oauth import (
     LarkUserInfo,
-    get_authorize_url,
     exchange_code_for_user_token,
     fetch_lark_user_info,
+    get_authorize_url,
 )
 
 
@@ -60,9 +60,7 @@ class TestExchangeCodeForUserToken:
     @pytest.mark.asyncio
     @patch("app.services.lark_oauth._get_app_access_token")
     @patch("app.services.lark_oauth.httpx.AsyncClient")
-    async def test_successful_token_exchange(
-        self, mock_client_class, mock_get_app_token
-    ):
+    async def test_successful_token_exchange(self, mock_client_class, mock_get_app_token):
         """Successful code exchange returns user_access_token."""
         mock_get_app_token.return_value = "app-token-123"
 
@@ -245,7 +243,7 @@ class TestLarkCallbackEndpoint:
     ):
         """Successful callback returns access_token and user info."""
         mock_settings.lark_app_id = "test-app-id"
-        mock_settings.lark_app_secret = "test-secret"  # pragma: allowlist secret
+        mock_settings.lark_app_secret = "testkey"
         mock_settings.lark_redirect_uri = "http://localhost:3000/callback"
         mock_settings.google_client_id = ""
 
@@ -285,13 +283,11 @@ class TestLarkCallbackEndpoint:
     async def test_invalid_code_returns_401(self, mock_exchange, mock_settings, client):
         """Returns 401 when Lark rejects the authorization code."""
         mock_settings.lark_app_id = "test-app-id"
-        mock_settings.lark_app_secret = "test-secret"  # pragma: allowlist secret
+        mock_settings.lark_app_secret = "testkey"
         mock_settings.lark_redirect_uri = "http://localhost:3000/callback"
         mock_settings.google_client_id = ""
 
-        mock_exchange.side_effect = ValueError(
-            "Lark token exchange error: invalid code"
-        )
+        mock_exchange.side_effect = ValueError("Lark token exchange error: invalid code")
 
         resp = await client.post(
             "/api/auth/lark/callback",

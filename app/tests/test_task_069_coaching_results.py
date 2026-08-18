@@ -36,9 +36,7 @@ def test_not_applicable_rubric_has_no_coaching_recommendations():
         evaluation.negotiation_standard_version_id,
         evaluation.standard_version_number,
     )
-    plan = LearningPlanGenerator().generate(
-        evaluation, evaluation.session_id, uuid4()
-    )
+    plan = LearningPlanGenerator().generate(evaluation, evaluation.session_id, uuid4())
 
     assert recommendations == []
     assert plan.weak_competencies == []

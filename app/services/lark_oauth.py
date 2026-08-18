@@ -18,15 +18,14 @@ from app.config import settings
 from app.models.user import AuthProvider, User, UserRole, UserType
 from app.services.auth import create_access_token
 
+
 logger = logging.getLogger(__name__)
 
 # Lark API endpoints
 LARK_AUTHORIZE_URL = "https://open.larksuite.com/open-apis/authen/v1/authorize"
 LARK_TOKEN_URL = "https://open.larksuite.com/open-apis/authen/v1/oidc/access_token"
 LARK_USER_INFO_URL = "https://open.larksuite.com/open-apis/authen/v1/user_info"
-LARK_APP_TOKEN_URL = (
-    "https://open.larksuite.com/open-apis/auth/v3/app_access_token/internal"
-)
+LARK_APP_TOKEN_URL = "https://open.larksuite.com/open-apis/auth/v3/app_access_token/internal"
 
 
 @dataclass

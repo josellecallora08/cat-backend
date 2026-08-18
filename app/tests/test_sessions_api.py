@@ -6,7 +6,7 @@ GET /api/sessions/{id}/coaching, GET /api/sessions/{id}/learning-plan.
 """
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
@@ -27,6 +27,65 @@ from app.models import (
 )
 from app.services.auth import require_auth
 from app.services.session_access import get_authorized_session
+
+
+class TestDashboardSessionSearch:
+    @pytest.fixture(autouse=True)
+    def _auth_override(self):
+        app.dependency_overrides[require_auth] = lambda: SimpleNamespace(
+            id=uuid.uuid4(), role="admin", user_type=None
+        )
+        yield
+
+    async def test_search_is_applied_to_count_and_page(self, client):
+        from unittest.mock import MagicMock
+
+        count_result = MagicMock()
+        count_result.scalar_one.return_value = 1
+        session = _make_session(persona_context={"name": "Maria Search"})
+        scenario = SimpleNamespace(name="Debt Help")
+        user = SimpleNamespace(full_name="Agent Example", email="agent@example.com")
+        row_result = MagicMock()
+        row_result.all.return_value = [(session, None, scenario, user)]
+        db = AsyncMock()
+        db.execute = AsyncMock(side_effect=[count_result, row_result])
+        app.dependency_overrides[get_db_session] = _override_db(db)
+
+        response = await client.get("/api/dashboard/sessions?search=Maria&page=2&page_size=1")
+
+        assert response.status_code == 200
+        assert response.json()["total"] == 1
+        assert response.json()["items"][0]["persona_name"] == "Maria Search"
+        assert response.json()["page"] == 2
+        assert response.json()["total_pages"] == 1
+        assert db.execute.await_count == 2
+
+    async def test_search_returns_empty_page_and_zero_total(self, client):
+        from unittest.mock import MagicMock
+
+        count_result = MagicMock()
+        count_result.scalar_one.return_value = 0
+        row_result = MagicMock()
+        row_result.all.return_value = []
+        db = AsyncMock()
+        db.execute = AsyncMock(side_effect=[count_result, row_result])
+        app.dependency_overrides[get_db_session] = _override_db(db)
+
+        response = await client.get("/api/dashboard/sessions?search=no-match")
+
+        assert response.status_code == 200
+        assert response.json()["total"] == 0
+        assert response.json()["items"] == []
+
+    async def test_invalid_session_filters_return_422(self, client):
+        for query in ("agent_id=not-a-uuid", "status=unknown", "sort_by=bad", "sort_dir=bad"):
+            response = await client.get(f"/api/dashboard/sessions?{query}")
+            assert response.status_code == 422
+
+    async def test_unauthenticated_session_listing_is_rejected(self, client):
+        app.dependency_overrides.pop(require_auth, None)
+        response = await client.get("/api/dashboard/sessions")
+        assert response.status_code == 401
 
 
 @pytest.fixture
@@ -69,7 +128,7 @@ def _make_session(
             "emotional_state": 2,
             "language": "EN",
         },
-        created_at=datetime(2024, 1, 15, 10, 0, 0, tzinfo=timezone.utc),
+        created_at=datetime(2024, 1, 15, 10, 0, 0, tzinfo=UTC),
         ended_at=None,
     )
     return session
@@ -309,13 +368,15 @@ class TestSessionAccess:
         session = _make_session()
         agent = SimpleNamespace(id=uuid.uuid4(), role="user", user_type="agent")
 
-        with patch(
-            "app.services.session_access.get_session",
-            new_callable=AsyncMock,
-            return_value=session,
+        with (
+            patch(
+                "app.services.session_access.get_session",
+                new_callable=AsyncMock,
+                return_value=session,
+            ),
+            pytest.raises(HTTPException) as error,
         ):
-            with pytest.raises(HTTPException) as error:
-                await get_authorized_session(AsyncMock(), session.id, agent)
+            await get_authorized_session(AsyncMock(), session.id, agent)
 
         assert error.value.status_code == 403
         assert error.value.detail == "Session access denied"
@@ -368,9 +429,9 @@ class TestSessionAccess:
                 new_callable=AsyncMock,
                 return_value=campaign_agent_ids or [],
             ) as get_agent_ids,
+            pytest.raises(HTTPException) as error,
         ):
-            with pytest.raises(HTTPException) as error:
-                await get_authorized_session(AsyncMock(), session.id, trainer)
+            await get_authorized_session(AsyncMock(), session.id, trainer)
 
         assert error.value.status_code == 403
         assert error.value.detail == "Session access denied"
@@ -381,13 +442,15 @@ class TestSessionAccess:
         session_id = uuid.uuid4()
         user = SimpleNamespace(id=uuid.uuid4(), role="admin", user_type=None)
 
-        with patch(
-            "app.services.session_access.get_session",
-            new_callable=AsyncMock,
-            return_value=None,
+        with (
+            patch(
+                "app.services.session_access.get_session",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+            pytest.raises(HTTPException) as error,
         ):
-            with pytest.raises(HTTPException) as error:
-                await get_authorized_session(AsyncMock(), session_id, user)
+            await get_authorized_session(AsyncMock(), session_id, user)
 
         assert error.value.status_code == 404
         assert error.value.detail == f"Session {session_id} not found"
@@ -398,7 +461,7 @@ class TestEndSession:
 
     async def test_ends_session_returns_completed(self, client):
         session = _make_session(status="completed")
-        session.ended_at = datetime(2024, 1, 15, 10, 30, 0, tzinfo=timezone.utc)
+        session.ended_at = datetime(2024, 1, 15, 10, 30, 0, tzinfo=UTC)
 
         with patch(
             "app.api.sessions.end_session_service",
@@ -458,7 +521,7 @@ class TestGetTranscript:
                 session_id=session_id,
                 speaker="agent",
                 utterance_text="Hello, this is regarding your account.",
-                timestamp_ms=datetime(2024, 1, 15, 10, 0, 0, tzinfo=timezone.utc),
+                timestamp_ms=datetime(2024, 1, 15, 10, 0, 0, tzinfo=UTC),
                 sequence_number=0,
             ),
             Transcript(
@@ -466,7 +529,7 @@ class TestGetTranscript:
                 session_id=session_id,
                 speaker="debtor",
                 utterance_text="What do you want?",
-                timestamp_ms=datetime(2024, 1, 15, 10, 0, 5, tzinfo=timezone.utc),
+                timestamp_ms=datetime(2024, 1, 15, 10, 0, 5, tzinfo=UTC),
                 sequence_number=1,
             ),
         ]
@@ -624,22 +687,31 @@ class TestGetEvaluation:
         canonical = {
             "status": "evaluated",
             "summary": "Evidence-grounded result.",
-            "categories": [{
-                "rubric_block_id": "compliance",
-                "category": "Compliance",
-                "raw_score": 80,
-                "penalty_total": 5,
-                "penalized_score": 75,
-                "weight": 100,
-                "weighted_contribution": 75,
-                "passing_score": 70,
-                "passed": True,
-                "evidence": [{"sequence_number": 1, "speaker": "agent", "excerpt": "Offer", "explanation": "Clear option."}],
-                "strengths": [],
-                "violations": [],
-                "failed_criteria": [],
-                "recommendation_inputs": [],
-            }],
+            "categories": [
+                {
+                    "rubric_block_id": "compliance",
+                    "category": "Compliance",
+                    "raw_score": 80,
+                    "penalty_total": 5,
+                    "penalized_score": 75,
+                    "weight": 100,
+                    "weighted_contribution": 75,
+                    "passing_score": 70,
+                    "passed": True,
+                    "evidence": [
+                        {
+                            "sequence_number": 1,
+                            "speaker": "agent",
+                            "excerpt": "Offer",
+                            "explanation": "Clear option.",
+                        }
+                    ],
+                    "strengths": [],
+                    "violations": [],
+                    "failed_criteria": [],
+                    "recommendation_inputs": [],
+                }
+            ],
             "weighted_total": 75,
             "passing_score": 70,
             "passed": True,
@@ -666,7 +738,9 @@ class TestGetEvaluation:
         mock_db = _mock_db_returning_scalar(evaluation)
         app.dependency_overrides[get_db_session] = _override_db(mock_db)
 
-        with patch("app.api.sessions.get_session_service", new_callable=AsyncMock, return_value=session):
+        with patch(
+            "app.api.sessions.get_session_service", new_callable=AsyncMock, return_value=session
+        ):
             response = await client.get(f"/api/sessions/{session.id}/evaluation")
 
         assert response.status_code == 200
@@ -731,7 +805,9 @@ class TestGetCoaching:
                         "transcript_excerpt": "Pay now or else",
                         "category": "compliance",
                         "explanation": "Threatening language violates regulations",
-                        "recommended_alternative": "I understand this is difficult. Let's discuss options.",
+                        "recommended_alternative": (
+                            "I understand this is difficult. Let's discuss options."
+                        ),
                     }
                 ]
             },
@@ -785,7 +861,9 @@ class TestGetCoaching:
         assert response.status_code == 404
         assert "no coaching report" in response.json()["detail"].lower()
 
-    async def test_returns_canonical_rubric_coaching_without_legacy_category_duplicates(self, client):
+    async def test_returns_canonical_rubric_coaching_without_legacy_category_duplicates(
+        self, client
+    ):
         session = _make_session()
         version_id = uuid.uuid4()
         report = CoachingReport(
@@ -795,24 +873,28 @@ class TestGetCoaching:
                 "_rubric_coaching": {
                     "standard_version_id": str(version_id),
                     "standard_version_number": 7,
-                    "blocks": [{
-                        "rubric_block_id": "custom-block",
-                        "block_name": "Custom Block",
-                        "display_order": 0,
-                        "recommendations": [{
+                    "blocks": [
+                        {
                             "rubric_block_id": "custom-block",
                             "block_name": "Custom Block",
-                            "criterion_id": "custom-criterion",
-                            "criterion_name": "Custom Criterion",
                             "display_order": 0,
-                            "evidence_sequence_number": 3,
-                            "explanation": "Needs work.",
-                            "recommended_response": "Let us review this.",
-                            "coaching_advice": "Use the criterion guidance.",
-                            "standard_version_id": str(version_id),
-                            "standard_version_number": 7,
-                        }],
-                    }],
+                            "recommendations": [
+                                {
+                                    "rubric_block_id": "custom-block",
+                                    "block_name": "Custom Block",
+                                    "criterion_id": "custom-criterion",
+                                    "criterion_name": "Custom Criterion",
+                                    "display_order": 0,
+                                    "evidence_sequence_number": 3,
+                                    "explanation": "Needs work.",
+                                    "recommended_response": "Let us review this.",
+                                    "coaching_advice": "Use the criterion guidance.",
+                                    "standard_version_id": str(version_id),
+                                    "standard_version_number": 7,
+                                }
+                            ],
+                        }
+                    ],
                 }
             },
             total_mistakes=1,
@@ -832,7 +914,10 @@ class TestGetCoaching:
         assert data["mistakes_by_category"] == {}
         assert data["rubric_coaching"]["standard_version_id"] == str(version_id)
         assert data["rubric_coaching"]["blocks"][0]["block_name"] == "Custom Block"
-        assert data["rubric_coaching"]["blocks"][0]["recommendations"][0]["criterion_name"] == "Custom Criterion"
+        assert (
+            data["rubric_coaching"]["blocks"][0]["recommendations"][0]["criterion_name"]
+            == "Custom Criterion"
+        )
 
     async def test_mixed_canonical_report_suppresses_legacy_mistakes(self, client):
         session = _make_session()
@@ -851,22 +936,22 @@ class TestGetCoaching:
             id=uuid.uuid4(),
             session_id=session.id,
             mistakes_by_category={
-                "compliance": [{
-                    "transcript_position": 1,
-                    "transcript_excerpt": "Legacy duplicate",
-                    "category": "compliance",
-                    "explanation": "Duplicate",
-                    "recommended_alternative": "Do not render this.",
-                }],
+                "compliance": [
+                    {
+                        "transcript_position": 1,
+                        "transcript_excerpt": "Legacy duplicate",
+                        "category": "compliance",
+                        "explanation": "Duplicate",
+                        "recommended_alternative": "Do not render this.",
+                    }
+                ],
                 "_rubric_recommendations": [recommendation],
                 "_rubric_recommendations_by_block": {"custom-block": [recommendation]},
             },
             total_mistakes=99,
             no_mistakes=False,
         )
-        app.dependency_overrides[get_db_session] = _override_db(
-            _mock_db_returning_scalar(report)
-        )
+        app.dependency_overrides[get_db_session] = _override_db(_mock_db_returning_scalar(report))
 
         with patch(
             "app.api.sessions.get_session_service",
@@ -933,10 +1018,7 @@ class TestGetLearningPlan:
         assert len(data["weak_competencies"]) == 2
         assert data["weak_competencies"][0]["category"] == "compliance"
         assert data["weak_competencies"][0]["score"] == 55
-        assert (
-            data["weak_competencies"][0]["recommended_scenario"]
-            == "Compliance Fundamentals"
-        )
+        assert data["weak_competencies"][0]["recommended_scenario"] == "Compliance Fundamentals"
 
     async def test_returns_learning_plan_all_passing(self, client):
         session = _make_session()
@@ -1193,7 +1275,7 @@ class TestCriteriaCoachingCompletionExploration:
             campaign=campaign,
             persona_context=None,
             status="completed",
-            created_at=datetime(2024, 1, 1, tzinfo=timezone.utc),
+            created_at=datetime(2024, 1, 1, tzinfo=UTC),
             ended_at=None,
             negotiation_standard_version=None,
         )
@@ -1204,7 +1286,7 @@ class TestCriteriaCoachingCompletionExploration:
             campaign=None,
             persona_context=None,
             status="completed",
-            created_at=datetime(2024, 1, 1, tzinfo=timezone.utc),
+            created_at=datetime(2024, 1, 1, tzinfo=UTC),
             ended_at=None,
             negotiation_standard_version=None,
         )

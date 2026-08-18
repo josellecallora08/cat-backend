@@ -3,14 +3,13 @@
 import uuid
 
 import pytest
-from httpx import ASGITransport, AsyncClient
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from fastapi import HTTPException
+from httpx import ASGITransport, AsyncClient
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.database import Base, get_session
 from app.main import app
 from app.models import Campaign, User
-from app.schemas.negotiation_standard import NegotiationStandardContent
 from app.services.auth import require_admin
 
 
@@ -40,9 +39,7 @@ def _content() -> dict:
                         "evidence_instructions": "Cite the wording.",
                     }
                 ],
-                "penalties": [
-                    {"violation_id": "rude-tone", "deduction": 10, "max_occurrences": 1}
-                ],
+                "penalties": [{"violation_id": "rude-tone", "deduction": 10, "max_occurrences": 1}],
                 "recommendation_guidance": "Use respectful language.",
                 "display_order": 0,
             }

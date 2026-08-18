@@ -3,7 +3,7 @@
 Handles JWT token creation/verification, password hashing, and role-based access control.
 """
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 import bcrypt
@@ -17,6 +17,7 @@ from app.config import settings
 from app.database import get_session
 from app.models.user import User, UserRole, UserType
 
+
 # OAuth2 scheme
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
 
@@ -29,9 +30,7 @@ def hash_password(password: str) -> str:
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """Verify a password against its bcrypt hash."""
     try:
-        return bcrypt.checkpw(
-            plain_password.encode("utf-8"), hashed_password.encode("utf-8")
-        )
+        return bcrypt.checkpw(plain_password.encode("utf-8"), hashed_password.encode("utf-8"))
     except Exception:
         return False
 
@@ -54,14 +53,12 @@ def create_access_token(
     Returns:
         Encoded JWT string.
     """
-    expire = datetime.now(timezone.utc) + (
-        expires_delta or timedelta(hours=settings.jwt_expiry_hours)
-    )
+    expire = datetime.now(UTC) + (expires_delta or timedelta(hours=settings.jwt_expiry_hours))
     payload = {
         "sub": str(user_id),
         "role": role,
         "exp": expire,
-        "iat": datetime.now(timezone.utc),
+        "iat": datetime.now(UTC),
     }
     if role == UserRole.USER.value and user_type is not None:
         payload["user_type"] = user_type

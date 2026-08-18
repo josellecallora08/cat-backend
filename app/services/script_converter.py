@@ -32,6 +32,7 @@ from pydantic import ValidationError
 from app.config import settings
 from app.schemas.script import ScriptContract
 
+
 logger = logging.getLogger(__name__)
 
 _STRUCTURED_CODE_BLOCK = re.compile(
@@ -87,11 +88,9 @@ def convert_extracted_to_contract(
         return _parse_yaml_contract(fenced_text)
 
     # Detect whether the content attempts to be JSON
-    is_json_attempt = text.startswith("{") or text.startswith("[")
+    is_json_attempt = text.startswith(("{", "["))
     # Detect whether the content attempts to be YAML with mapping structure
-    first_meaningful_line = next(
-        (line.strip() for line in text.splitlines() if line.strip()), ""
-    )
+    first_meaningful_line = next((line.strip() for line in text.splitlines() if line.strip()), "")
     is_yaml_attempt = (
         ":" in first_meaningful_line
         and not first_meaningful_line.startswith(("#", "-", "*", ">"))
@@ -127,8 +126,7 @@ def _parse_json_contract(text: str) -> dict[str, Any]:
 
     if not isinstance(data, dict):
         raise ConversionError(
-            "Parsed JSON must be an object/mapping, got "
-            f"{type(data).__name__}",
+            f"Parsed JSON must be an object/mapping, got {type(data).__name__}",
             details={"format": "json", "parsed_type": type(data).__name__},
         )
 
@@ -151,7 +149,10 @@ def _parse_yaml_contract(text: str) -> dict[str, Any]:
         raise ConversionError(
             "Parsed YAML must be a mapping, got "
             f"{type(data).__name__ if data is not None else 'null'}",
-            details={"format": "yaml", "parsed_type": type(data).__name__ if data is not None else "null"},
+            details={
+                "format": "yaml",
+                "parsed_type": type(data).__name__ if data is not None else "null",
+            },
         )
 
     return _validate_contract_data(data, format_name="yaml")
@@ -194,6 +195,6 @@ def detect_format(text: str) -> str:
     Returns "json" or "yaml". Used to pass to script_registry.create_draft().
     """
     stripped = text.strip()
-    if stripped.startswith("{") or stripped.startswith("["):
+    if stripped.startswith(("{", "[")):
         return "json"
     return "yaml"

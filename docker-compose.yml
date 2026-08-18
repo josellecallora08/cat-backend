@@ -5,7 +5,7 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_PASSWORD: local_test_password
       POSTGRES_DB: cat_db
     ports:
       - "5432:5432"
@@ -27,9 +27,9 @@ services:
       - "8000:8000"
     command: sh -c "python migrate.py && uvicorn app.main:app --host 0.0.0.0 --port 8000"
     environment:
-      CAT_DATABASE_URL: postgresql+asyncpg://postgres:postgres@db:5432/cat_db
+      CAT_DATABASE_URL: postgresql+asyncpg://local_test_user:local_test_password@db:5432/cat_db
       CAT_DEBUG: "false"
-      CAT_JWT_SECRET: ${CAT_JWT_SECRET:-cat-docker-secret-change-in-production}
+      CAT_JWT_SECRET: ${CAT_JWT_SECRET:-local_test_jwt_placeholder}
       CAT_JWT_EXPIRY_HOURS: "24"
       CAT_LLM_BASE_URL: ${CAT_LLM_BASE_URL:-https://api.groq.com/openai/v1}
       CAT_LLM_MODEL: ${CAT_LLM_MODEL:-llama-3.3-70b-versatile}

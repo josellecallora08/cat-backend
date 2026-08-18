@@ -26,6 +26,7 @@ from app.services.negotiation_standard_service import (
     validate_draft,
 )
 
+
 router = APIRouter()
 
 
@@ -129,9 +130,13 @@ def _version_response(version: NegotiationStandardVersion) -> VersionResponse:
 def _raise_service_error(error: Exception) -> None:
     """Translate service domain errors into stable HTTP contracts."""
     if isinstance(error, StandardNotFoundError):
-        raise HTTPException(status_code=404, detail={"code": "not_found", "message": str(error)}) from error
+        raise HTTPException(
+            status_code=404, detail={"code": "not_found", "message": str(error)}
+        ) from error
     if isinstance(error, StandardConflictError):
-        raise HTTPException(status_code=409, detail={"code": "conflict", "message": str(error)}) from error
+        raise HTTPException(
+            status_code=409, detail={"code": "conflict", "message": str(error)}
+        ) from error
     if isinstance(error, StandardValidationError):
         raise HTTPException(
             status_code=422,

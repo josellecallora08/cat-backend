@@ -57,14 +57,14 @@ from app.database import Base
 from app.models import Scenario, Script, ScriptVersion, User
 from app.models.user import UserRole
 from app.services.debtor_simulator import (
+    _NEGATIVE_EMOTION_KEYWORDS,
+    _POSITIVE_EMOTION_KEYWORDS,
     SAFE_DEFAULT_DEBTOR_RESPONSE,
     AgentTone,
     DebtorSimulatorService,
     EmotionalState,
     PersonaContext,
     _apply_directional_step,
-    _NEGATIVE_EMOTION_KEYWORDS,
-    _POSITIVE_EMOTION_KEYWORDS,
     _resolve_state_change_direction,
     contains_prohibited_response,
     evaluate_conversation_goal_completion,
@@ -82,6 +82,7 @@ from app.services.script_registry import (
     update_draft,
 )
 from app.services.session_service import create_session
+
 
 # --- Shared strategies (adapted from test_property_script_lifecycle.py /
 # test_property_script_consumption.py) ---
@@ -112,7 +113,9 @@ expected_reply_entries = st.fixed_dictionaries(
     {"agent_statement": safe_text, "debtor_reply": safe_text}
 )
 
-emotional_state_rule_entries = st.fixed_dictionaries({"trigger": safe_text, "state_change": safe_text})
+emotional_state_rule_entries = st.fixed_dictionaries(
+    {"trigger": safe_text, "state_change": safe_text}
+)
 
 escalation_condition_entries = st.fixed_dictionaries(
     {"condition": safe_text, "behavior": safe_text, "ends_call": st.booleans()}
@@ -165,7 +168,9 @@ def valid_script_contract_dicts(draw, opening_response=None):
     return {
         "debtor_persona": draw(debtor_persona_dicts),
         "financial_situation": draw(financial_situation_dicts),
-        "opening_response": draw(opening_response) if opening_response is not None else draw(safe_text),
+        "opening_response": draw(opening_response)
+        if opening_response is not None
+        else draw(safe_text),
         "expected_replies": draw(st.lists(expected_reply_entries, min_size=0, max_size=5)),
         "trigger_phrases": draw(st.lists(trigger_phrase_entries, min_size=0, max_size=5)),
         "emotional_state_rules": draw(
@@ -223,10 +228,9 @@ class TestOpeningUtteranceMatchesScriptVersion:
         opening-line flow instead."""
         result = select_opening_response(None)
 
-        assert result is None, (
-            f"Expected select_opening_response(None) to return None, got "
-            f"{result!r}"
-        )
+        assert (
+            result is None
+        ), f"Expected select_opening_response(None) to return None, got {result!r}"
 
 
 # --- Strategies for Property 18 (script-driven emotional state changes) ---
@@ -376,9 +380,7 @@ distinctive_phrase_text = (
     st.text(
         alphabet=st.characters(
             whitelist_categories=(),
-            whitelist_characters=(
-                "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-            ),
+            whitelist_characters=("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"),
         ),
         min_size=4,
         max_size=20,
@@ -419,7 +421,10 @@ class TestTriggerPhraseMatching:
     **Validates: Requirements 4.6**
     """
 
-    @settings(max_examples=100, suppress_health_check=[HealthCheck.function_scoped_fixture, HealthCheck.filter_too_much])
+    @settings(
+        max_examples=100,
+        suppress_health_check=[HealthCheck.function_scoped_fixture, HealthCheck.filter_too_much],
+    )
     @given(
         trigger_phrases=st.lists(distinctive_trigger_phrase_entries, min_size=1, max_size=5),
         prefix=safe_text,
@@ -454,7 +459,10 @@ class TestTriggerPhraseMatching:
             f"as {varied_phrase!r}), got {result!r} instead"
         )
 
-    @settings(max_examples=100, suppress_health_check=[HealthCheck.function_scoped_fixture, HealthCheck.filter_too_much])
+    @settings(
+        max_examples=100,
+        suppress_health_check=[HealthCheck.function_scoped_fixture, HealthCheck.filter_too_much],
+    )
     @given(
         trigger_phrases=st.lists(distinctive_trigger_phrase_entries, min_size=1, max_size=5),
         agent_message=safe_text,
@@ -464,9 +472,7 @@ class TestTriggerPhraseMatching:
         `trigger_phrases`' `phrase` values as a substring (case-insensitive),
         `match_trigger_phrase` SHALL return `None`."""
         lower_message = agent_message.lower()
-        assume(
-            not any(entry["phrase"].lower() in lower_message for entry in trigger_phrases)
-        )
+        assume(not any(entry["phrase"].lower() in lower_message for entry in trigger_phrases))
 
         result = match_trigger_phrase(agent_message, trigger_phrases)
 
@@ -481,9 +487,7 @@ class TestTriggerPhraseMatching:
         agent_message=safe_text,
         empty_trigger_phrases=st.sampled_from([None, []]),
     )
-    def test_empty_or_none_trigger_phrases_returns_none(
-        self, agent_message, empty_trigger_phrases
-    ):
+    def test_empty_or_none_trigger_phrases_returns_none(self, agent_message, empty_trigger_phrases):
         """For any `agent_message`, when `trigger_phrases` is `None` or an
         empty list, `match_trigger_phrase` SHALL return `None` regardless
         of the message content."""
@@ -529,7 +533,10 @@ class TestEscalationConditions:
     **Validates: Requirements 4.7**
     """
 
-    @settings(max_examples=100, suppress_health_check=[HealthCheck.function_scoped_fixture, HealthCheck.filter_too_much])
+    @settings(
+        max_examples=100,
+        suppress_health_check=[HealthCheck.function_scoped_fixture, HealthCheck.filter_too_much],
+    )
     @given(
         escalation_conditions=st.lists(
             distinctive_escalation_condition_entries, min_size=1, max_size=5
@@ -580,16 +587,17 @@ class TestEscalationConditions:
             "ends_call is True, not unconditionally always/never."
         )
 
-    @settings(max_examples=100, suppress_health_check=[HealthCheck.function_scoped_fixture, HealthCheck.filter_too_much])
+    @settings(
+        max_examples=100,
+        suppress_health_check=[HealthCheck.function_scoped_fixture, HealthCheck.filter_too_much],
+    )
     @given(
         escalation_conditions=st.lists(
             distinctive_escalation_condition_entries, min_size=1, max_size=5
         ),
         agent_message=safe_text,
     )
-    def test_message_matching_no_condition_returns_none(
-        self, escalation_conditions, agent_message
-    ):
+    def test_message_matching_no_condition_returns_none(self, escalation_conditions, agent_message):
         """For any `agent_message` that is guaranteed to contain none of
         `escalation_conditions`' `condition` values as a substring
         (case-insensitive), `evaluate_escalation_conditions` SHALL return
@@ -597,10 +605,7 @@ class TestEscalationConditions:
         produced."""
         lower_message = agent_message.lower()
         assume(
-            not any(
-                entry["condition"].lower() in lower_message
-                for entry in escalation_conditions
-            )
+            not any(entry["condition"].lower() in lower_message for entry in escalation_conditions)
         )
 
         result = evaluate_escalation_conditions(agent_message, escalation_conditions)
@@ -854,11 +859,12 @@ class TestPaymentConditionMatching:
     **Validates: Requirements 4.9**
     """
 
-    @settings(max_examples=100, suppress_health_check=[HealthCheck.function_scoped_fixture, HealthCheck.filter_too_much])
+    @settings(
+        max_examples=100,
+        suppress_health_check=[HealthCheck.function_scoped_fixture, HealthCheck.filter_too_much],
+    )
     @given(
-        payment_conditions=st.lists(
-            distinctive_payment_condition_entries, min_size=1, max_size=5
-        ),
+        payment_conditions=st.lists(distinctive_payment_condition_entries, min_size=1, max_size=5),
         prefix=safe_text,
         suffix=safe_text,
         case_variation_name=case_variation_names,
@@ -905,26 +911,20 @@ class TestPaymentConditionMatching:
             "not an unconditional always-True/always-False default."
         )
 
-    @settings(max_examples=100, suppress_health_check=[HealthCheck.function_scoped_fixture, HealthCheck.filter_too_much])
+    @settings(
+        max_examples=100,
+        suppress_health_check=[HealthCheck.function_scoped_fixture, HealthCheck.filter_too_much],
+    )
     @given(
-        payment_conditions=st.lists(
-            distinctive_payment_condition_entries, min_size=1, max_size=5
-        ),
+        payment_conditions=st.lists(distinctive_payment_condition_entries, min_size=1, max_size=5),
         agent_message=safe_text,
     )
-    def test_message_matching_no_condition_returns_none(
-        self, payment_conditions, agent_message
-    ):
+    def test_message_matching_no_condition_returns_none(self, payment_conditions, agent_message):
         """For any `agent_message` that is guaranteed to contain none of
         `payment_conditions`' `condition` values as a substring
         (case-insensitive), `match_payment_condition` SHALL return `None`."""
         lower_message = agent_message.lower()
-        assume(
-            not any(
-                entry["condition"].lower() in lower_message
-                for entry in payment_conditions
-            )
-        )
+        assume(not any(entry["condition"].lower() in lower_message for entry in payment_conditions))
 
         result = match_payment_condition(agent_message, payment_conditions)
 
@@ -998,7 +998,10 @@ class TestConversationGoalCompletion:
     **Validates: Requirements 4.10**
     """
 
-    @settings(max_examples=100, suppress_health_check=[HealthCheck.function_scoped_fixture, HealthCheck.filter_too_much])
+    @settings(
+        max_examples=100,
+        suppress_health_check=[HealthCheck.function_scoped_fixture, HealthCheck.filter_too_much],
+    )
     @given(
         conversation_goal=distinctive_conversation_goal_dicts,
         prefix=safe_text,
@@ -1027,7 +1030,10 @@ class TestConversationGoalCompletion:
             f"got {result!r} instead"
         )
 
-    @settings(max_examples=100, suppress_health_check=[HealthCheck.function_scoped_fixture, HealthCheck.filter_too_much])
+    @settings(
+        max_examples=100,
+        suppress_health_check=[HealthCheck.function_scoped_fixture, HealthCheck.filter_too_much],
+    )
     @given(
         conversation_goal=distinctive_conversation_goal_dicts,
         agent_message=safe_text,
@@ -1039,9 +1045,7 @@ class TestConversationGoalCompletion:
         `conversation_goal`'s `completion_condition` as a substring
         (case-insensitive), `evaluate_conversation_goal_completion` SHALL
         return `None`."""
-        assume(
-            conversation_goal["completion_condition"].lower() not in agent_message.lower()
-        )
+        assume(conversation_goal["completion_condition"].lower() not in agent_message.lower())
 
         result = evaluate_conversation_goal_completion(agent_message, conversation_goal)
 
@@ -1323,9 +1327,7 @@ class TestPublishIsolationDuringActiveCall:
         # Optional contrast: get_active_published_version (the "for new
         # sessions" view) now returns version 2, while the EXISTING
         # session's pinned version remains version 1.
-        active_version_for_new_sessions = await get_active_published_version(
-            async_db, scenario.id
-        )
+        active_version_for_new_sessions = await get_active_published_version(async_db, scenario.id)
         assert active_version_for_new_sessions is not None
         assert active_version_for_new_sessions.id == version_2.id, (
             "Expected get_active_published_version to reflect the newer "

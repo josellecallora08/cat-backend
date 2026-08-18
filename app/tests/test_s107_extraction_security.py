@@ -10,25 +10,24 @@ Includes regression probes for three specific bypass cases:
 """
 
 import io
-import os
 import uuid
 import zipfile
+from datetime import UTC
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
-from xml.etree import ElementTree as ET
 
 import pytest
 
-from app.services.pdf_security import validate_pdf_security
 from app.services.docx_security import validate_docx_security
+from app.services.pdf_security import validate_pdf_security
 from app.services.upload_extractor import (
     ExtractionError,
-    extract_content,
-    extract_pdf,
-    extract_docx,
-    extract_txt,
-    extract_md,
     compute_content_hash,
+    extract_content,
+    extract_docx,
+    extract_md,
+    extract_pdf,
+    extract_txt,
 )
 from app.services.upload_validator import UploadRejectionReason
 
@@ -36,7 +35,7 @@ from app.services.upload_validator import UploadRejectionReason
 def _make_valid_pdf() -> bytes:
     """Generate a valid unencrypted PDF with text."""
     from pypdf import PdfWriter
-    from pypdf.generic import NameObject, TextStringObject
+
     w = PdfWriter()
     w.add_blank_page(612, 792)
     buf = io.BytesIO()
@@ -46,6 +45,7 @@ def _make_valid_pdf() -> bytes:
 
 def _make_encrypted_pdf() -> bytes:
     from pypdf import PdfWriter
+
     w = PdfWriter()
     w.add_blank_page(612, 792)
     w.encrypt("secret")
@@ -56,12 +56,13 @@ def _make_encrypted_pdf() -> bytes:
 
 # ─── PDF Security Tests ───────────────────────────────────────────────────
 
+
 class TestPdfSecurity:
     """PDF structural security validation."""
 
     def test_valid_pdf_accepted(self):
         pdf = _make_valid_pdf()
-        valid, reason = validate_pdf_security(pdf)
+        valid, _reason = validate_pdf_security(pdf)
         assert valid is True
 
     def test_encrypted_pdf_rejected(self):
@@ -84,8 +85,11 @@ class TestPdfSecurity:
         """PDF containing /JavaScript in catalog is rejected."""
         from pypdf import PdfWriter
         from pypdf.generic import (
-            ArrayObject, DictionaryObject, NameObject, TextStringObject,
+            DictionaryObject,
+            NameObject,
+            TextStringObject,
         )
+
         w = PdfWriter()
         w.add_blank_page(612, 792)
         js_action = DictionaryObject()
@@ -106,7 +110,8 @@ class TestPdfSecurity:
     def test_pdf_with_embedded_file_rejected(self):
         """PDF with /EmbeddedFiles in catalog is rejected."""
         from pypdf import PdfWriter
-        from pypdf.generic import DictionaryObject, NameObject, ArrayObject
+        from pypdf.generic import ArrayObject, DictionaryObject, NameObject
+
         w = PdfWriter()
         w.add_blank_page(612, 792)
         ef_dict = DictionaryObject()
@@ -122,7 +127,8 @@ class TestPdfSecurity:
     def test_pdf_with_uri_action_rejected(self):
         """PDF with /URI action annotation is rejected."""
         from pypdf import PdfWriter
-        from pypdf.generic import DictionaryObject, NameObject, TextStringObject, ArrayObject
+        from pypdf.generic import ArrayObject, DictionaryObject, NameObject, TextStringObject
+
         w = PdfWriter()
         p = w.add_blank_page(612, 792)
         annot = DictionaryObject()
@@ -143,13 +149,14 @@ class TestPdfSecurity:
     def test_pdf_plain_text_with_url_allowed(self):
         """Plain text containing a URL is NOT rejected (only structural links)."""
         pdf = _make_valid_pdf()
-        valid, reason = validate_pdf_security(pdf)
+        valid, _reason = validate_pdf_security(pdf)
         assert valid is True
 
     def test_pdf_with_launch_action_rejected(self):
         """PDF with /Launch action is rejected as embedded object."""
         from pypdf import PdfWriter
         from pypdf.generic import DictionaryObject, NameObject, TextStringObject
+
         w = PdfWriter()
         w.add_blank_page(612, 792)
         launch = DictionaryObject()
@@ -170,8 +177,12 @@ class TestPdfSecurity:
         """REGRESSION: /URI action inside array nested inside another array is rejected."""
         from pypdf import PdfWriter
         from pypdf.generic import (
-            DictionaryObject, NameObject, TextStringObject, ArrayObject,
+            ArrayObject,
+            DictionaryObject,
+            NameObject,
+            TextStringObject,
         )
+
         w = PdfWriter()
         p = w.add_blank_page(612, 792)
         # Build: page -> /Annots -> [ArrayObject([ArrayObject([dict with /URI])])]
@@ -192,8 +203,12 @@ class TestPdfSecurity:
         """JavaScript hidden inside nested arrays is rejected."""
         from pypdf import PdfWriter
         from pypdf.generic import (
-            DictionaryObject, NameObject, TextStringObject, ArrayObject,
+            ArrayObject,
+            DictionaryObject,
+            NameObject,
+            TextStringObject,
         )
+
         w = PdfWriter()
         p = w.add_blank_page(612, 792)
         js_dict = DictionaryObject()
@@ -212,8 +227,12 @@ class TestPdfSecurity:
         """Attachment dictionary reached through nested arrays is rejected."""
         from pypdf import PdfWriter
         from pypdf.generic import (
-            DictionaryObject, NameObject, ArrayObject, TextStringObject,
+            ArrayObject,
+            DictionaryObject,
+            NameObject,
+            TextStringObject,
         )
+
         w = PdfWriter()
         w.add_blank_page(612, 792)
         ef_dict = DictionaryObject()
@@ -232,8 +251,11 @@ class TestPdfSecurity:
         """IndirectObject that cannot be resolved triggers PDF_MALFORMED."""
         from pypdf import PdfWriter
         from pypdf.generic import (
-            DictionaryObject, NameObject, ArrayObject, IndirectObject,
+            ArrayObject,
+            IndirectObject,
+            NameObject,
         )
+
         w = PdfWriter()
         p = w.add_blank_page(612, 792)
         # Create an indirect reference with invalid id
@@ -250,26 +272,31 @@ class TestPdfSecurity:
         """Normal PDF with harmless arrays is accepted."""
         from pypdf import PdfWriter
         from pypdf.generic import (
-            DictionaryObject, NameObject, ArrayObject, NumberObject,
+            ArrayObject,
+            NameObject,
+            NumberObject,
         )
+
         w = PdfWriter()
         p = w.add_blank_page(612, 792)
         # Add a harmless array (media box is already one, but let's add another)
-        p[NameObject("/SomeData")] = ArrayObject([
-            NumberObject(1), NumberObject(2), NumberObject(3)
-        ])
+        p[NameObject("/SomeData")] = ArrayObject(
+            [NumberObject(1), NumberObject(2), NumberObject(3)]
+        )
         buf = io.BytesIO()
         w.write(buf)
 
-        valid, reason = validate_pdf_security(buf.getvalue())
+        valid, _reason = validate_pdf_security(buf.getvalue())
         assert valid is True
 
 
 # ─── DOCX Security Tests ──────────────────────────────────────────────────
 
+
 def _make_valid_docx(path: Path) -> Path:
     """Create a minimal valid DOCX."""
     from docx import Document
+
     doc = Document()
     doc.add_paragraph("Training script content.")
     doc.save(str(path))
@@ -281,7 +308,7 @@ class TestDocxSecurity:
 
     def test_valid_docx_accepted(self, tmp_path):
         path = _make_valid_docx(tmp_path / "ok.docx")
-        valid, reason = validate_docx_security(path)
+        valid, _reason = validate_docx_security(path)
         assert valid is True
 
     def test_ole_embedding_rejected(self, tmp_path):
@@ -323,7 +350,7 @@ class TestDocxSecurity:
         with zipfile.ZipFile(path, "w") as zf:
             zf.writestr("[Content_Types].xml", "<Types/>")
             zf.writestr("word/document.xml", "<doc/>")
-            zf.writestr("word/embeddings/object.jpg", b"\xFF\xD8\xFF fake jpg")
+            zf.writestr("word/embeddings/object.jpg", b"\xff\xd8\xff fake jpg")
         valid, reason = validate_docx_security(path)
         assert valid is False
         assert reason == UploadRejectionReason.DOCX_EMBEDDED_OBJECT
@@ -357,7 +384,7 @@ class TestDocxSecurity:
             zf.writestr("[Content_Types].xml", "<Types/>")
             zf.writestr("word/document.xml", "<doc/>")
             zf.writestr("word/media/image.png", b"\x89PNG")
-        valid, reason = validate_docx_security(path)
+        valid, _reason = validate_docx_security(path)
         assert valid is True
 
     def test_external_hyperlink_rejected(self, tmp_path):
@@ -368,7 +395,7 @@ class TestDocxSecurity:
             '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
             '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" '
             'Target="https://evil.com/payload" TargetMode="External"/>'
-            '</Relationships>'
+            "</Relationships>"
         )
         with zipfile.ZipFile(path, "w") as zf:
             zf.writestr("[Content_Types].xml", "<Types/>")
@@ -386,7 +413,7 @@ class TestDocxSecurity:
             '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
             '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" '
             'Target="\\\\evil\\share\\img.png" TargetMode="External"/>'
-            '</Relationships>'
+            "</Relationships>"
         )
         with zipfile.ZipFile(path, "w") as zf:
             zf.writestr("[Content_Types].xml", "<Types/>")
@@ -404,20 +431,20 @@ class TestDocxSecurity:
             '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
             '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" '
             'Target="media/image1.png"/>'
-            '</Relationships>'
+            "</Relationships>"
         )
         with zipfile.ZipFile(path, "w") as zf:
             zf.writestr("[Content_Types].xml", "<Types/>")
             zf.writestr("word/document.xml", "<doc/>")
             zf.writestr("word/_rels/document.xml.rels", rels_xml)
             zf.writestr("word/media/image1.png", b"\x89PNG")
-        valid, reason = validate_docx_security(path)
+        valid, _reason = validate_docx_security(path)
         assert valid is True
 
     def test_normal_embedded_image_allowed(self, tmp_path):
         """Normal image in word/media/ is accepted."""
         path = _make_valid_docx(tmp_path / "img.docx")
-        valid, reason = validate_docx_security(path)
+        valid, _reason = validate_docx_security(path)
         assert valid is True
 
     def test_dtd_declaration_rejected(self, tmp_path):
@@ -448,7 +475,7 @@ class TestDocxSecurity:
             '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
             '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/oleObject" '
             'Target="embeddings/oleObject1.bin"/>'
-            '</Relationships>'
+            "</Relationships>"
         )
         with zipfile.ZipFile(path, "w") as zf:
             zf.writestr("[Content_Types].xml", "<Types/>")
@@ -469,6 +496,7 @@ class TestDocxSecurity:
 
 # ─── DOCX Case-Insensitive Part Discovery Tests ───────────────────────────
 
+
 class TestDocxCaseInsensitiveDiscovery:
     """Case-insensitive .rels and .xml part discovery."""
 
@@ -480,7 +508,7 @@ class TestDocxCaseInsensitiveDiscovery:
             '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
             '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" '
             'Target="https://evil.com" TargetMode="External"/>'
-            '</Relationships>'
+            "</Relationships>"
         )
         with zipfile.ZipFile(path, "w") as zf:
             zf.writestr("[Content_Types].xml", "<Types/>")
@@ -498,7 +526,7 @@ class TestDocxCaseInsensitiveDiscovery:
             '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
             '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" '
             'Target="http://evil.com" TargetMode="External"/>'
-            '</Relationships>'
+            "</Relationships>"
         )
         with zipfile.ZipFile(path, "w") as zf:
             zf.writestr("[Content_Types].xml", "<Types/>")
@@ -536,17 +564,18 @@ class TestDocxCaseInsensitiveDiscovery:
             '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
             '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" '
             'Target="media/image1.png"/>'
-            '</Relationships>'
+            "</Relationships>"
         )
         with zipfile.ZipFile(path, "w") as zf:
             zf.writestr("[Content_Types].xml", "<Types/>")
             zf.writestr("word/document.xml", "<doc/>")
             zf.writestr("word/_rels/document.xml.rels", rels_xml)
-        valid, reason = validate_docx_security(path)
+        valid, _reason = validate_docx_security(path)
         assert valid is True
 
 
 # ─── DOCX Fail-Closed Read Tests ──────────────────────────────────────────
+
 
 class TestDocxFailClosedReads:
     """If a listed .rels or .xml part cannot be read, reject the DOCX."""
@@ -559,7 +588,7 @@ class TestDocxFailClosedReads:
             '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
             '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" '
             'Target="media/image1.png"/>'
-            '</Relationships>'
+            "</Relationships>"
         )
         with zipfile.ZipFile(path, "w") as zf:
             zf.writestr("[Content_Types].xml", "<Types/>")
@@ -567,9 +596,8 @@ class TestDocxFailClosedReads:
             zf.writestr("word/_rels/document.xml.rels", rels_xml)
 
         # Patch zf.read to raise on the rels file
-        orig_init = zipfile.ZipFile.__init__
 
-        with patch.object(zipfile.ZipFile, "read", side_effect=IOError("corrupt")):
+        with patch.object(zipfile.ZipFile, "read", side_effect=OSError("corrupt")):
             valid, reason = validate_docx_security(path)
 
         assert valid is False
@@ -587,7 +615,7 @@ class TestDocxFailClosedReads:
 
         def _failing_read(self, name, *args, **kwargs):
             if name.lower().endswith(".xml"):
-                raise IOError("corrupt xml")
+                raise OSError("corrupt xml")
             return real_read(self, name, *args, **kwargs)
 
         with patch.object(zipfile.ZipFile, "read", side_effect=_failing_read):
@@ -599,12 +627,14 @@ class TestDocxFailClosedReads:
 
 # ─── Safe Extraction Tests ─────────────────────────────────────────────────
 
+
 class TestSafeExtraction:
     """Extraction behavior: fail-closed, resource limits, body-text only."""
 
     def test_pdf_extraction_valid(self, tmp_path):
         """Valid PDF text extraction works."""
         from pypdf import PdfWriter
+
         path = tmp_path / "valid.pdf"
         w = PdfWriter()
         w.add_blank_page(612, 792)
@@ -623,6 +653,7 @@ class TestSafeExtraction:
     def test_docx_extraction_body_only(self, tmp_path):
         """DOCX extraction returns body paragraph text."""
         from docx import Document
+
         doc = Document()
         doc.add_paragraph("First paragraph.")
         doc.add_paragraph("Second paragraph.")
@@ -672,22 +703,26 @@ class TestSafeExtraction:
 
 # ─── Fix 1: External relationships (all TargetMode=External rejected) ─────
 
+
 class TestDocxExternalRelationshipsAll:
     """Reject ALL external relationships regardless of URI scheme."""
 
-    @pytest.mark.parametrize("target", [
-        "https://evil.com/payload",
-        "http://example.org/track",
-        "mailto:user@evil.com",
-        "ftp://ftp.evil.com/file",
-        "data:text/html;base64,PHNjcmlwdD4=",
-        "file:///etc/passwd",
-        "\\\\server\\share\\file.docx",
-        "//protocol-relative.com/path",
-        "custom-scheme://app/action",
-        "relative/path/to/resource",
-        "",  # empty target still has External mode
-    ])
+    @pytest.mark.parametrize(
+        "target",
+        [
+            "https://evil.com/payload",
+            "http://example.org/track",
+            "mailto:user@evil.com",
+            "ftp://ftp.evil.com/file",
+            "data:text/html;base64,PHNjcmlwdD4=",
+            "file:///etc/passwd",
+            "\\\\server\\share\\file.docx",
+            "//protocol-relative.com/path",
+            "custom-scheme://app/action",
+            "relative/path/to/resource",
+            "",  # empty target still has External mode
+        ],
+    )
     def test_external_target_rejected(self, tmp_path, target):
         path = tmp_path / "ext.docx"
         rels_xml = (
@@ -695,7 +730,7 @@ class TestDocxExternalRelationshipsAll:
             '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
             f'<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" '
             f'Target="{target}" TargetMode="External"/>'
-            '</Relationships>'
+            "</Relationships>"
         )
         with zipfile.ZipFile(path, "w") as zf:
             zf.writestr("[Content_Types].xml", "<Types/>")
@@ -713,13 +748,13 @@ class TestDocxExternalRelationshipsAll:
             '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
             '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" '
             'Target="media/image1.png"/>'
-            '</Relationships>'
+            "</Relationships>"
         )
         with zipfile.ZipFile(path, "w") as zf:
             zf.writestr("[Content_Types].xml", "<Types/>")
             zf.writestr("word/document.xml", "<doc/>")
             zf.writestr("word/_rels/document.xml.rels", rels_xml)
-        valid, reason = validate_docx_security(path)
+        valid, _reason = validate_docx_security(path)
         assert valid is True
 
     def test_case_insensitive_target_mode(self, tmp_path):
@@ -730,7 +765,7 @@ class TestDocxExternalRelationshipsAll:
             '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
             '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" '
             'Target="http://x.com" TargetMode="EXTERNAL"/>'
-            '</Relationships>'
+            "</Relationships>"
         )
         with zipfile.ZipFile(path, "w") as zf:
             zf.writestr("[Content_Types].xml", "<Types/>")
@@ -743,12 +778,14 @@ class TestDocxExternalRelationshipsAll:
 
 # ─── Fix 3: Per-entry compression bomb ────────────────────────────────────
 
+
 class TestDocxPerEntryBomb:
     """Per-entry ratio and suspicious zero-compress detection."""
 
     def test_per_entry_high_ratio_rejected(self, tmp_path):
         """Single entry with ratio > 100 is rejected even if aggregate is OK."""
         from app.services.upload_validator import validate_docx_archive
+
         path = tmp_path / "bomb.docx"
         with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
             zf.writestr("[Content_Types].xml", "X" * 10000)
@@ -760,6 +797,7 @@ class TestDocxPerEntryBomb:
     def test_zero_compress_size_rejected(self, tmp_path):
         """Entry with file_size > 0 and compress_size == 0 is rejected."""
         from app.services.upload_validator import validate_docx_archive
+
         path = tmp_path / "zero.docx"
         content = b"x" * 100
         with zipfile.ZipFile(path, "w") as zf:
@@ -775,6 +813,7 @@ class TestDocxPerEntryBomb:
                 info.file_size = 100
 
         from unittest.mock import patch as _p
+
         with _p("zipfile.ZipFile.infolist", return_value=info_list):
             valid, reason = validate_docx_archive(path)
 
@@ -784,27 +823,29 @@ class TestDocxPerEntryBomb:
     def test_normal_docx_accepted(self, tmp_path):
         """Ordinary DOCX passes per-entry checks."""
         from app.services.upload_validator import validate_docx_archive
+
         path = tmp_path / "normal.docx"
         from docx import Document
+
         doc = Document()
         doc.add_paragraph("Normal content")
         doc.save(str(path))
-        valid, reason = validate_docx_archive(path)
+        valid, _reason = validate_docx_archive(path)
         assert valid is True
 
 
 # ─── Fix 4 & 5: Endpoint integration for security rejections ──────────────
+
 
 class TestEndpointSecurityRejection:
     """Endpoint tests: unsafe files -> 422, file deleted, no extraction/success."""
 
     @pytest.fixture
     def _setup(self, tmp_path):
-        from app.main import create_app
-        from app.services.auth import require_admin
         from app.database import get_session
+        from app.main import create_app
         from app.models.user import User, UserRole
-        from unittest.mock import AsyncMock
+        from app.services.auth import require_admin
 
         admin = MagicMock(spec=User)
         admin.id = uuid.uuid4()
@@ -817,8 +858,10 @@ class TestEndpointSecurityRejection:
         db.rollback = AsyncMock()
 
         async def _refresh(obj):
-            from datetime import datetime, timezone
-            obj.created_at = datetime.now(timezone.utc)
+            from datetime import datetime
+
+            obj.created_at = datetime.now(UTC)
+
         db.refresh = AsyncMock(side_effect=_refresh)
 
         app = create_app()
@@ -834,7 +877,9 @@ class TestEndpointSecurityRejection:
     async def test_unsafe_pdf_rejected_422(self, _setup, caplog):
         """PDF with unsafe structure -> 422, no extraction, no success."""
         import logging
+
         from httpx import ASGITransport, AsyncClient
+
         app, admin, db, q_dir = _setup
 
         with caplog.at_level(logging.WARNING, logger="app.api.uploads"):
@@ -845,13 +890,24 @@ class TestEndpointSecurityRejection:
                     us.upload_quarantine_retention_hours = 24
                     with patch("app.api.uploads.scan_file") as ms:
                         ms.return_value = MagicMock(clean=True)
-                        with patch("app.services.pdf_security.validate_pdf_security",
-                                   return_value=(False, UploadRejectionReason.PDF_ACTIVE_CONTENT)):
-                            with patch("app.api.uploads.validate_pdf_not_encrypted", return_value=(True, None)):
-                                with patch("app.api.uploads.extract_content") as mock_ext:
-                                    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
-                                        r = await c.post("/api/scripts/upload",
-                                            files={"file": ("d.pdf", b"%PDF-1.4 x", "application/pdf")})
+                        with (
+                            patch(
+                                "app.services.pdf_security.validate_pdf_security",
+                                return_value=(False, UploadRejectionReason.PDF_ACTIVE_CONTENT),
+                            ),
+                            patch(
+                                "app.api.uploads.validate_pdf_not_encrypted",
+                                return_value=(True, None),
+                            ),
+                            patch("app.api.uploads.extract_content") as mock_ext,
+                        ):
+                            async with AsyncClient(
+                                transport=ASGITransport(app=app), base_url="http://t"
+                            ) as c:
+                                r = await c.post(
+                                    "/api/scripts/upload",
+                                    files={"file": ("d.pdf", b"%PDF-1.4 x", "application/pdf")},
+                                )
 
         assert r.status_code == 422
         assert r.json()["detail"]["reason_code"] == "pdf_active_content"
@@ -874,7 +930,9 @@ class TestEndpointSecurityRejection:
     async def test_unsafe_docx_rejected_422(self, _setup, caplog):
         """DOCX with unsafe content -> 422, no extraction, no success."""
         import logging
+
         from httpx import ASGITransport, AsyncClient
+
         app, admin, db, q_dir = _setup
 
         with caplog.at_level(logging.WARNING, logger="app.api.uploads"):
@@ -885,9 +943,13 @@ class TestEndpointSecurityRejection:
                     us.upload_quarantine_retention_hours = 24
                     with patch("app.api.uploads.scan_file") as ms:
                         ms.return_value = MagicMock(clean=True)
-                        with patch("app.services.docx_security.validate_docx_security",
-                                   return_value=(False, UploadRejectionReason.DOCX_EMBEDDED_OBJECT)):
-                            with patch("app.api.uploads.validate_docx_archive", return_value=(True, None)):
+                        with patch(
+                            "app.services.docx_security.validate_docx_security",
+                            return_value=(False, UploadRejectionReason.DOCX_EMBEDDED_OBJECT),
+                        ):
+                            with patch(
+                                "app.api.uploads.validate_docx_archive", return_value=(True, None)
+                            ):
                                 with patch("app.api.uploads.extract_content") as mock_ext:
                                     # Create a minimal valid ZIP for DOCX
                                     docx_buf = io.BytesIO()
@@ -895,10 +957,19 @@ class TestEndpointSecurityRejection:
                                         zf.writestr("[Content_Types].xml", "<Types/>")
                                         zf.writestr("word/document.xml", "<doc/>")
                                     docx_bytes = docx_buf.getvalue()
-                                    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
-                                        r = await c.post("/api/scripts/upload",
-                                            files={"file": ("d.docx", docx_bytes,
-                                                "application/vnd.openxmlformats-officedocument.wordprocessingml.document")})
+                                    async with AsyncClient(
+                                        transport=ASGITransport(app=app), base_url="http://t"
+                                    ) as c:
+                                        r = await c.post(
+                                            "/api/scripts/upload",
+                                            files={
+                                                "file": (
+                                                    "d.docx",
+                                                    docx_bytes,
+                                                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                                                )
+                                            },
+                                        )
 
         assert r.status_code == 422
         assert r.json()["detail"]["reason_code"] == "docx_embedded_object"
@@ -921,7 +992,9 @@ class TestEndpointSecurityRejection:
     async def test_extraction_error_422(self, _setup, caplog):
         """ExtractionError -> 422, file deleted, no success."""
         import logging
+
         from httpx import ASGITransport, AsyncClient
+
         app, admin, db, q_dir = _setup
 
         with caplog.at_level(logging.WARNING, logger="app.api.uploads"):
@@ -932,12 +1005,27 @@ class TestEndpointSecurityRejection:
                     us.upload_quarantine_retention_hours = 24
                     with patch("app.api.uploads.scan_file") as ms:
                         ms.return_value = MagicMock(clean=True)
-                        with patch("app.services.pdf_security.validate_pdf_security", return_value=(True, None)):
-                            with patch("app.api.uploads.validate_pdf_not_encrypted", return_value=(True, None)):
-                                with patch("app.api.uploads.extract_content", side_effect=ExtractionError("corrupt")):
-                                    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as c:
-                                        r = await c.post("/api/scripts/upload",
-                                            files={"file": ("d.pdf", b"%PDF-1.4 x", "application/pdf")})
+                        with (
+                            patch(
+                                "app.services.pdf_security.validate_pdf_security",
+                                return_value=(True, None),
+                            ),
+                            patch(
+                                "app.api.uploads.validate_pdf_not_encrypted",
+                                return_value=(True, None),
+                            ),
+                            patch(
+                                "app.api.uploads.extract_content",
+                                side_effect=ExtractionError("corrupt"),
+                            ),
+                        ):
+                            async with AsyncClient(
+                                transport=ASGITransport(app=app), base_url="http://t"
+                            ) as c:
+                                r = await c.post(
+                                    "/api/scripts/upload",
+                                    files={"file": ("d.pdf", b"%PDF-1.4 x", "application/pdf")},
+                                )
 
         assert r.status_code == 422
         assert r.json()["detail"]["reason_code"] == "extraction_failed"
@@ -958,6 +1046,7 @@ class TestEndpointSecurityRejection:
 
 
 # ─── Independent Regression Probes (Bypass Cases) ─────────────────────────
+
 
 class TestRegressionProbes:
     """Automated equivalents of three previously failing bypass probes.
@@ -987,7 +1076,7 @@ class TestRegressionProbes:
             '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
             '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" '
             'Target="https://evil.com/exfil" TargetMode="External"/>'
-            '</Relationships>'
+            "</Relationships>"
         )
         with zipfile.ZipFile(path, "w") as zf:
             zf.writestr("[Content_Types].xml", "<Types/>")
@@ -1001,8 +1090,12 @@ class TestRegressionProbes:
         """PROBE 3: PDF /URI action inside nested arrays MUST be rejected."""
         from pypdf import PdfWriter
         from pypdf.generic import (
-            DictionaryObject, NameObject, TextStringObject, ArrayObject,
+            ArrayObject,
+            DictionaryObject,
+            NameObject,
+            TextStringObject,
         )
+
         w = PdfWriter()
         p = w.add_blank_page(612, 792)
         # /URI inside dict -> inside array -> inside array -> on page
@@ -1022,6 +1115,7 @@ class TestRegressionProbes:
 
 # ─── XML Encoding Security Tests ──────────────────────────────────────────
 
+
 class TestDocxXmlEncodingSecurity:
     """Encoding-based XML security bypass prevention.
 
@@ -1032,7 +1126,9 @@ class TestDocxXmlEncodingSecurity:
     def test_utf16_le_xml_with_doctype_rejected(self, tmp_path):
         """UTF-16 LE .XML containing DOCTYPE is rejected."""
         path = tmp_path / "utf16le_dtd.docx"
-        xml_content = '<?xml version="1.0" encoding="UTF-16"?><!DOCTYPE x SYSTEM "http://evil"><doc/>'
+        xml_content = (
+            '<?xml version="1.0" encoding="UTF-16"?><!DOCTYPE x SYSTEM "http://evil"><doc/>'
+        )
         xml_bytes = xml_content.encode("utf-16")  # BOM + UTF-16 LE
         with zipfile.ZipFile(path, "w") as zf:
             zf.writestr("[Content_Types].xml", b'<?xml version="1.0"?><Types/>')
@@ -1044,8 +1140,10 @@ class TestDocxXmlEncodingSecurity:
     def test_utf16_be_xml_with_entity_rejected(self, tmp_path):
         """UTF-16 BE .XML containing entity declaration is rejected."""
         path = tmp_path / "utf16be_entity.docx"
-        xml_content = '<?xml version="1.0" encoding="UTF-16"?><!DOCTYPE x [<!ENTITY e "bad">]><doc/>'
-        xml_bytes = b'\xfe\xff' + xml_content.encode("utf-16-be")
+        xml_content = (
+            '<?xml version="1.0" encoding="UTF-16"?><!DOCTYPE x [<!ENTITY e "bad">]><doc/>'
+        )
+        xml_bytes = b"\xfe\xff" + xml_content.encode("utf-16-be")
         with zipfile.ZipFile(path, "w") as zf:
             zf.writestr("[Content_Types].xml", b'<?xml version="1.0"?><Types/>')
             zf.writestr("word/document.XML", xml_bytes)
@@ -1136,11 +1234,11 @@ class TestDocxXmlEncodingSecurity:
         # This would consume GBs if entities were expanded; defusedxml blocks it
         laughs_xml = (
             b'<?xml version="1.0"?>'
-            b'<!DOCTYPE lolz ['
+            b"<!DOCTYPE lolz ["
             b'<!ENTITY lol "lol">'
             b'<!ENTITY lol2 "&lol;&lol;&lol;&lol;&lol;&lol;&lol;&lol;&lol;&lol;">'
             b'<!ENTITY lol3 "&lol2;&lol2;&lol2;&lol2;&lol2;&lol2;&lol2;&lol2;&lol2;&lol2;">'
-            b']><root>&lol3;</root>'
+            b"]><root>&lol3;</root>"
         )
         with zipfile.ZipFile(path, "w") as zf:
             zf.writestr("[Content_Types].xml", b'<?xml version="1.0"?><Types/>')
@@ -1154,8 +1252,11 @@ class TestDocxXmlEncodingSecurity:
         path = tmp_path / "normal_utf8.docx"
         with zipfile.ZipFile(path, "w") as zf:
             zf.writestr("[Content_Types].xml", b'<?xml version="1.0" encoding="UTF-8"?><Types/>')
-            zf.writestr("word/document.xml", b'<?xml version="1.0" encoding="UTF-8"?><document><body/></document>')
-        valid, reason = validate_docx_security(path)
+            zf.writestr(
+                "word/document.xml",
+                b'<?xml version="1.0" encoding="UTF-8"?><document><body/></document>',
+            )
+        valid, _reason = validate_docx_security(path)
         assert valid is True
 
     def test_valid_utf16_xml_without_dtd_accepted(self, tmp_path):
@@ -1166,18 +1267,19 @@ class TestDocxXmlEncodingSecurity:
         with zipfile.ZipFile(path, "w") as zf:
             zf.writestr("[Content_Types].xml", b'<?xml version="1.0"?><Types/>')
             zf.writestr("word/document.xml", xml_bytes)
-        valid, reason = validate_docx_security(path)
+        valid, _reason = validate_docx_security(path)
         assert valid is True
 
     def test_normal_docx_from_python_docx_accepted(self, tmp_path):
         """Ordinary DOCX file generated by python-docx is accepted."""
         from docx import Document
+
         doc = Document()
         doc.add_paragraph("Normal training script content.")
         doc.add_paragraph("Second paragraph with UTF-8 text: résumé, naïve.")
         path = tmp_path / "python_docx.docx"
         doc.save(str(path))
-        valid, reason = validate_docx_security(path)
+        valid, _reason = validate_docx_security(path)
         assert valid is True
 
     def test_normal_internal_rels_in_valid_docx(self, tmp_path):
@@ -1190,7 +1292,7 @@ class TestDocxXmlEncodingSecurity:
             'Target="styles.xml"/>'
             '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/settings" '
             'Target="settings.xml"/>'
-            '</Relationships>'
+            "</Relationships>"
         )
         with zipfile.ZipFile(path, "w") as zf:
             zf.writestr("[Content_Types].xml", b'<?xml version="1.0"?><Types/>')
@@ -1198,11 +1300,12 @@ class TestDocxXmlEncodingSecurity:
             zf.writestr("word/_rels/document.xml.rels", rels_xml.encode("utf-8"))
             zf.writestr("word/styles.xml", b'<?xml version="1.0"?><styles/>')
             zf.writestr("word/settings.xml", b'<?xml version="1.0"?><settings/>')
-        valid, reason = validate_docx_security(path)
+        valid, _reason = validate_docx_security(path)
         assert valid is True
 
 
 # ─── UTF-16 Encoding Bypass Regression Probes ─────────────────────────────
+
 
 class TestEncodingBypassProbes:
     """Previously failing probes: UTF-16 XML/RELS with DTD/entity MUST be rejected."""
@@ -1222,7 +1325,9 @@ class TestEncodingBypassProbes:
     def test_probe_utf16_xml_with_entity_rejected(self, tmp_path):
         """PROBE: UTF-16 .XML with entity MUST be rejected."""
         path = tmp_path / "probe_utf16_entity.docx"
-        xml_content = '<?xml version="1.0" encoding="UTF-16"?><!DOCTYPE x [<!ENTITY e "pwned">]><doc/>'
+        xml_content = (
+            '<?xml version="1.0" encoding="UTF-16"?><!DOCTYPE x [<!ENTITY e "pwned">]><doc/>'
+        )
         xml_bytes = xml_content.encode("utf-16")
         with zipfile.ZipFile(path, "w") as zf:
             zf.writestr("[Content_Types].xml", b'<?xml version="1.0"?><Types/>')

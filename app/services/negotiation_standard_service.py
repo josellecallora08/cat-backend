@@ -4,7 +4,7 @@ import copy
 import hashlib
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from uuid import UUID
 
 from sqlalchemy import func, select
@@ -16,6 +16,7 @@ from app.schemas.negotiation_standard import (
     ValidationResult,
 )
 from app.services.negotiation_standard_validator import validate_standard
+
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +39,11 @@ class StandardValidationError(ValueError):
 
 def canonical_content_hash(content: NegotiationStandardContent | dict) -> str:
     """Return the SHA-256 hash of a compact, sorted canonical snapshot."""
-    payload = content.model_dump(mode="json") if isinstance(content, NegotiationStandardContent) else content
+    payload = (
+        content.model_dump(mode="json")
+        if isinstance(content, NegotiationStandardContent)
+        else content
+    )
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode()
     return hashlib.sha256(encoded).hexdigest()
 
@@ -57,13 +62,15 @@ def _audit(event_name: str, standard: NegotiationStandard, admin_id: UUID, **ext
         "admin_id": str(admin_id),
         "status": standard.status,
         "revision": standard.revision,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
     }
     fields.update({key: str(value) for key, value in extra.items()})
     logger.info(event_name, extra=fields)
 
 
-async def _get_standard(db: AsyncSession, campaign_id: UUID, *, lock: bool = False) -> NegotiationStandard:
+async def _get_standard(
+    db: AsyncSession, campaign_id: UUID, *, lock: bool = False
+) -> NegotiationStandard:
     """Load a campaign standard or raise a typed not-found error."""
     statement = select(NegotiationStandard).where(NegotiationStandard.campaign_id == campaign_id)
     if lock:
@@ -83,10 +90,16 @@ async def create_standard(
     content: NegotiationStandardContent,
 ) -> NegotiationStandard:
     """Create a draft standard and preserve incomplete publication weights."""
-    campaign = (await db.execute(select(Campaign).where(Campaign.id == campaign_id))).scalar_one_or_none()
+    campaign = (
+        await db.execute(select(Campaign).where(Campaign.id == campaign_id))
+    ).scalar_one_or_none()
     if campaign is None:
         raise StandardNotFoundError("Campaign not found")
-    existing = (await db.execute(select(NegotiationStandard).where(NegotiationStandard.campaign_id == campaign_id))).scalar_one_or_none()
+    existing = (
+        await db.execute(
+            select(NegotiationStandard).where(NegotiationStandard.campaign_id == campaign_id)
+        )
+    ).scalar_one_or_none()
     if existing is not None:
         raise StandardConflictError("Campaign already has a negotiation standard")
 
@@ -147,10 +160,30 @@ async def delete_draft(db: AsyncSession, campaign_id: UUID, admin_id: UUID) -> N
     standard = await _get_standard(db, campaign_id, lock=True)
     if standard.status != "draft":
         raise StandardConflictError("Only draft negotiation standards can be deleted")
-    version_exists = (await db.execute(select(NegotiationStandardVersion.id).where(NegotiationStandardVersion.standard_id == standard.id).limit(1))).scalar_one_or_none()
-    pinned_exists = (await db.execute(select(Session.id).where(Session.negotiation_standard_version_id.in_(select(NegotiationStandardVersion.id).where(NegotiationStandardVersion.standard_id == standard.id))).limit(1))).scalar_one_or_none()
+    version_exists = (
+        await db.execute(
+            select(NegotiationStandardVersion.id)
+            .where(NegotiationStandardVersion.standard_id == standard.id)
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    pinned_exists = (
+        await db.execute(
+            select(Session.id)
+            .where(
+                Session.negotiation_standard_version_id.in_(
+                    select(NegotiationStandardVersion.id).where(
+                        NegotiationStandardVersion.standard_id == standard.id
+                    )
+                )
+            )
+            .limit(1)
+        )
+    ).scalar_one_or_none()
     if version_exists is not None or pinned_exists is not None:
-        raise StandardConflictError("Negotiation standard has published versions or pinned sessions")
+        raise StandardConflictError(
+            "Negotiation standard has published versions or pinned sessions"
+        )
     await db.delete(standard)
     await db.commit()
     _audit("negotiation_standard_deleted", standard, admin_id)
@@ -224,7 +257,9 @@ async def publish_standard(
     return version
 
 
-async def archive_standard(db: AsyncSession, campaign_id: UUID, admin_id: UUID) -> NegotiationStandard:
+async def archive_standard(
+    db: AsyncSession, campaign_id: UUID, admin_id: UUID
+) -> NegotiationStandard:
     """Archive a standard; repeated archive requests are safe and idempotent."""
     standard = await _get_standard(db, campaign_id, lock=True)
     if standard.status == "archived":
@@ -247,23 +282,29 @@ async def list_versions(
     """Return newest-first versions with a total count."""
     standard = await _get_standard(db, campaign_id)
     total = await db.scalar(
-        select(func.count()).select_from(NegotiationStandardVersion).where(
-            NegotiationStandardVersion.standard_id == standard.id
-        )
+        select(func.count())
+        .select_from(NegotiationStandardVersion)
+        .where(NegotiationStandardVersion.standard_id == standard.id)
     )
     versions = (
-        await db.execute(
-            select(NegotiationStandardVersion)
-            .where(NegotiationStandardVersion.standard_id == standard.id)
-            .order_by(NegotiationStandardVersion.version_number.desc())
-            .offset((page - 1) * page_size)
-            .limit(page_size)
+        (
+            await db.execute(
+                select(NegotiationStandardVersion)
+                .where(NegotiationStandardVersion.standard_id == standard.id)
+                .order_by(NegotiationStandardVersion.version_number.desc())
+                .offset((page - 1) * page_size)
+                .limit(page_size)
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     return list(versions), int(total or 0)
 
 
-async def get_version(db: AsyncSession, campaign_id: UUID, version_id: UUID) -> NegotiationStandardVersion:
+async def get_version(
+    db: AsyncSession, campaign_id: UUID, version_id: UUID
+) -> NegotiationStandardVersion:
     """Return a version belonging to the requested campaign."""
     standard = await _get_standard(db, campaign_id)
     version = (

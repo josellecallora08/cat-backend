@@ -19,6 +19,7 @@ from app.services.script_validator import (
     validate_script,
 )
 
+
 # A generous ScriptLimits instance so limit checks never interfere with
 # these tests (they only exercise parse/structure/format behavior).
 GENEROUS_LIMITS = ScriptLimits(
@@ -97,9 +98,7 @@ class TestValidateScriptValidSubmissions:
         assert result.opening_response == "Hello, who is this calling?"
 
     def test_valid_yaml_contract_is_accepted(self):
-        raw_text = yaml.dump(
-            _valid_contract_dict(), default_flow_style=False, allow_unicode=True
-        )
+        raw_text = yaml.dump(_valid_contract_dict(), default_flow_style=False, allow_unicode=True)
 
         result = validate_script(raw_text, "yaml", GENEROUS_LIMITS)
 

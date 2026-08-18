@@ -7,7 +7,7 @@ Validates: Requirements 5.2, 5.3, 5.7
 import pytest
 
 from app.schemas import EvaluationCategory
-from app.services.evaluation_engine import EvaluationEngine, CATEGORY_WEIGHTS
+from app.services.evaluation_engine import CATEGORY_WEIGHTS, EvaluationEngine
 
 
 @pytest.fixture
@@ -168,10 +168,7 @@ class TestIsSessionTooShort:
 
     def test_many_agent_utterances_is_not_too_short(self, engine: EvaluationEngine):
         """Transcript with many agent utterances is NOT too short."""
-        transcript = [
-            {"speaker": "agent", "text": f"Message {i}"}
-            for i in range(10)
-        ]
+        transcript = [{"speaker": "agent", "text": f"Message {i}"} for i in range(10)]
         assert engine.is_session_too_short(transcript) is False
 
     def test_mixed_speakers_counts_only_agent(self, engine: EvaluationEngine):

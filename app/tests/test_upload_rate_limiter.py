@@ -1,7 +1,6 @@
 """Unit tests for app.services.upload_rate_limiter."""
 
-from datetime import datetime, timedelta, timezone
-from unittest.mock import patch
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -58,18 +57,18 @@ class TestCooldownEnforcement:
             record_rejection(user)
         # Cooldown should be set
         assert user in upload_rate_limiter._cooldown_tracker
-        assert upload_rate_limiter._cooldown_tracker[user] > datetime.now(timezone.utc)
+        assert upload_rate_limiter._cooldown_tracker[user] > datetime.now(UTC)
 
     def test_cooldown_blocks_even_with_empty_window(self):
         user = "user-cooldown-block"
         # Manually set a cooldown in the future
-        upload_rate_limiter._cooldown_tracker[user] = datetime.now(timezone.utc) + timedelta(minutes=30)
+        upload_rate_limiter._cooldown_tracker[user] = datetime.now(UTC) + timedelta(minutes=30)
         assert is_rate_limited(user) is True
 
     def test_expired_cooldown_does_not_block(self):
         user = "user-expired"
         # Set a cooldown in the past
-        upload_rate_limiter._cooldown_tracker[user] = datetime.now(timezone.utc) - timedelta(minutes=1)
+        upload_rate_limiter._cooldown_tracker[user] = datetime.now(UTC) - timedelta(minutes=1)
         assert is_rate_limited(user) is False
 
 
@@ -81,7 +80,7 @@ class TestGetRetryAfter:
 
     def test_returns_cooldown_seconds(self):
         user = "user-retry"
-        upload_rate_limiter._cooldown_tracker[user] = datetime.now(timezone.utc) + timedelta(minutes=15)
+        upload_rate_limiter._cooldown_tracker[user] = datetime.now(UTC) + timedelta(minutes=15)
         retry = get_retry_after(user)
         # Should be approximately 15*60 = 900 seconds
         assert 890 <= retry <= 901
@@ -102,7 +101,7 @@ class TestCleanupExpiredEntries:
     def test_removes_old_entries(self):
         user = "user-old"
         # Manually insert old timestamps
-        old_time = datetime.now(timezone.utc) - timedelta(minutes=120)
+        old_time = datetime.now(UTC) - timedelta(minutes=120)
         upload_rate_limiter._rejection_tracker[user] = [old_time]
         cleaned = cleanup_expired_entries()
         assert cleaned >= 1
@@ -116,6 +115,6 @@ class TestCleanupExpiredEntries:
 
     def test_removes_expired_cooldowns(self):
         user = "user-expired-cd"
-        upload_rate_limiter._cooldown_tracker[user] = datetime.now(timezone.utc) - timedelta(minutes=5)
+        upload_rate_limiter._cooldown_tracker[user] = datetime.now(UTC) - timedelta(minutes=5)
         cleanup_expired_entries()
         assert user not in upload_rate_limiter._cooldown_tracker

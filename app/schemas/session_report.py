@@ -6,8 +6,8 @@ are validated against the section in which they occur.
 """
 
 from datetime import datetime
-from enum import Enum
-from typing import Annotated, Literal, Optional, Union
+from enum import Enum, StrEnum
+from typing import Annotated, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -28,7 +28,7 @@ from app.schemas.rubric_evaluation import (
 )
 
 
-class ReportReasonCode(str, Enum):
+class ReportReasonCode(StrEnum):
     """Finite reason vocabulary used by report sections and status envelopes.
 
     This intentionally remains a string-compatible enum so JSON output is
@@ -58,7 +58,7 @@ class ReportReason(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
     code: ReportReasonCodeValue
-    message: Optional[str] = Field(default=None, min_length=1, max_length=500)
+    message: str | None = Field(default=None, min_length=1, max_length=500)
 
 
 # Section matrix.  Generation reasons are row/status concerns and cannot be
@@ -114,17 +114,17 @@ class SessionReportSummary(BaseModel):
     session_id: UUID
     scenario_id: UUID
     agent_id: UUID
-    campaign_id: Optional[UUID] = None
-    campaign_name: Optional[str] = None
-    persona: Optional[PersonaSummary] = None
+    campaign_id: UUID | None = None
+    campaign_name: str | None = None
+    persona: PersonaSummary | None = None
     status: SessionStatus
     created_at: datetime
-    ended_at: Optional[datetime] = None
-    duration_seconds: Optional[float] = Field(default=None, ge=0)
-    standard_id: Optional[UUID] = None
-    standard_version_id: Optional[UUID] = None
-    standard_version_number: Optional[int] = Field(default=None, ge=1)
-    standard_name: Optional[str] = None
+    ended_at: datetime | None = None
+    duration_seconds: float | None = Field(default=None, ge=0)
+    standard_id: UUID | None = None
+    standard_version_id: UUID | None = None
+    standard_version_number: int | None = Field(default=None, ge=1)
+    standard_name: str | None = None
 
     @model_validator(mode="after")
     def validate_timestamps(self) -> "SessionReportSummary":
@@ -146,7 +146,7 @@ class TranscriptSection(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
     available: bool = True
-    reason: Optional[str] = Field(default=None, min_length=1, max_length=500)
+    reason: str | None = Field(default=None, min_length=1, max_length=500)
     reason_code: ReportReasonCodeValue | None = None
     entries: list[TranscriptEntry] = Field(default_factory=list)
 
@@ -212,15 +212,15 @@ class EvaluationSection(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
     available: bool
-    reason: Optional[str] = Field(default=None, min_length=1, max_length=500)
+    reason: str | None = Field(default=None, min_length=1, max_length=500)
     reason_code: ReportReasonCodeValue | None = None
-    mode: Optional[EvaluationMode] = None
-    canonical: Optional[CanonicalEvaluationResult] = None
-    legacy: Optional[LegacyEvaluationResult] = None
-    weighted_total: Optional[float] = Field(default=None, ge=0, le=100)
-    passing_score: Optional[int] = Field(default=None, ge=0, le=100)
-    passed: Optional[bool] = None
-    standard_version_number: Optional[int] = Field(default=None, ge=1)
+    mode: EvaluationMode | None = None
+    canonical: CanonicalEvaluationResult | None = None
+    legacy: LegacyEvaluationResult | None = None
+    weighted_total: float | None = Field(default=None, ge=0, le=100)
+    passing_score: int | None = Field(default=None, ge=0, le=100)
+    passed: bool | None = None
+    standard_version_number: int | None = Field(default=None, ge=1)
 
     @model_validator(mode="before")
     @classmethod
@@ -235,7 +235,10 @@ class EvaluationSection(BaseModel):
                 data["reason_code"] = "session_too_short"
             elif mode == "not_applicable":
                 data["reason_code"] = "not_applicable"
-            elif not data.get("available", True) and reason == "No evaluation recorded for this session":
+            elif (
+                not data.get("available", True)
+                and reason == "No evaluation recorded for this session"
+            ):
                 data["reason_code"] = "artifact_missing"
         return data
 
@@ -260,7 +263,10 @@ class EvaluationSection(BaseModel):
         if self.mode in {"not_applicable", "too_short"}:
             if self.reason_code not in {"not_applicable", "session_too_short"}:
                 raise ValueError("terminal evaluation modes require their matching reason_code")
-            if any(value is not None for value in (self.weighted_total, self.passing_score, self.passed)):
+            if any(
+                value is not None
+                for value in (self.weighted_total, self.passing_score, self.passed)
+            ):
                 raise ValueError("terminal evaluations must not contain scored outcome fields")
             if self.mode == "too_short" and (self.canonical is not None or self.legacy is not None):
                 raise ValueError("too_short evaluations must not contain a scored branch")
@@ -281,13 +287,13 @@ class CoachingSection(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
     available: bool
-    reason: Optional[str] = Field(default=None, min_length=1, max_length=500)
+    reason: str | None = Field(default=None, min_length=1, max_length=500)
     reason_code: ReportReasonCodeValue | None = None
-    mode: Optional[CoachingMode] = None
+    mode: CoachingMode | None = None
     blocks: list[RubricCoachingBlock] = Field(default_factory=list)
     legacy_mistakes_by_category: dict[str, list[MistakeItem]] = Field(default_factory=dict)
-    total_mistakes: Optional[int] = Field(default=None, ge=0)
-    no_mistakes: Optional[bool] = None
+    total_mistakes: int | None = Field(default=None, ge=0)
+    no_mistakes: bool | None = None
 
     @model_validator(mode="before")
     @classmethod
@@ -347,10 +353,10 @@ class LearningPlanSection(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
     available: bool
-    reason: Optional[str] = Field(default=None, min_length=1, max_length=500)
+    reason: str | None = Field(default=None, min_length=1, max_length=500)
     reason_code: ReportReasonCodeValue | None = None
     items: list[LearningPlanItem] = Field(default_factory=list)
-    all_passing: Optional[bool] = None
+    all_passing: bool | None = None
 
     @model_validator(mode="before")
     @classmethod
@@ -417,26 +423,36 @@ class SessionReportPayload(BaseModel):
                 evidence_ids: set[tuple[int, str, str]] = set()
                 for evidence in category.evidence:
                     if evidence.sequence_number not in transcript_sequences:
-                        raise ValueError("canonical evidence references an unknown transcript entry")
+                        raise ValueError(
+                            "canonical evidence references an unknown transcript entry"
+                        )
                     identity = (evidence.sequence_number, evidence.speaker, evidence.excerpt)
                     if identity in evidence_ids:
                         raise ValueError("canonical evidence identities must be unique")
                     evidence_ids.add(identity)
                 for strength in category.strengths:
                     if not set(strength.evidence_sequence_numbers) <= transcript_sequences:
-                        raise ValueError("canonical strength references an unknown transcript entry")
+                        raise ValueError(
+                            "canonical strength references an unknown transcript entry"
+                        )
                 for violation in category.violations:
                     if not set(violation.evidence_sequence_numbers) <= transcript_sequences:
-                        raise ValueError("canonical violation references an unknown transcript entry")
+                        raise ValueError(
+                            "canonical violation references an unknown transcript entry"
+                        )
                 for recommendation_input in category.recommendation_inputs:
                     if recommendation_input.transcript_sequence_number not in transcript_sequences:
-                        raise ValueError("canonical recommendation input references an unknown transcript entry")
+                        raise ValueError(
+                            "canonical recommendation input references an unknown transcript entry"
+                        )
             recommendation_ids: set[tuple[str, str, int]] = set()
             for recommendation in canonical.recommendations:
                 if recommendation.rubric_block_id not in block_ids:
                     raise ValueError("canonical recommendation references an unknown rubric block")
                 if recommendation.evidence_sequence_number not in transcript_sequences:
-                    raise ValueError("canonical recommendation references an unknown transcript entry")
+                    raise ValueError(
+                        "canonical recommendation references an unknown transcript entry"
+                    )
                 identity = (
                     recommendation.rubric_block_id,
                     recommendation.criterion_id,
@@ -449,7 +465,9 @@ class SessionReportPayload(BaseModel):
         if self.learning_plan.available:
             for item in self.learning_plan.items:
                 if item.scenario_id is not None and item.scenario_id != self.summary.scenario_id:
-                    raise ValueError("learning-plan scenario reference does not match the session scenario")
+                    raise ValueError(
+                        "learning-plan scenario reference does not match the session scenario"
+                    )
         return self
 
 
@@ -523,7 +541,9 @@ class ReportIncompleteStatus(BaseModel):
     def validate_reason(self) -> "ReportIncompleteStatus":
         if self.reason.code != "artifact_missing":
             raise ValueError("incomplete status requires artifact_missing")
-        if any(code in {"generation_pending", "generation_failed"} for code in self.missing_sections):
+        if any(
+            code in {"generation_pending", "generation_failed"} for code in self.missing_sections
+        ):
             raise ValueError("incomplete missing_sections must contain section reasons")
         return self
 
@@ -599,7 +619,10 @@ class ReportNotApplicableStatus(_TerminalReportStatus):
 
     @model_validator(mode="after")
     def validate_mode(self) -> "ReportNotApplicableStatus":
-        if self.reason.code != "not_applicable" or self.report.payload.evaluation.mode != "not_applicable":
+        if (
+            self.reason.code != "not_applicable"
+            or self.report.payload.evaluation.mode != "not_applicable"
+        ):
             raise ValueError("not_applicable status requires a not_applicable evaluation")
         return self
 
@@ -610,7 +633,10 @@ class ReportTooShortStatus(_TerminalReportStatus):
 
     @model_validator(mode="after")
     def validate_mode(self) -> "ReportTooShortStatus":
-        if self.reason.code != "session_too_short" or self.report.payload.evaluation.mode != "too_short":
+        if (
+            self.reason.code != "session_too_short"
+            or self.report.payload.evaluation.mode != "too_short"
+        ):
             raise ValueError("too_short status requires a too_short evaluation")
         return self
 
@@ -622,7 +648,11 @@ class ReportLegacyOnlyStatus(_TerminalReportStatus):
     @model_validator(mode="after")
     def validate_mode(self) -> "ReportLegacyOnlyStatus":
         evaluation = self.report.payload.evaluation
-        if self.reason.code != "legacy_only" or evaluation.mode != "legacy" or evaluation.canonical is not None:
+        if (
+            self.reason.code != "legacy_only"
+            or evaluation.mode != "legacy"
+            or evaluation.canonical is not None
+        ):
             raise ValueError("legacy_only status requires a legacy-only evaluation")
         return self
 
@@ -652,18 +682,16 @@ class ReportNoEvidenceStatus(_TerminalReportStatus):
 
 
 ReportStatusEnvelope = Annotated[
-    Union[
-        ReportMissingStatus,
-        ReportIncompleteStatus,
-        ReportGeneratingStatus,
-        ReportFailedStatus,
-        ReportReadyStatus,
-        ReportNotApplicableStatus,
-        ReportTooShortStatus,
-        ReportLegacyOnlyStatus,
-        ReportEmptyTranscriptStatus,
-        ReportNoEvidenceStatus,
-    ],
+    ReportMissingStatus
+    | ReportIncompleteStatus
+    | ReportGeneratingStatus
+    | ReportFailedStatus
+    | ReportReadyStatus
+    | ReportNotApplicableStatus
+    | ReportTooShortStatus
+    | ReportLegacyOnlyStatus
+    | ReportEmptyTranscriptStatus
+    | ReportNoEvidenceStatus,
     Field(discriminator="status"),
 ]
 

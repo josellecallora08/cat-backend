@@ -15,7 +15,7 @@ def _make_scenario(
     scenario_type: str = "FINANCIAL_HARDSHIP",
     is_active: bool = True,
     description: str = "A test scenario",
-    debtor_profile: dict = None,
+    debtor_profile: dict | None = None,
 ) -> Scenario:
     """Helper to create a Scenario instance."""
     return Scenario(
@@ -24,7 +24,8 @@ def _make_scenario(
         scenario_type=scenario_type,
         description=description,
         is_active=is_active,
-        debtor_profile=debtor_profile or {
+        debtor_profile=debtor_profile
+        or {
             "name": "John Doe",
             "outstanding_balance": "5000.00",
             "days_past_due": 30,
@@ -56,7 +57,9 @@ class TestListScenarios:
             assert response.json() == []
 
     async def test_returns_scenarios_with_name_and_type(self, client):
-        scenario = _make_scenario(name="Financial Hardship Scenario", scenario_type="FINANCIAL_HARDSHIP")
+        scenario = _make_scenario(
+            name="Financial Hardship Scenario", scenario_type="FINANCIAL_HARDSHIP"
+        )
         with patch(
             "app.api.scenarios.list_active_scenarios",
             new_callable=AsyncMock,

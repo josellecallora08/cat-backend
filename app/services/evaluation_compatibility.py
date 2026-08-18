@@ -25,12 +25,10 @@ class LegacyReview(BaseModel):
     @model_validator(mode="after")
     def lists_are_disjoint(self) -> "LegacyReview":
         applied = {
-            item.technique_name.casefold()
-            for item in self.applied_techniques.techniques_used
+            item.technique_name.casefold() for item in self.applied_techniques.techniques_used
         }
         missed = {
-            item.technique_name.casefold()
-            for item in self.missed_opportunities.missed_techniques
+            item.technique_name.casefold() for item in self.missed_opportunities.missed_techniques
         }
         if applied & missed:
             raise ValueError("legacy applied and missed techniques must be disjoint")
@@ -72,14 +70,16 @@ def render_legacy_review(canonical_result: CanonicalEvaluationResult | dict) -> 
     context = to_jinja_context(canonical_result)
     applied = context["applied_techniques"]["techniques_used"]
     missed = context["missed_opportunities"]["missed_techniques"]
-    applied_text = "\n".join(
-        f"- {item['technique_name']}: {item['execution_description']}"
-        for item in applied
-    ) or f"- {context['applied_techniques']['reason_if_empty']}"
-    missed_text = "\n".join(
-        f"- {item['technique_name']}: {item['reason']}"
-        for item in missed
-    ) or f"- {context['missed_opportunities']['reason_if_empty']}"
+    applied_text = (
+        "\n".join(
+            f"- {item['technique_name']}: {item['execution_description']}" for item in applied
+        )
+        or f"- {context['applied_techniques']['reason_if_empty']}"
+    )
+    missed_text = (
+        "\n".join(f"- {item['technique_name']}: {item['reason']}" for item in missed)
+        or f"- {context['missed_opportunities']['reason_if_empty']}"
+    )
     return (
         f"Applied Technique Delivery:\n{applied_text}\n\n"
         f"Missed Opportunity:\n{missed_text}\n\n"
@@ -140,6 +140,8 @@ def _safe_recommendation_text(value: str, fallback: str) -> str:
 
 class RecommendationValidationError(ValueError):
     """Raised when a recommendation is not grounded in the pinned rubric result."""
+
+
 def build_rubric_recommendations(
     canonical_result: CanonicalEvaluationResult | dict,
     snapshot: dict,

@@ -1,7 +1,7 @@
 """Unit tests for Pydantic schemas."""
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
@@ -216,7 +216,7 @@ class TestSessionSchemas:
         assert create.scenario_id == sid
 
     def test_session_response(self):
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         resp = SessionResponse(
             id=uuid.uuid4(),
             scenario_id=uuid.uuid4(),
@@ -234,7 +234,7 @@ class TestSessionSchemas:
         assert resp.ended_at is None
 
     def test_session_response_without_persona(self):
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         resp = SessionResponse(
             id=uuid.uuid4(),
             scenario_id=uuid.uuid4(),
@@ -254,7 +254,7 @@ class TestTranscriptEntry:
         entry = TranscriptEntry(
             speaker="agent",
             text="Hello, I'm calling about your account.",
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             sequence_number=0,
         )
         assert entry.speaker == "agent"
@@ -263,7 +263,7 @@ class TestTranscriptEntry:
         entry = TranscriptEntry(
             speaker="debtor",
             text="I know, I'm having trouble paying.",
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             sequence_number=1,
         )
         assert entry.speaker == "debtor"
@@ -273,7 +273,7 @@ class TestTranscriptEntry:
             TranscriptEntry(
                 speaker="system",
                 text="Some text",
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 sequence_number=0,
             )
 
@@ -282,7 +282,7 @@ class TestTranscriptEntry:
             TranscriptEntry(
                 speaker="agent",
                 text="",
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 sequence_number=0,
             )
 
@@ -520,56 +520,56 @@ class TestEvaluationCategory:
 
 def _valid_script_contract_kwargs() -> dict:
     """Build a complete, valid set of ScriptContract constructor kwargs."""
-    return dict(
-        debtor_persona=DebtorPersona(
+    return {
+        "debtor_persona": DebtorPersona(
             name="Maria Alvarez",
             communication_style="polite but evasive",
             background="Lost her job three months ago and has been juggling bills.",
         ),
-        financial_situation=FinancialSituation(
+        "financial_situation": FinancialSituation(
             outstanding_balance=Decimal("3200.50"),
             days_past_due=60,
             reason_for_delinquency="Job loss",
         ),
-        opening_response="Hello, who is this calling?",
-        expected_replies=[
+        "opening_response": "Hello, who is this calling?",
+        "expected_replies": [
             ExpectedReplyEntry(
                 agent_statement="I'm calling about your overdue account.",
                 debtor_reply="I know, I've just been really short on cash lately.",
             ),
         ],
-        trigger_phrases=[
+        "trigger_phrases": [
             TriggerPhraseEntry(
                 phrase="legal action",
                 behavior="Debtor becomes anxious and asks for more time.",
             ),
         ],
-        emotional_state_rules=[
+        "emotional_state_rules": [
             EmotionalStateRule(
                 trigger="aggressive_tone",
                 state_change="increase_defensiveness",
             ),
         ],
-        payment_conditions=[
+        "payment_conditions": [
             PaymentConditionEntry(
                 condition="offered payment plan under $200/month",
                 term="$150/month for 12 months",
                 accepted=True,
             ),
         ],
-        escalation_conditions=[
+        "escalation_conditions": [
             EscalationConditionEntry(
                 condition="agent threatens debtor",
                 behavior="Debtor hangs up.",
                 ends_call=True,
             ),
         ],
-        prohibited_responses=["I will never pay this debt."],
-        conversation_goal=ConversationGoal(
+        "prohibited_responses": ["I will never pay this debt."],
+        "conversation_goal": ConversationGoal(
             target_outcome="Debtor agrees to a payment plan.",
             completion_condition="Debtor verbally commits to a payment amount and date.",
         ),
-    )
+    }
 
 
 class TestScriptContract:
@@ -597,9 +597,7 @@ class TestScriptContract:
         kwargs = _valid_script_contract_kwargs()
         # Duplicate (trimmed, case-insensitive) the existing expected reply into
         # prohibited_responses to trigger the conflict validator.
-        kwargs["prohibited_responses"] = [
-            "  I KNOW, I'VE JUST BEEN REALLY SHORT ON CASH LATELY.  "
-        ]
+        kwargs["prohibited_responses"] = ["  I KNOW, I'VE JUST BEEN REALLY SHORT ON CASH LATELY.  "]
 
         with pytest.raises(Exception):
             ScriptContract(**kwargs)
@@ -630,7 +628,7 @@ from app.schemas.session_report import (
 
 
 def _report_summary() -> SessionReportSummary:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     return SessionReportSummary(
         session_id=uuid.uuid4(),
         scenario_id=uuid.uuid4(),
@@ -714,7 +712,7 @@ class TestSessionReportTypedContracts:
         assert parsed.report is None
 
     def test_valid_generating_and_failed_variants_have_no_payload(self):
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         for status, reason in (("pending", "generation_pending"), ("failed", "generation_failed")):
             envelope = TypeAdapter(ReportStatusEnvelope).validate_python(
                 {
@@ -785,7 +783,7 @@ class TestSessionReportTypedContracts:
             CoachingSection(available=True, mode="legacy", reason_code="no_coaching")
 
     def test_transcript_order_and_duplicate_identity_are_rejected(self):
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         entry = TranscriptEntry(speaker="agent", text="Hello", timestamp=now, sequence_number=0)
         with pytest.raises(Exception):
             TranscriptSection(available=True, entries=[entry, entry])

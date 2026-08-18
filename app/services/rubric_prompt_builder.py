@@ -30,8 +30,7 @@ def _strict_object(properties: dict[str, Any]) -> dict[str, Any]:
 def _category_schema(block: dict[str, Any]) -> dict[str, Any]:
     """Build the exact category contract for one published rubric block."""
     criterion_ids = [
-        criterion["id"]
-        for criterion in [*block["positive_behaviors"], *block["violations"]]
+        criterion["id"] for criterion in [*block["positive_behaviors"], *block["violations"]]
     ]
     evidence = _strict_object(
         {

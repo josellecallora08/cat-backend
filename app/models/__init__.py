@@ -2,38 +2,14 @@
 
 import uuid
 
-from app.models.user import User as User, UserRole as UserRole
-from app.models.campaign import (
-    Campaign as Campaign,
-    CampaignAgent as CampaignAgent,
-    CampaignRole as CampaignRole,
-    CampaignStatus as CampaignStatus,
-    campaign_scenarios as campaign_scenarios,
-)
-from app.models.script import (
-    Script as Script,
-    ScriptStatus as ScriptStatus,
-    ScriptVersion as ScriptVersion,
-)
-from app.models.script_upload import ScriptUpload as ScriptUpload, UploadStatus as UploadStatus
-from app.models.negotiation_standard import (
-    ImmutableVersionError as ImmutableVersionError,
-    NegotiationStandard as NegotiationStandard,
-    NegotiationStandardVersion as NegotiationStandardVersion,
-)
-from app.models.session_report import (
-    SessionReport as SessionReport,
-    SessionReportStatus as SessionReportStatus,
-)
-
 from sqlalchemy import (
+    JSON,
     Boolean,
     Column,
     DateTime,
     Float,
     ForeignKey,
     Integer,
-    JSON,
     String,
     Text,
     Uuid,
@@ -43,6 +19,49 @@ from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
 from app.database import Base
+from app.models.campaign import (
+    Campaign as Campaign,
+)
+from app.models.campaign import (
+    CampaignAgent as CampaignAgent,
+)
+from app.models.campaign import (
+    CampaignRole as CampaignRole,
+)
+from app.models.campaign import (
+    CampaignStatus as CampaignStatus,
+)
+from app.models.campaign import (
+    campaign_scenarios as campaign_scenarios,
+)
+from app.models.negotiation_standard import (
+    ImmutableVersionError as ImmutableVersionError,
+)
+from app.models.negotiation_standard import (
+    NegotiationStandard as NegotiationStandard,
+)
+from app.models.negotiation_standard import (
+    NegotiationStandardVersion as NegotiationStandardVersion,
+)
+from app.models.script import (
+    Script as Script,
+)
+from app.models.script import (
+    ScriptStatus as ScriptStatus,
+)
+from app.models.script import (
+    ScriptVersion as ScriptVersion,
+)
+from app.models.script_upload import ScriptUpload as ScriptUpload
+from app.models.script_upload import UploadStatus as UploadStatus
+from app.models.session_report import (
+    SessionReport as SessionReport,
+)
+from app.models.session_report import (
+    SessionReportStatus as SessionReportStatus,
+)
+from app.models.user import User as User
+from app.models.user import UserRole as UserRole
 
 
 # Use JSONB on PostgreSQL, JSON on other backends (e.g., SQLite for tests)
@@ -60,9 +79,7 @@ class Scenario(Base):
     description = Column(Text)
     debtor_profile = Column(JSONVariant, nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)
-    created_at = Column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(
         DateTime(timezone=True),
         server_default=func.now(),
@@ -95,9 +112,7 @@ class Session(Base):
         ForeignKey("negotiation_standard_versions.id", ondelete="RESTRICT"),
         nullable=True,
     )
-    created_at = Column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     ended_at = Column(DateTime(timezone=True), nullable=True)
 
     # Relationships
@@ -110,15 +125,9 @@ class Session(Base):
         back_populates="sessions",
         lazy="selectin",
     )
-    coaching_report = relationship(
-        "CoachingReport", back_populates="session", uselist=False
-    )
-    learning_plan = relationship(
-        "LearningPlan", back_populates="session", uselist=False
-    )
-    reports = relationship(
-        "SessionReport", back_populates="session", cascade="all, delete-orphan"
-    )
+    coaching_report = relationship("CoachingReport", back_populates="session", uselist=False)
+    learning_plan = relationship("LearningPlan", back_populates="session", uselist=False)
+    reports = relationship("SessionReport", back_populates="session", cascade="all, delete-orphan")
 
 
 class Transcript(Base):
@@ -159,9 +168,7 @@ class Evaluation(Base):
     passed = Column(Boolean, nullable=True)
     rubric_result = Column(JSONVariant, nullable=True)
     is_too_short = Column(Boolean, default=False, nullable=False)
-    created_at = Column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     # Relationships
     session = relationship("Session", back_populates="evaluation")
@@ -169,6 +176,8 @@ class Evaluation(Base):
         "NegotiationStandardVersion",
         back_populates="evaluations",
     )
+
+
 class CoachingReport(Base):
     """Coaching report identifying mistakes and recommended alternatives."""
 
@@ -179,9 +188,7 @@ class CoachingReport(Base):
     mistakes_by_category = Column(JSONVariant, nullable=False)
     total_mistakes = Column(Integer, nullable=False)
     no_mistakes = Column(Boolean, default=False, nullable=False)
-    created_at = Column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     # Relationships
     session = relationship("Session", back_populates="coaching_report")
@@ -197,9 +204,7 @@ class LearningPlan(Base):
     agent_id = Column(Uuid, nullable=False)
     weak_competencies = Column(JSONVariant, nullable=False)
     all_passing = Column(Boolean, default=False, nullable=False)
-    created_at = Column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     # Relationships
     session = relationship("Session", back_populates="learning_plan")

@@ -11,9 +11,9 @@ import logging
 import platform
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
 from app.config import settings
+
 
 logger = logging.getLogger(__name__)
 
@@ -30,8 +30,8 @@ class ScanResult:
     """
 
     clean: bool
-    signature: Optional[str] = None
-    error: Optional[str] = None
+    signature: str | None = None
+    error: str | None = None
 
 
 def scan_file(file_path: Path) -> ScanResult:
@@ -121,9 +121,7 @@ def _connect_to_clamd():
         return cd
     except (ConnectionError, OSError) as exc:
         # Fallback to network socket if Unix socket fails
-        logger.warning(
-            "Unix socket connection failed (%s), trying network socket", exc
-        )
+        logger.warning("Unix socket connection failed (%s), trying network socket", exc)
         cd = clamd.ClamdNetworkSocket()
         cd.ping()
         return cd
@@ -157,7 +155,7 @@ def _parse_scan_result(result: dict, file_path: Path) -> ScanResult:
 
     if file_result is None:
         # Try to get any result (ClamAV may use absolute path)
-        for key, value in result.items():
+        for _key, value in result.items():
             file_result = value
             break
 
@@ -171,17 +169,14 @@ def _parse_scan_result(result: dict, file_path: Path) -> ScanResult:
     if status == "OK":
         logger.info("File %s passed malware scan", file_path)
         return ScanResult(clean=True)
-    elif status == "FOUND":
-        logger.warning(
-            "Malware detected in %s: signature=%s", file_path, signature
-        )
+    if status == "FOUND":
+        logger.warning("Malware detected in %s: signature=%s", file_path, signature)
         return ScanResult(clean=False, signature=signature)
-    else:
-        # Unexpected status (e.g. "ERROR") — fail-closed
-        logger.error(
-            "Unexpected ClamAV status for %s: status=%s, detail=%s",
-            file_path,
-            status,
-            signature,
-        )
-        return ScanResult(clean=False, error=f"Unexpected scanner status: {status}")
+    # Unexpected status (e.g. "ERROR") — fail-closed
+    logger.error(
+        "Unexpected ClamAV status for %s: status=%s, detail=%s",
+        file_path,
+        status,
+        signature,
+    )
+    return ScanResult(clean=False, error=f"Unexpected scanner status: {status}")

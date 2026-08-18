@@ -17,12 +17,9 @@ Requirements: 3.1, 3.2, 3.3, 3.4, 4.1, 4.3
 from __future__ import annotations
 
 import logging
-from uuid import UUID
-
-from sqlalchemy.ext.asyncio import AsyncSession
+from typing import TYPE_CHECKING
 
 from app.services.debtor_simulator import DebtorSimulatorService, PersonaContext
-from app.services.llm_service import LLMServiceProtocol
 from app.services.transcript_manager import TranscriptManager
 from app.services.voice.audio_buffer import AudioBuffer
 from app.services.voice.peer_connection_manager import PeerConnectionManager
@@ -30,6 +27,15 @@ from app.services.voice.stt_service import STTService, STTServiceProtocol
 from app.services.voice.tts_service import TTSService, TTSServiceProtocol
 from app.services.voice.vad import VADProcessor
 from app.services.voice.voice_pipeline import VoicePipelineOrchestrator
+
+
+if TYPE_CHECKING:
+    from uuid import UUID
+
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    from app.services.llm_service import LLMServiceProtocol
+
 
 logger = logging.getLogger(__name__)
 
@@ -94,9 +100,7 @@ def create_voice_pipeline(
         try:
             tts_service = TTSService(voice_model="en_US-lessac-medium")
         except (ImportError, Exception) as e:
-            logger.warning(
-                "TTS service unavailable, pipeline will not produce voice output: %s", e
-            )
+            logger.warning("TTS service unavailable, pipeline will not produce voice output: %s", e)
             raise RuntimeError(f"TTS service initialization failed: {e}") from e
 
     # Initialize VAD with 500ms silence threshold for end-of-utterance detection

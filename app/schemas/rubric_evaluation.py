@@ -172,10 +172,11 @@ class RubricAIObservation(BaseModel):
     @model_validator(mode="after")
     def enforce_technique_disjointness(self) -> "RubricAIObservation":
         """Prevent a technique from appearing in both compatibility lists."""
-        applied = {item.technique_name.casefold() for item in self.applied_techniques.techniques_used}
+        applied = {
+            item.technique_name.casefold() for item in self.applied_techniques.techniques_used
+        }
         missed = {
-            item.technique_name.casefold()
-            for item in self.missed_opportunities.missed_techniques
+            item.technique_name.casefold() for item in self.missed_opportunities.missed_techniques
         }
         if len(applied) != len(self.applied_techniques.techniques_used):
             raise ValueError("applied techniques must be unique")

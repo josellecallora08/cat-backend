@@ -103,7 +103,9 @@ async def test_draft_validation_and_publish_are_atomic(db_session: AsyncSession)
 
 
 @pytest.mark.asyncio
-async def test_publish_is_idempotent_and_stores_canonical_snapshot(db_session: AsyncSession) -> None:
+async def test_publish_is_idempotent_and_stores_canonical_snapshot(
+    db_session: AsyncSession,
+) -> None:
     admin, campaign = await _seed(db_session)
     content = _content()
     await create_standard(db_session, campaign.id, admin.id, "Collection", None, content)

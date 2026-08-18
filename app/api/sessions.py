@@ -3,11 +3,13 @@
 Validates: Requirements 4.1, 4.4, 5.1, 6.1, 7.8, 8.2
 """
 
+import asyncio
 import logging
-from datetime import datetime, timezone
+from collections import defaultdict
+from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,24 +19,26 @@ from app.database import get_session as get_db_session
 from app.models import CoachingReport, Evaluation, LearningPlan, Session, Transcript
 from app.models.user import User, UserRole, UserType
 from app.schemas import (
+    CoachingReportSchema,
+    CompetencyScore,
+    EvaluationCategory,
+    EvaluationResult,
+    LearningPlanItem,
+    LearningPlanSchema,
+    MistakeItem,
+    PersonaSummary,
+    RubricCoaching,
+    RubricRecommendation,
     SessionCreate,
     SessionResponse,
-    PersonaSummary,
     SessionStatus,
-    TranscriptEntry,
-    EvaluationResult,
-    CoachingReportSchema,
-    LearningPlanSchema,
-    CompetencyScore,
     StrengthItem,
+    TranscriptEntry,
     WeaknessItem,
-    MistakeItem,
-    LearningPlanItem,
-    RubricRecommendation,
-    RubricCoaching,
-    EvaluationCategory,
 )
-from app.services.auth import get_current_user, require_auth
+from app.schemas.report import ReportResponse, ReportSectionName, SectionEnvelope
+from app.services.auth import get_current_user, require_admin, require_auth
+from app.services.campaign_validation_service import validate_campaign_context
 from app.services.debtor_simulator import (
     DebtorSimulatorService,
     EmotionalState,
@@ -42,20 +46,28 @@ from app.services.debtor_simulator import (
 )
 from app.services.evaluation_pipeline import EvaluationPipeline
 from app.services.llm_service import LLMService
+from app.services.report_csv import report_csv_filename, serialize_report_csv
+from app.services.report_service import ReportService
 from app.services.script_content_loader import load_script_content
 from app.services.session_access import get_authorized_session
 from app.services.session_report_service import generate_report as generate_report_service
 from app.services.session_service import (
     PublishedStandardRequiredError,
+)
+from app.services.session_service import (
     create_session as create_session_service,
-    get_session as get_session_service,
+)
+from app.services.session_service import (
     end_session as end_session_service,
 )
-from app.services.campaign_validation_service import validate_campaign_context
+from app.services.session_service import (
+    get_session as get_session_service,
+)
 from app.services.trainer_service import (
     get_trainer_campaign,
     get_trainer_campaign_agent_ids,
 )
+
 
 logger = logging.getLogger(__name__)
 
@@ -213,9 +225,7 @@ async def list_sessions(
                 status=session.status,
                 persona_name=persona_ctx.get("name"),
                 overall_score=score,
-                created_at=(
-                    session.created_at.isoformat() if session.created_at else ""
-                ),
+                created_at=(session.created_at.isoformat() if session.created_at else ""),
                 ended_at=(session.ended_at.isoformat() if session.ended_at else None),
             )
         )
@@ -291,9 +301,7 @@ async def create_session(
         )
 
     if body.campaign_id is not None:
-        is_admin = (
-            current_user is not None and current_user.role == UserRole.ADMIN.value
-        )
+        is_admin = current_user is not None and current_user.role == UserRole.ADMIN.value
         await validate_campaign_context(
             db=db,
             campaign_id=body.campaign_id,
@@ -361,9 +369,9 @@ async def end_session(
     except ValueError as e:
         error_msg = str(e)
         if "not found" in error_msg:
-            raise HTTPException(status_code=404, detail=error_msg)
+            raise HTTPException(status_code=404, detail=error_msg) from None
         # Invalid state transition
-        raise HTTPException(status_code=400, detail=error_msg)
+        raise HTTPException(status_code=400, detail=error_msg) from None
 
     # Trigger the evaluation pipeline
     # NOTE: In production, this would be dispatched as a background task.
@@ -400,6 +408,68 @@ async def end_session(
         )
 
     return _session_to_response(session)
+
+
+@router.get("/{session_id}/report", response_model=ReportResponse)
+async def get_session_report(
+    session_id: UUID,
+    db: AsyncSession = Depends(get_db_session),
+    current_user: User = Depends(require_auth),
+) -> ReportResponse:
+    """Return the normalized aggregate report for an authorized session."""
+    try:
+        return await ReportService(db).get_report(session_id, current_user)
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Report retrieval failed for session %s", session_id)
+        raise HTTPException(
+            status_code=500,
+            detail="The report is temporarily unavailable. Please try again later.",
+        ) from None
+
+
+@router.get(
+    "/{session_id}/report/sections/{section_name}",
+    response_model=SectionEnvelope,
+)
+async def get_session_report_section(
+    session_id: UUID,
+    section_name: ReportSectionName,
+    db: AsyncSession = Depends(get_db_session),
+    current_user: User = Depends(require_auth),
+) -> SectionEnvelope:
+    """Return one normalized report section for an authorized session."""
+    report = await get_session_report(session_id, db, current_user)
+    return next(section for section in report.sections if section.name == section_name)
+
+
+@router.get("/{session_id}/report.csv")
+async def get_session_report_csv(
+    session_id: UUID,
+    db: AsyncSession = Depends(get_db_session),
+    current_user: User = Depends(require_admin),
+) -> Response:
+    """Return an admin-authorized report as a safe, deterministic CSV attachment."""
+    try:
+        report = await ReportService(db).get_report(session_id, current_user)
+        content = serialize_report_csv(report)
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Report CSV generation failed for session %s", session_id)
+        raise HTTPException(
+            status_code=500,
+            detail="The report export is temporarily unavailable. Please try again later.",
+        ) from None
+
+    return Response(
+        content=content,
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": f'attachment; filename="{report_csv_filename(session_id)}"'
+        },
+    )
 
 
 @router.get("/{session_id}/transcript", response_model=list[TranscriptEntry])
@@ -456,9 +526,7 @@ async def get_session_evaluation(
     if rubric_result and rubric_result.get("categories"):
         category_scores = []
     else:
-        category_scores = [
-            CompetencyScore(**cs) for cs in (evaluation.category_scores or [])
-        ]
+        category_scores = [CompetencyScore(**cs) for cs in (evaluation.category_scores or [])]
     strengths = [StrengthItem(**s) for s in (evaluation.strengths or [])]
     weaknesses = [WeaknessItem(**w) for w in (evaluation.weaknesses or [])]
     if rubric_result and rubric_result.get("categories"):
@@ -543,8 +611,7 @@ async def get_session_coaching(
         ]
     if rubric_coaching is not None and not recommendations_by_block:
         recommendations_by_block = {
-            block.rubric_block_id: block.recommendations
-            for block in rubric_coaching.blocks
+            block.rubric_block_id: block.recommendations for block in rubric_coaching.blocks
         }
     has_canonical_coaching = bool(
         rubric_coaching is not None
@@ -594,9 +661,7 @@ async def get_session_learning_plan(
         )
 
     # Parse stored JSON into schema objects
-    weak_competencies = [
-        LearningPlanItem(**item) for item in (plan.weak_competencies or [])
-    ]
+    weak_competencies = [LearningPlanItem(**item) for item in (plan.weak_competencies or [])]
 
     return LearningPlanSchema(
         session_id=plan.session_id,
@@ -628,6 +693,7 @@ class ConversationResponse(BaseModel):
 
 # In-memory persona store for active conversations (keyed by session_id)
 _active_personas: dict[UUID, PersonaContext] = {}
+_session_message_locks: defaultdict[UUID, asyncio.Lock] = defaultdict(asyncio.Lock)
 
 
 @router.post("/{session_id}/message", response_model=ConversationResponse)
@@ -635,6 +701,16 @@ async def send_message(
     session_id: UUID,
     body: ConversationMessage,
     db: AsyncSession = Depends(get_db_session),
+):
+    """Serialize conversation turns so one session cannot process two at once."""
+    async with _session_message_locks[session_id]:
+        return await _send_message_locked(session_id, body, db)
+
+
+async def _send_message_locked(
+    session_id: UUID,
+    body: ConversationMessage,
+    db: AsyncSession,
 ):
     """Send a message in an active session and get the debtor's response.
 
@@ -689,7 +765,7 @@ async def send_message(
 
     # Record agent transcript entry (skip system/initialization messages)
     transcript_manager = TranscriptManager(db)
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     is_system_prompt = body.text.startswith("[") and body.text.endswith("]")
 
     if not is_system_prompt:
@@ -711,21 +787,12 @@ async def send_message(
             # Keep the in-memory simulator state aligned with the persisted
             # transcript; the normal generate_response path appends both
             # turns, but this early opening-response path bypasses it.
-            if not is_system_prompt:
-                from app.services.debtor_simulator import Message
-
-                persona.conversation_history.append(
-                    Message(role="agent", content=body.text)
-                )
-                persona.conversation_history.append(
-                    Message(role="debtor", content=opening_response)
-                )
             # Record debtor opening response in transcript
             await transcript_manager.append_entry(
                 session_id=session_id,
                 speaker="debtor",
                 text=opening_response,
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
             )
             persona.conversation_history.extend(
                 [
@@ -747,8 +814,8 @@ async def send_message(
     # Script-driven escalation and goal completion checks (before LLM generation)
     if script_content is not None and not is_system_prompt:
         from app.services.debtor_simulator import (
-            evaluate_escalation_conditions,
             evaluate_conversation_goal_completion,
+            evaluate_escalation_conditions,
         )
 
         # Check escalation conditions against agent's message
@@ -763,7 +830,7 @@ async def send_message(
                     session_id=session_id,
                     speaker="debtor",
                     text=escalation_behavior,
-                    timestamp=datetime.now(timezone.utc),
+                    timestamp=datetime.now(UTC),
                 )
                 await transcript_manager.persist(session_id)
                 _active_personas.pop(session_id, None)
@@ -789,7 +856,7 @@ async def send_message(
                 session_id=session_id,
                 speaker="debtor",
                 text=completion_message,
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
             )
             await transcript_manager.persist(session_id)
             _active_personas.pop(session_id, None)
@@ -813,14 +880,14 @@ async def send_message(
         )
     except Exception as e:
         logger.error("Debtor response generation failed: %s", e)
-        raise HTTPException(status_code=500, detail="Failed to generate response")
+        raise HTTPException(status_code=500, detail="Failed to generate response") from None
 
     # Record debtor transcript entry
     await transcript_manager.append_entry(
         session_id=session_id,
         speaker="debtor",
         text=response.text,
-        timestamp=datetime.now(timezone.utc),
+        timestamp=datetime.now(UTC),
     )
 
     # Persist transcript entries
@@ -875,7 +942,8 @@ async def send_message(
             import re
 
             display_text = re.sub(
-                r"\s*\*(?:hangs up|ends call|click|slams the phone|puts down the phone|disconnects)\*\s*",
+                r"\s*\*(?:hangs up|ends call|click|slams the phone|puts down the phone|"
+                r"disconnects)\*\s*",
                 "",
                 display_text,
                 flags=re.IGNORECASE,

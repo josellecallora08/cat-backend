@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.user import User, UserRole, UserType
 from app.services.auth import hash_password
 
+
 logger = logging.getLogger(__name__)
 
 DEFAULT_USERS = [

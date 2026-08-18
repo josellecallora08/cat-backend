@@ -4,7 +4,7 @@ Validates: Requirements 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 7.7, 7.8
 """
 
 import uuid
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -12,7 +12,6 @@ from app.schemas import (
     CompetencyScore,
     EvaluationCategory,
     EvaluationResult,
-    LearningPlanItem,
     StrengthItem,
     WeaknessItem,
 )
@@ -39,7 +38,9 @@ def agent_id():
     return uuid.uuid4()
 
 
-def _make_evaluation(session_id: uuid.UUID, scores: dict[EvaluationCategory, int]) -> EvaluationResult:
+def _make_evaluation(
+    session_id: uuid.UUID, scores: dict[EvaluationCategory, int]
+) -> EvaluationResult:
     """Helper to build an EvaluationResult with given category scores."""
     category_scores = [
         CompetencyScore(category=cat, score=score, strengths=[], weaknesses=[])
@@ -70,9 +71,7 @@ def _make_evaluation(session_id: uuid.UUID, scores: dict[EvaluationCategory, int
 class TestLearningPlanGeneratorGenerate:
     """Tests for the generate() method."""
 
-    def test_all_scores_above_threshold_sets_all_passing(
-        self, generator, session_id, agent_id
-    ):
+    def test_all_scores_above_threshold_sets_all_passing(self, generator, session_id, agent_id):
         """When all scores are >= 70, all_passing should be True and no weak competencies."""
         evaluation = _make_evaluation(
             session_id,
@@ -90,9 +89,7 @@ class TestLearningPlanGeneratorGenerate:
         assert plan.weak_competencies == []
         assert plan.session_id == session_id
 
-    def test_all_scores_at_threshold_sets_all_passing(
-        self, generator, session_id, agent_id
-    ):
+    def test_all_scores_at_threshold_sets_all_passing(self, generator, session_id, agent_id):
         """Scores exactly at 70 should not be considered weak."""
         evaluation = _make_evaluation(
             session_id,
@@ -109,9 +106,7 @@ class TestLearningPlanGeneratorGenerate:
         assert plan.all_passing is True
         assert plan.weak_competencies == []
 
-    def test_single_weak_empathy_maps_to_financial_hardship(
-        self, generator, session_id, agent_id
-    ):
+    def test_single_weak_empathy_maps_to_financial_hardship(self, generator, session_id, agent_id):
         """Empathy below 70 should recommend Financial Hardship scenario."""
         evaluation = _make_evaluation(
             session_id,
@@ -267,9 +262,7 @@ class TestLearningPlanGeneratorPersistence:
     """Tests for the generate_and_persist() method with db persistence."""
 
     @pytest.mark.asyncio
-    async def test_persist_called_when_db_provided(
-        self, generator, session_id, agent_id
-    ):
+    async def test_persist_called_when_db_provided(self, generator, session_id, agent_id):
         """When db is provided, should persist the learning plan."""
         evaluation = _make_evaluation(
             session_id,
@@ -298,9 +291,7 @@ class TestLearningPlanGeneratorPersistence:
             assert len(plan.weak_competencies) == 1
 
     @pytest.mark.asyncio
-    async def test_no_persist_when_db_not_provided(
-        self, generator, session_id, agent_id
-    ):
+    async def test_no_persist_when_db_not_provided(self, generator, session_id, agent_id):
         """When db is None, should not attempt persistence."""
         evaluation = _make_evaluation(
             session_id,
@@ -316,9 +307,7 @@ class TestLearningPlanGeneratorPersistence:
             "app.services.learning_plan_generator.retry_db_operation",
             new_callable=AsyncMock,
         ) as mock_retry:
-            plan = await generator.generate_and_persist(
-                evaluation, session_id, agent_id, db=None
-            )
+            plan = await generator.generate_and_persist(evaluation, session_id, agent_id, db=None)
 
             # retry_db_operation should NOT have been called
             mock_retry.assert_not_called()
@@ -338,36 +327,54 @@ class TestWeaknessThreshold:
             assert category in COMPETENCY_SCENARIO_MAP
 
 
-def test_rubric_learning_plan_retains_version_and_failed_criterion(
-    generator, session_id, agent_id
-):
+def test_rubric_learning_plan_retains_version_and_failed_criterion(generator, session_id, agent_id):
     """Rubric plans target failed criteria and retain the pinned version."""
     evaluation = EvaluationResult(
         session_id=session_id,
         category_scores=[],
         overall_score=40,
-        strengths=[StrengthItem(description="Grounded", category=EvaluationCategory.CALL_OPENING, transcript_excerpt="Evidence")],
-        weaknesses=[WeaknessItem(description="Needs work", category=EvaluationCategory.CALL_OPENING, transcript_excerpt="Evidence")],
+        strengths=[
+            StrengthItem(
+                description="Grounded",
+                category=EvaluationCategory.CALL_OPENING,
+                transcript_excerpt="Evidence",
+            )
+        ],
+        weaknesses=[
+            WeaknessItem(
+                description="Needs work",
+                category=EvaluationCategory.CALL_OPENING,
+                transcript_excerpt="Evidence",
+            )
+        ],
         negotiation_standard_version_id=uuid.UUID("11111111-1111-1111-1111-111111111111"),
         rubric_result={
             "status": "evaluated",
             "summary": "Grounded.",
-            "categories": [{
-                "rubric_block_id": "negotiation",
-                "category": "Negotiation",
-                "raw_score": 60,
-                "penalty_total": 20,
-                "penalized_score": 40,
-                "weight": 100,
-                "weighted_contribution": "40.00",
-                "passing_score": 70,
-                "passed": False,
-                "evidence": [],
-                "strengths": [],
-                "violations": [{"violation_id": "legal-threat", "explanation": "Threat.", "evidence_sequence_numbers": [2]}],
-                "failed_criteria": ["legal-threat"],
-                "recommendation_inputs": [],
-            }],
+            "categories": [
+                {
+                    "rubric_block_id": "negotiation",
+                    "category": "Negotiation",
+                    "raw_score": 60,
+                    "penalty_total": 20,
+                    "penalized_score": 40,
+                    "weight": 100,
+                    "weighted_contribution": "40.00",
+                    "passing_score": 70,
+                    "passed": False,
+                    "evidence": [],
+                    "strengths": [],
+                    "violations": [
+                        {
+                            "violation_id": "legal-threat",
+                            "explanation": "Threat.",
+                            "evidence_sequence_numbers": [2],
+                        }
+                    ],
+                    "failed_criteria": ["legal-threat"],
+                    "recommendation_inputs": [],
+                }
+            ],
             "weighted_total": "40.00",
             "passing_score": 70,
             "passed": False,

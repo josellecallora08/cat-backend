@@ -11,7 +11,8 @@ from __future__ import annotations
 from collections import deque
 from dataclasses import dataclass, field
 
-from app.services.voice.vad import FRAME_DURATION_MS, FRAME_SIZE_BYTES, SAMPLE_RATE, SAMPLE_WIDTH
+from app.services.voice.vad import FRAME_DURATION_MS
+
 
 # Buffer limits
 MAX_BUFFER_DURATION_MS = 30_000  # 30 seconds max

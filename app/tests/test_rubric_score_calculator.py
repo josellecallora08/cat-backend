@@ -12,7 +12,6 @@ from app.services.rubric_score_calculator import (
 )
 
 
-
 def _block(block_id: str, weight: int, order: int, passing: int = 50) -> dict:
     return {
         "id": block_id,
@@ -20,24 +19,57 @@ def _block(block_id: str, weight: int, order: int, passing: int = 50) -> dict:
         "weight": weight,
         "passing_score": passing,
         "scoring_instructions": "Use evidence.",
-        "positive_behaviors": [{"id": f"{block_id}-good", "name": "Good", "description": "Good.", "evidence_instructions": "Quote."}],
-        "violations": [{"id": f"{block_id}-bad", "name": "Bad", "description": "Bad.", "evidence_instructions": "Quote."}],
+        "positive_behaviors": [
+            {
+                "id": f"{block_id}-good",
+                "name": "Good",
+                "description": "Good.",
+                "evidence_instructions": "Quote.",
+            }
+        ],
+        "violations": [
+            {
+                "id": f"{block_id}-bad",
+                "name": "Bad",
+                "description": "Bad.",
+                "evidence_instructions": "Quote.",
+            }
+        ],
         "penalties": [{"violation_id": f"{block_id}-bad", "deduction": 10, "max_occurrences": 2}],
         "recommendation_guidance": "Improve.",
         "display_order": order,
     }
 
 
-SNAPSHOT = {"schema_version": 1, "overall_passing_score": 70, "blocks": [_block("opening", 60, 0), _block("resolution", 40, 1)]}
+SNAPSHOT = {
+    "schema_version": 1,
+    "overall_passing_score": 70,
+    "blocks": [_block("opening", 60, 0), _block("resolution", 40, 1)],
+}
 
 
 def _category(block_id: str, score: int, sequence: int, violations: int = 0) -> dict:
     return {
         "rubric_block_id": block_id,
         "raw_score": score,
-        "evidence": [{"sequence_number": sequence + i, "speaker": "agent", "excerpt": "Line", "explanation": "Evidence."} for i in range(max(1, violations))],
+        "evidence": [
+            {
+                "sequence_number": sequence + i,
+                "speaker": "agent",
+                "excerpt": "Line",
+                "explanation": "Evidence.",
+            }
+            for i in range(max(1, violations))
+        ],
         "strengths": [],
-        "violations": [{"violation_id": f"{block_id}-bad", "explanation": "Bad finding.", "evidence_sequence_numbers": [sequence + i]} for i in range(violations)],
+        "violations": [
+            {
+                "violation_id": f"{block_id}-bad",
+                "explanation": "Bad finding.",
+                "evidence_sequence_numbers": [sequence + i],
+            }
+            for i in range(violations)
+        ],
         "failed_criteria": [],
         "recommendation_inputs": [],
     }
@@ -70,8 +102,12 @@ def test_penalties_are_capped_and_scores_floor_at_zero() -> None:
 
 
 def test_total_and_category_order_are_independent_of_observation_order() -> None:
-    first = calculate_rubric_score(_validated([_category("opening", 80, 1), _category("resolution", 90, 2)]))
-    second = calculate_rubric_score(_validated([_category("resolution", 90, 2), _category("opening", 80, 1)]))
+    first = calculate_rubric_score(
+        _validated([_category("opening", 80, 1), _category("resolution", 90, 2)])
+    )
+    second = calculate_rubric_score(
+        _validated([_category("resolution", 90, 2), _category("opening", 80, 1)])
+    )
 
     assert first.weighted_total == second.weighted_total == Decimal("84.00")
     assert [item.rubric_block_id for item in first.categories] == ["opening", "resolution"]
@@ -80,7 +116,13 @@ def test_total_and_category_order_are_independent_of_observation_order() -> None
 
 def test_snapshot_weights_are_authoritative_and_must_total_one_hundred() -> None:
     validated = _validated([_category("opening", 100, 1), _category("resolution", 100, 2)])
-    altered = {**SNAPSHOT, "blocks": [{**SNAPSHOT["blocks"][0], "weight": 50}, {**SNAPSHOT["blocks"][1], "weight": 40}]}
+    altered = {
+        **SNAPSHOT,
+        "blocks": [
+            {**SNAPSHOT["blocks"][0], "weight": 50},
+            {**SNAPSHOT["blocks"][1], "weight": 40},
+        ],
+    }
     with pytest.raises(ScoreInvariantError, match="does not match"):
         calculate_rubric_score(validated, altered)
 

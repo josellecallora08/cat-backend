@@ -7,7 +7,7 @@ under property-based testing for the Script_Registry subsystem.
 """
 
 import json
-from typing import Any, Dict, List, NamedTuple, Tuple, Union
+from typing import Any, NamedTuple
 
 import yaml
 from pydantic import ValidationError
@@ -31,19 +31,17 @@ class ScriptValidationError(Exception):
     first one. Callers must not truncate this list to a single error.
     """
 
-    def __init__(self, errors: List[Dict[str, Any]]) -> None:
+    def __init__(self, errors: list[dict[str, Any]]) -> None:
         self.errors = errors
         field_paths = ", ".join(
-            ".".join(str(part) for part in error["loc"]) or "<root>"
-            for error in errors
+            ".".join(str(part) for part in error["loc"]) or "<root>" for error in errors
         )
         super().__init__(
-            f"Script definition failed contract validation ({len(errors)} "
-            f"error(s)): {field_paths}"
+            f"Script definition failed contract validation ({len(errors)} error(s)): {field_paths}"
         )
 
 
-def parse_script_definition(raw_text: str, format: str) -> Dict[str, Any]:
+def parse_script_definition(raw_text: str, format: str) -> dict[str, Any]:
     """Parse a raw Script definition into a dict.
 
     Args:
@@ -75,14 +73,13 @@ def parse_script_definition(raw_text: str, format: str) -> Dict[str, Any]:
 
     if not isinstance(data, dict):
         raise ScriptFormatError(
-            "Parsed script definition must be a mapping/object, got "
-            f"{type(data).__name__}"
+            f"Parsed script definition must be a mapping/object, got {type(data).__name__}"
         )
 
     return data
 
 
-def validate_contract_structure(data: Dict[str, Any]) -> ScriptContract:
+def validate_contract_structure(data: dict[str, Any]) -> ScriptContract:
     """Validate a parsed Script definition against the Script_Contract.
 
     Args:
@@ -104,7 +101,7 @@ def validate_contract_structure(data: Dict[str, Any]) -> ScriptContract:
         raise ScriptValidationError(exc.errors()) from exc
 
 
-def validate_conflicts(contract: ScriptContract) -> List[Tuple[str, str]]:
+def validate_conflicts(contract: ScriptContract) -> list[tuple[str, str]]:
     """Detect Prohibited_Responses entries that conflict with Expected_Replies.
 
     Standalone, reusable equivalent of ``ScriptContract``'s own
@@ -141,7 +138,7 @@ def validate_conflicts(contract: ScriptContract) -> List[Tuple[str, str]]:
 # entries (``loc``/``msg``/``type``/``ctx`` keys) so it can be appended
 # directly into a `ScriptValidationError`'s unified `errors` list alongside
 # structural/conflict violations without any special-casing.
-LimitViolation = Dict[str, Any]
+LimitViolation = dict[str, Any]
 
 
 class ScriptLimits(NamedTuple):
@@ -178,18 +175,17 @@ class ScriptLimitError(Exception):
     exceeded limit uniformly, without truncating to a single violation.
     """
 
-    def __init__(self, violations: List[LimitViolation]) -> None:
+    def __init__(self, violations: list[LimitViolation]) -> None:
         self.violations = violations
         descriptions = "; ".join(violation.get("msg", "") for violation in violations)
         super().__init__(
-            f"Script definition exceeds {len(violations)} configured limit(s): "
-            f"{descriptions}"
+            f"Script definition exceeds {len(violations)} configured limit(s): {descriptions}"
         )
 
 
 def _free_text_fields(
     contract: ScriptContract,
-) -> List[Tuple[Tuple[Union[str, int], ...], str]]:
+) -> list[tuple[tuple[str | int, ...], str]]:
     """Enumerate every free-text field on a validated Script_Contract.
 
     Returns a list of ``(field_path, text)`` pairs covering every
@@ -203,7 +199,7 @@ def _free_text_fields(
     every Prohibited_Responses entry, and Conversation_Goal's
     target_outcome/completion_condition.
     """
-    fields: List[Tuple[Tuple[Union[str, int], ...], str]] = [
+    fields: list[tuple[tuple[str | int, ...], str]] = [
         (("debtor_persona", "name"), contract.debtor_persona.name),
         (
             ("debtor_persona", "communication_style"),
@@ -253,7 +249,7 @@ def _free_text_fields(
 
 def validate_limits(
     contract: ScriptContract, raw_size_bytes: int, limits: ScriptLimits
-) -> List[LimitViolation]:
+) -> list[LimitViolation]:
     """Check a validated Script_Contract against configurable limits.
 
     Checks, without short-circuiting on the first violation found
@@ -276,7 +272,7 @@ def validate_limits(
         identifying which limit was exceeded (Requirement 2.9). Empty if
         no limit is exceeded.
     """
-    violations: List[LimitViolation] = []
+    violations: list[LimitViolation] = []
 
     if raw_size_bytes > limits.max_definition_size_bytes:
         violations.append(
@@ -341,7 +337,7 @@ def validate_limits(
     return violations
 
 
-def _is_conflict_only_failure(errors: List[Dict[str, Any]]) -> bool:
+def _is_conflict_only_failure(errors: list[dict[str, Any]]) -> bool:
     """Check whether every error in a ``ScriptValidationError.errors`` list
     originates solely from ``ScriptContract``'s prohibited/expected conflict
     ``model_validator`` (see ``app/schemas/script.py``), rather than from
@@ -355,8 +351,7 @@ def _is_conflict_only_failure(errors: List[Dict[str, Any]]) -> bool:
     complete and valid — only the conflict check itself failed.
     """
     return bool(errors) and all(
-        error.get("loc") == () and error.get("type") == "value_error"
-        for error in errors
+        error.get("loc") == () and error.get("type") == "value_error" for error in errors
     )
 
 
@@ -418,7 +413,7 @@ def validate_script(raw_text: str, format: str, limits: ScriptLimits) -> ScriptC
         contract = validate_contract_structure({**data, "prohibited_responses": []})
         contract.prohibited_responses = data.get("prohibited_responses", [])
 
-    conflict_violations: List[LimitViolation] = [
+    conflict_violations: list[LimitViolation] = [
         {
             "loc": ("prohibited_responses",),
             "msg": (
