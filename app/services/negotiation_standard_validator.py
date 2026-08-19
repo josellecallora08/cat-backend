@@ -4,7 +4,6 @@ from collections import defaultdict
 
 from app.schemas.negotiation_standard import (
     NegotiationStandardContent,
-    RubricBlock,
     ValidationIssue,
     ValidationResult,
 )

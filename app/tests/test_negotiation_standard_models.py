@@ -10,11 +10,9 @@ from sqlalchemy.orm import Session as OrmSession
 from app.database import Base
 from app.models import (
     Campaign,
-    Evaluation,
     ImmutableVersionError,
     NegotiationStandard,
     NegotiationStandardVersion,
-    Session,
     User,
 )
 

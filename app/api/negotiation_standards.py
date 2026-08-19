@@ -22,9 +22,11 @@ from app.services.negotiation_standard_service import (
     get_version,
     list_versions,
     publish_standard,
+    reopen_draft,
     update_draft,
     validate_draft,
 )
+
 
 router = APIRouter()
 
@@ -129,9 +131,13 @@ def _version_response(version: NegotiationStandardVersion) -> VersionResponse:
 def _raise_service_error(error: Exception) -> None:
     """Translate service domain errors into stable HTTP contracts."""
     if isinstance(error, StandardNotFoundError):
-        raise HTTPException(status_code=404, detail={"code": "not_found", "message": str(error)}) from error
+        raise HTTPException(
+            status_code=404, detail={"code": "not_found", "message": str(error)}
+        ) from error
     if isinstance(error, StandardConflictError):
-        raise HTTPException(status_code=409, detail={"code": "conflict", "message": str(error)}) from error
+        raise HTTPException(
+            status_code=409, detail={"code": "conflict", "message": str(error)}
+        ) from error
     if isinstance(error, StandardValidationError):
         raise HTTPException(
             status_code=422,
@@ -252,6 +258,25 @@ async def archive_standard_endpoint(
     """Archive a campaign standard."""
     try:
         standard = await archive_standard(db, campaign_id, admin.id)
+    except (StandardNotFoundError, StandardConflictError) as error:
+        _raise_service_error(error)
+    return _standard_response(standard)
+
+
+@router.post("/reopen", response_model=StandardResponse)
+async def reopen_standard_endpoint(
+    campaign_id: UUID,
+    db: AsyncSession = Depends(get_session),
+    admin: User = Depends(require_admin),
+) -> StandardResponse:
+    """Reopen a published or archived standard as an editable draft.
+
+    Existing published versions and any sessions pinned to them are
+    unaffected; only the mutable standard's status flips back to `draft` so
+    its content can be edited and republished as a new version.
+    """
+    try:
+        standard = await reopen_draft(db, campaign_id, admin.id)
     except (StandardNotFoundError, StandardConflictError) as error:
         _raise_service_error(error)
     return _standard_response(standard)

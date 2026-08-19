@@ -30,8 +30,7 @@ def _strict_object(properties: dict[str, Any]) -> dict[str, Any]:
 def _category_schema(block: dict[str, Any]) -> dict[str, Any]:
     """Build the exact category contract for one published rubric block."""
     criterion_ids = [
-        criterion["id"]
-        for criterion in [*block["positive_behaviors"], *block["violations"]]
+        criterion["id"] for criterion in [*block["positive_behaviors"], *block["violations"]]
     ]
     evidence = _strict_object(
         {
@@ -91,11 +90,8 @@ def _compatibility_schema(
     snapshot: NegotiationStandardContent,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Build dynamic compatibility technique contracts from snapshot criteria."""
-    names = [
-        criterion.name
-        for block in snapshot.blocks
-        for criterion in [*block.positive_behaviors, *block.violations]
-    ]
+    names = [criterion.name for block in snapshot.blocks for criterion in block.positive_behaviors]
+    names.extend(violation.name for block in snapshot.blocks for violation in block.violations)
     name_schema: dict[str, Any] = {"type": "string"}
     if names:
         name_schema["enum"] = names

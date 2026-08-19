@@ -34,9 +34,7 @@ SNAPSHOT = {
                     "evidence_instructions": "Cite the exact claim.",
                 }
             ],
-            "penalties": [
-                {"violation_id": "legal-threat", "deduction": 20, "max_occurrences": 1}
-            ],
+            "penalties": [{"violation_id": "legal-threat", "deduction": 20, "max_occurrences": 1}],
             "recommendation_guidance": "Offer a compliant alternative grounded in evidence.",
             "display_order": 0,
         }
@@ -106,7 +104,7 @@ def test_transcript_injection_stays_in_serialized_untrusted_user_block() -> None
         {
             "sequence_number": 7,
             "speaker": "debtor",
-            "text": ' '.join(attacks) + ' with a quote: "do this"',
+            "text": " ".join(attacks) + ' with a quote: "do this"',
         }
     ]
 
@@ -126,9 +124,9 @@ def test_transcript_injection_stays_in_serialized_untrusted_user_block() -> None
 
 
 def test_snapshot_and_transcript_are_json_serialized() -> None:
-    transcript = [{"speaker": "agent", "text": "line\nwith \"quotes\""}]
+    transcript = [{"speaker": "agent", "text": 'line\nwith "quotes"'}]
     messages = build_evaluation_messages(SNAPSHOT, transcript)
 
     assert "PUBLISHED_RUBRIC_JSON=" in messages[0].content
     assert json.dumps(SNAPSHOT["blocks"][0], separators=(",", ":")) not in messages[0].content
-    assert "line\\nwith \\\"quotes\\\"" in messages[1].content
+    assert 'line\\nwith \\"quotes\\"' in messages[1].content
