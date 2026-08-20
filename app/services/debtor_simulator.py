@@ -2,6 +2,7 @@
 
 import json
 import logging
+import re
 import uuid
 from dataclasses import dataclass, field
 from enum import Enum, IntEnum
@@ -570,6 +571,17 @@ def contains_prohibited_response(
 # never itself risks matching a prohibited pattern.
 SAFE_DEFAULT_DEBTOR_RESPONSE: str = "I'm not sure how to respond to that right now."
 
+_END_CALL_MARKER_RE = re.compile(r"\s*\[END_CALL\]\s*", flags=re.IGNORECASE)
+
+
+def extract_call_end_marker(response_text: str) -> tuple[str, bool]:
+    """Remove the model's private end-call marker and report whether it was present."""
+    call_ended = _END_CALL_MARKER_RE.search(response_text) is not None
+    display_text = _END_CALL_MARKER_RE.sub(" ", response_text).strip()
+    display_text = re.sub(r"[ \t]{2,}", " ", display_text)
+    return display_text, call_ended
+
+
 _SAFE_FALLBACK_DEBTOR_RESPONSES: tuple[str, ...] = (
     SAFE_DEFAULT_DEBTOR_RESPONSE,
     "I need a moment to think about that.",
@@ -846,6 +858,15 @@ class DebtorSimulatorService:
             )
             if escalation_match is not None and not escalation_match[1]:
                 script_context.append(f"Escalation behavior: {escalation_match[0]}")
+            conversation_goal = script_content.get("conversation_goal")
+            if conversation_goal:
+                script_context.append(
+                    "Conversation goal: "
+                    f"{conversation_goal.get('target_outcome', '')}. Consider it complete when: "
+                    f"{conversation_goal.get('completion_condition', '')}. If the running "
+                    "conversation satisfies this condition, conclude naturally and append "
+                    "[END_CALL]."
+                )
             if script_context:
                 system_prompt += "\n\nScript instructions for this turn:\n- " + "\n- ".join(
                     script_context
@@ -875,7 +896,7 @@ class DebtorSimulatorService:
         # the conversation with an HTTP 500.
         debtor_response_text = ""
         try:
-            for attempt in range(self._MAX_PROHIBITED_RESPONSE_RETRIES + 1):
+            for _attempt in range(self._MAX_PROHIBITED_RESPONSE_RETRIES + 1):
                 response = await self.llm_service.chat_completion(
                     messages,
                     temperature=0.8,
@@ -957,8 +978,9 @@ INSTRUCTIONS:
 - {language_instruction}
 - Do NOT break character or acknowledge that you are an AI.
 - Do NOT use quotation marks around your response.
-- If the agent is being overly aggressive, threatening, harassing, or you feel disrespected, you may end the call by including exactly "[END_CALL]" at the very end of your message — but ONLY do this as an absolute last resort when the agent's behavior is truly unacceptable (repeated threats, yelling, insults). Normal pressure or firm language is NOT enough to hang up. Do NOT write action markers like "*hangs up*" or "*ends call*" in your response text — just say your final words naturally and append [END_CALL].
-- If the conversation reaches a natural conclusion (payment arranged, dispute resolved, etc.), you may also end politely.
+- If you decide to end the call for ANY reason, including unacceptable behavior or a natural conclusion, say your final words naturally and append exactly "[END_CALL]" at the very end. Never use other action markers such as "*hangs up*" or "*ends call*". Do not append [END_CALL] unless you truly intend to terminate the call.
+- Aggression, threats, harassment, or repeated insults may justify ending the call. Normal pressure or firm language alone is not enough.
+- If the conversation reaches a natural conclusion (payment arranged, dispute resolved, etc.), end politely and append [END_CALL].
 - If the agent is rambling, repeating themselves, or saying something confusing, you may interrupt with a short interjection like "Teka lang po..." or "Wait, ano po yun?" — keep interruptions to 1-8 words only.
 - Do NOT hang up just because the agent mentions the debt or asks for payment — that is expected in a collection call."""
 

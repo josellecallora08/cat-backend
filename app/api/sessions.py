@@ -1056,11 +1056,17 @@ async def _send_message_locked(
         logger.error("Debtor response generation failed: %s", e)
         raise HTTPException(status_code=500, detail="Failed to generate response") from None
 
-    # Record debtor transcript entry
+    from app.services.debtor_simulator import extract_call_end_marker
+
+    display_text, ai_ended_call = extract_call_end_marker(response.text)
+    if ai_ended_call and not display_text:
+        display_text = "Salamat po. Goodbye."
+
+    # Record only user-visible text; control markers must not pollute transcripts.
     await transcript_manager.append_entry(
         session_id=session_id,
         speaker="debtor",
-        text=response.text,
+        text=display_text,
         timestamp=datetime.now(UTC),
     )
 
@@ -1071,9 +1077,8 @@ async def _send_message_locked(
     # When script_content is present, skip hardcoded hang_up_signals entirely —
     # script-driven escalation/goal completion (evaluated above) handles call-end.
     # When no script is loaded, fall back to existing hardcoded detection.
-    call_ended = False
-    call_ended_reason = None
-    display_text = response.text
+    call_ended = ai_ended_call
+    call_ended_reason = "Debtor ended the call" if ai_ended_call else None
     interrupt = False
 
     if script_content is None:
@@ -1090,7 +1095,7 @@ async def _send_message_locked(
             "[end_call]",
         ]
         response_lower = response.text.lower()
-        call_ended = any(signal in response_lower for signal in hang_up_signals)
+        call_ended = call_ended or any(signal in response_lower for signal in hang_up_signals)
 
         # Detect if debtor is interrupting (short, sharp interjection)
         interrupt_signals = [
@@ -1105,8 +1110,10 @@ async def _send_message_locked(
             "saglit",
             "wait lang",
         ]
-        interrupt = len(response.text.split()) <= 8 and any(
-            signal in response_lower for signal in interrupt_signals
+        interrupt = (
+            not call_ended
+            and len(response.text.split()) <= 8
+            and any(signal in response_lower for signal in interrupt_signals)
         )
 
         if call_ended:
@@ -1122,13 +1129,6 @@ async def _send_message_locked(
                 display_text,
                 flags=re.IGNORECASE,
             ).strip()
-            # Remove [END_CALL] marker
-            display_text = re.sub(
-                r"\s*\[END_CALL\]\s*",
-                "",
-                display_text,
-                flags=re.IGNORECASE,
-            ).strip()
             # Also remove non-asterisk variants at the end of the message
             for signal in hang_up_signals:
                 if not signal.startswith("*") and not signal.startswith("["):
@@ -1138,6 +1138,10 @@ async def _send_message_locked(
                         display_text,
                         flags=re.IGNORECASE,
                     ).strip()
+
+    if call_ended:
+        call_ended_reason = call_ended_reason or "Debtor ended the call"
+        _active_personas.pop(session_id, None)
 
     return ConversationResponse(
         text=display_text,

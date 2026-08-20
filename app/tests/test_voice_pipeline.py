@@ -25,7 +25,7 @@ from app.services.voice.tts_service import MockTTSService
 from app.services.voice.vad import (
     FRAME_SIZE_BYTES,
 )
-from app.services.voice.voice_pipeline import VoicePipelineOrchestrator
+from app.services.voice.voice_pipeline import CallEndSignal, VoicePipelineOrchestrator
 
 
 # --- Fixtures ---
@@ -537,3 +537,36 @@ class TestEndToEndProcessing:
 
         assert orchestrator._state.utterance_count == 2
         assert mock_debtor_simulator.generate_response.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_ai_end_call_marker_queues_clean_audio_then_end_signal(
+        self,
+        orchestrator,
+        mock_debtor_simulator,
+        mock_transcript_manager,
+        mock_tts_service,
+    ):
+        mock_debtor_simulator.generate_response.return_value = SimulatorResponse(
+            text="Salamat po. Goodbye. [END_CALL]",
+            emotional_state=EmotionalState.RECEPTIVE,
+            language="TL",
+        )
+        orchestrator._state.is_active = True
+
+        for _ in range(10):
+            await orchestrator.process_audio_frame(_make_speech_frame())
+        for _ in range(30):
+            response = await orchestrator.process_audio_frame(_make_silence_frame())
+            if response is not None:
+                break
+
+        audio = await orchestrator.get_next_response_audio()
+        end_signal = await orchestrator.get_next_response_audio()
+
+        assert isinstance(audio, bytes)
+        assert isinstance(end_signal, CallEndSignal)
+        assert end_signal.reason == "Debtor ended the call"
+        assert orchestrator.is_active is False
+        assert mock_tts_service.synthesize_calls[-1] == ("Salamat po. Goodbye.", "tl")
+        debtor_entry = mock_transcript_manager.append_entry.await_args_list[-1].kwargs
+        assert debtor_entry["text"] == "Salamat po. Goodbye."

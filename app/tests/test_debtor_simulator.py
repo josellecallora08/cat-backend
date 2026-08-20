@@ -15,6 +15,7 @@ from app.services.debtor_simulator import (
     _build_persona_generation_prompt,
     _parse_persona_response,
     contains_prohibited_response,
+    extract_call_end_marker,
     select_opening_response,
 )
 from app.services.llm_service import LLMResponse, LLMServiceProtocol
@@ -72,6 +73,26 @@ def mock_llm_service(valid_llm_persona_response: str) -> AsyncMock:
 
 
 # --- Unit Tests: Prompt Building ---
+
+
+class TestCallEndMarker:
+    def test_extracts_case_insensitive_marker_without_exposing_it(self):
+        text, ended = extract_call_end_marker("Salamat po. [end_call]")
+
+        assert ended is True
+        assert text == "Salamat po."
+
+    def test_leaves_normal_response_unchanged(self):
+        text, ended = extract_call_end_marker("Pwede po ang Friday.")
+
+        assert ended is False
+        assert text == "Pwede po ang Friday."
+
+    def test_marker_only_response_is_reported_as_ended(self):
+        text, ended = extract_call_end_marker(" [END_CALL] ")
+
+        assert ended is True
+        assert text == ""
 
 
 class TestBuildPersonaGenerationPrompt:

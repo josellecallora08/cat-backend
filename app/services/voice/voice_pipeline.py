@@ -233,6 +233,7 @@ class VoicePipelineOrchestrator:
         from app.services.debtor_simulator import (
             evaluate_conversation_goal_completion,
             evaluate_escalation_conditions,
+            extract_call_end_marker,
             select_opening_response,
         )
 
@@ -411,7 +412,9 @@ class VoicePipelineOrchestrator:
             )
             return None
 
-        debtor_text = simulator_response.text.strip()
+        debtor_text, ai_ended_call = extract_call_end_marker(simulator_response.text)
+        if ai_ended_call and not debtor_text:
+            debtor_text = "Salamat po. Goodbye."
         response_time = datetime.now(UTC)
 
         # Step 5: Record debtor transcript entry
@@ -441,6 +444,9 @@ class VoicePipelineOrchestrator:
 
         # Step 7: Queue audio for WebRTC output
         await self._output_queue.put(response_audio)
+        if ai_ended_call:
+            await self._output_queue.put(CallEndSignal(reason="Debtor ended the call"))
+            self._state.is_active = False
         self._state.utterance_count += 1
 
         logger.info(
