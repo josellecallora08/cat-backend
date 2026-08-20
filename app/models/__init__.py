@@ -12,6 +12,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
     Uuid,
 )
 from sqlalchemy.dialects.postgresql import JSONB
@@ -95,10 +96,18 @@ class Session(Base):
     """A single training session linking a scenario to a conversation."""
 
     __tablename__ = "sessions"
+    __table_args__ = (
+        UniqueConstraint(
+            "agent_id",
+            "creation_key",
+            name="uq_sessions_agent_creation_key",
+        ),
+    )
 
     id = Column(Uuid, primary_key=True, default=uuid.uuid4)
     scenario_id = Column(Uuid, ForeignKey("scenarios.id"), nullable=False)
     agent_id = Column(Uuid, nullable=False)
+    creation_key = Column(Uuid, nullable=True)
     status = Column(String(20), default="pending", nullable=False)
     persona_context = Column(JSONVariant)
     script_version_id = Column(Uuid, ForeignKey("script_versions.id"), nullable=True)

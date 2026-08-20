@@ -12,6 +12,7 @@ from datetime import UTC, datetime
 from uuid import UUID
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -97,6 +98,7 @@ async def create_session(
     agent_id: UUID,
     debtor_simulator: DebtorSimulatorService,
     campaign_id: UUID | None = None,
+    creation_key: UUID | None = None,
 ) -> Session:
     """Create a session and pin an assigned campaign's published rubric version.
 
@@ -155,19 +157,54 @@ async def create_session(
         scenario_id=scenario_id,
         agent_id=agent_id,
         campaign_id=campaign_id,
+        creation_key=creation_key,
         status="pending",
         persona_context=persona_dict,
         script_version_id=script_version_id,
         negotiation_standard_version_id=negotiation_standard_version_id,
     )
     db.add(session)
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        if creation_key is None:
+            raise
+        existing = (
+            await db.execute(
+                select(Session).where(
+                    Session.agent_id == agent_id,
+                    Session.creation_key == creation_key,
+                )
+            )
+        ).scalar_one_or_none()
+        if existing is None:
+            raise
+        return existing
     await db.refresh(session)
     await event_broadcaster.emit(
         "session.created",
         session.id,
         EventMetadata(agent_id=agent_id),
     )
+    return session
+
+
+async def cancel_session(db: AsyncSession, session_id: UUID) -> Session:
+    """Cancel a session that has not yet produced a conversation."""
+    session = await get_session(db, session_id)
+    if session is None:
+        raise ValueError(f"Session with id {session_id} not found")
+    if session.status != "pending":
+        raise ValueError(
+            f"Cannot cancel session with status '{session.status}'. "
+            "Only pending sessions can be cancelled."
+        )
+
+    session.status = "cancelled"
+    session.ended_at = datetime.now(UTC)
+    await db.commit()
+    await db.refresh(session)
     return session
 
 

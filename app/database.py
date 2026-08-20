@@ -6,7 +6,9 @@ from app.config import settings
 
 engine = create_async_engine(
     settings.async_database_url,
-    echo=settings.debug,
+    # SQL statements are extremely verbose and can contain sensitive values.
+    # Keep them independent from general application debug mode and opt-in only.
+    echo=settings.database_echo,
     pool_pre_ping=True,
 )
 

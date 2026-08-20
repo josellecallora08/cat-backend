@@ -493,6 +493,8 @@ async def list_all_sessions(
         conditions.append(Session.agent_id == agent_id)
     if status:
         conditions.append(Session.status == status)
+    else:
+        conditions.append(Session.status != "cancelled")
     if start_date:
         conditions.append(Session.created_at >= datetime.combine(start_date, time.min))
     if end_date:

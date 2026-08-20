@@ -19,6 +19,7 @@ from app.services.debtor_simulator import (
 from app.services.script_registry import ScriptVersion, create_draft, publish, unpublish
 from app.services.session_service import (
     activate_session,
+    cancel_session,
     create_session,
     end_session,
     get_session,
@@ -188,6 +189,25 @@ class TestCreateSession:
         assert session.status == "pending"
         assert session.scenario_id == scenario.id
         assert session.agent_id == agent_id
+
+    async def test_reuses_session_for_same_agent_creation_key(self, async_db: AsyncSession):
+        scenario = _make_scenario()
+        async_db.add(scenario)
+        await async_db.commit()
+        await _publish_script_for_scenario(async_db, scenario.id)
+
+        simulator = _make_mock_debtor_simulator()
+        agent_id = uuid.uuid4()
+        creation_key = uuid.uuid4()
+
+        first = await create_session(
+            async_db, scenario.id, agent_id, simulator, creation_key=creation_key
+        )
+        second = await create_session(
+            async_db, scenario.id, agent_id, simulator, creation_key=creation_key
+        )
+
+        assert second.id == first.id
 
     async def test_stores_persona_context_as_json(self, async_db: AsyncSession):
         scenario = _make_scenario()
@@ -445,6 +465,40 @@ class TestEndSession:
 
         with pytest.raises(ValueError, match="Cannot end session"):
             await end_session(async_db, session.id)
+
+
+class TestCancelSession:
+    async def test_transitions_pending_to_cancelled(self, async_db: AsyncSession):
+        scenario = _make_scenario()
+        async_db.add(scenario)
+        await async_db.commit()
+        session = Session(
+            scenario_id=scenario.id,
+            agent_id=uuid.uuid4(),
+            status="pending",
+        )
+        async_db.add(session)
+        await async_db.commit()
+
+        result = await cancel_session(async_db, session.id)
+
+        assert result.status == "cancelled"
+        assert result.ended_at is not None
+
+    async def test_rejects_active_session(self, async_db: AsyncSession):
+        scenario = _make_scenario()
+        async_db.add(scenario)
+        await async_db.commit()
+        session = Session(
+            scenario_id=scenario.id,
+            agent_id=uuid.uuid4(),
+            status="active",
+        )
+        async_db.add(session)
+        await async_db.commit()
+
+        with pytest.raises(ValueError, match="Only pending sessions"):
+            await cancel_session(async_db, session.id)
 
 
 class TestActivateSession:

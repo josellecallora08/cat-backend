@@ -27,6 +27,7 @@ class SessionStatus(StrEnum):
     PENDING = "pending"
     ACTIVE = "active"
     COMPLETED = "completed"
+    CANCELLED = "cancelled"
     ERROR = "error"
 
 
@@ -127,6 +128,7 @@ class SessionCreate(BaseModel):
 
     scenario_id: UUID
     campaign_id: UUID | None = None
+    creation_key: UUID | None = None
 
 
 class SessionResponse(BaseModel):

@@ -57,6 +57,9 @@ from app.services.session_service import (
     PublishedStandardRequiredError,
 )
 from app.services.session_service import (
+    cancel_session as cancel_session_service,
+)
+from app.services.session_service import (
     create_session as create_session_service,
 )
 from app.services.session_service import (
@@ -187,6 +190,8 @@ async def list_sessions(
     # Status filter (available to all roles)
     if status:
         conditions.append(Session.status == status)
+    else:
+        conditions.append(Session.status != SessionStatus.CANCELLED.value)
 
     # Count total matching sessions
     count_stmt = select(func.count()).select_from(Session)
@@ -302,6 +307,18 @@ async def create_session(
             agent_id,
         )
 
+    if body.creation_key is not None:
+        existing = (
+            await db.execute(
+                select(Session).where(
+                    Session.creation_key == body.creation_key,
+                    Session.agent_id == agent_id,
+                )
+            )
+        ).scalar_one_or_none()
+        if existing is not None:
+            return _session_to_response(existing)
+
     if body.campaign_id is not None:
         is_admin = current_user is not None and current_user.role == UserRole.ADMIN.value
         await validate_campaign_context(
@@ -319,6 +336,7 @@ async def create_session(
             agent_id=agent_id,
             debtor_simulator=debtor_simulator,
             campaign_id=body.campaign_id,
+            creation_key=body.creation_key,
         )
     except PublishedStandardRequiredError as error:
         raise HTTPException(
@@ -332,6 +350,21 @@ async def create_session(
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
 
+    return _session_to_response(session)
+
+
+@router.post("/{session_id}/cancel", response_model=SessionResponse)
+async def cancel_session(
+    session_id: UUID,
+    db: AsyncSession = Depends(get_db_session),
+    current_user: User = Depends(require_auth),
+):
+    """Cancel an unstarted session so it does not remain pending."""
+    await get_authorized_session(db, session_id, current_user)
+    try:
+        session = await cancel_session_service(db, session_id)
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
     return _session_to_response(session)
 
 
