@@ -51,8 +51,8 @@ async def _resolve_published_version(
     scenario_id: UUID,
     agent_id: UUID,
     campaign_id: UUID | None,
-) -> NegotiationStandardVersion | None:
-    """Resolve an assigned campaign and its current immutable published version."""
+) -> tuple[UUID | None, NegotiationStandardVersion | None]:
+    """Resolve the session campaign and its current immutable published version."""
     campaign_statement = (
         select(Campaign)
         .join(campaign_scenarios, campaign_scenarios.c.campaign_id == Campaign.id)
@@ -70,7 +70,7 @@ async def _resolve_published_version(
     campaign_result = await db.execute(campaign_statement)
     campaigns = campaign_result.scalars().unique().all()
     if not campaigns:
-        return None
+        return campaign_id, None
     if campaign_id is None and len(campaigns) > 1:
         raise PublishedStandardRequiredError(campaigns[0].id)
     selected_campaign = campaigns[0]
@@ -89,7 +89,7 @@ async def _resolve_published_version(
     version = (await db.execute(statement)).scalar_one_or_none()
     if version is None:
         raise PublishedStandardRequiredError(selected_campaign.id)
-    return version
+    return selected_campaign.id, version
 
 
 async def create_session(
@@ -125,7 +125,9 @@ async def create_session(
     if scenario is None:
         raise ValueError(f"Scenario with id {scenario_id} not found or inactive")
 
-    standard_version = await _resolve_published_version(db, scenario_id, agent_id, campaign_id)
+    resolved_campaign_id, standard_version = await _resolve_published_version(
+        db, scenario_id, agent_id, campaign_id
+    )
     script_version = await get_active_published_version(db, scenario_id)
 
     scenario_data = {
@@ -156,7 +158,7 @@ async def create_session(
     session = Session(
         scenario_id=scenario_id,
         agent_id=agent_id,
-        campaign_id=campaign_id,
+        campaign_id=resolved_campaign_id,
         creation_key=creation_key,
         status="pending",
         persona_context=persona_dict,

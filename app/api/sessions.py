@@ -405,6 +405,13 @@ async def end_session(
         # Invalid state transition
         raise HTTPException(status_code=400, detail=error_msg) from None
 
+    # Keep only non-ORM values across the pipeline boundary. The pipeline may
+    # roll back its transaction, which expires every ORM instance attached to
+    # this AsyncSession. Reading an expired attribute synchronously would make
+    # SQLAlchemy attempt implicit I/O and raise MissingGreenlet.
+    agent_id = session.agent_id
+    completed_response = _session_to_response(session)
+
     # Trigger the evaluation pipeline
     # NOTE: In production, this would be dispatched as a background task.
     # Running inline here ensures artifacts are ready on response.
@@ -412,8 +419,8 @@ async def end_session(
         llm_service = LLMService()
         pipeline = EvaluationPipeline(llm_service)
         await pipeline.run(
-            session_id=session.id,
-            agent_id=session.agent_id,
+            session_id=session_id,
+            agent_id=agent_id,
             db=db,
         )
     except Exception as exc:
@@ -425,11 +432,17 @@ async def end_session(
             exc,
             exc_info=True,
         )
+        # Ensure a failed optional pipeline cannot leave the request-owned
+        # session in a failed transaction before report generation.
+        await db.rollback()
 
     # Generate the session report snapshot.
     # NOTE: Mirrors the pipeline's failure isolation above — a report
     # generation failure must never change session status or the response.
     try:
+        session = await get_session_service(db, session_id)
+        if session is None:
+            raise RuntimeError("Completed session disappeared before report generation")
         await generate_report_service(db=db, session=session)
     except Exception as exc:
         logger.error(
@@ -438,26 +451,23 @@ async def end_session(
             exc,
             exc_info=True,
         )
+        await db.rollback()
 
     try:
+        # Re-query explicitly after pipeline/report transaction boundaries so
+        # response serialization never triggers async lazy loading.
+        session = await get_session_service(db, session_id)
+        if session is None:
+            return completed_response
         return _session_to_response(session)
     except Exception:
-        # The lifecycle transition has already committed. Optional persona or
-        # pinned-standard metadata must not make a completed session appear to
-        # have failed; return the durable core fields and log the bad metadata.
+        # The lifecycle transition has already committed. Return the detached
+        # response snapshot captured before optional post-processing began.
         logger.exception(
             "Session response serialization failed after ending session %s",
             session_id,
         )
-        return SessionResponse(
-            id=session.id,
-            scenario_id=session.scenario_id,
-            campaign_id=session.campaign_id,
-            persona=None,
-            status=SessionStatus.COMPLETED,
-            created_at=session.created_at,
-            ended_at=session.ended_at,
-        )
+        return completed_response
 
 
 @router.post("/{session_id}/evaluation/retry")

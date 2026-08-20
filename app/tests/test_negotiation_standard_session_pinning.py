@@ -113,3 +113,20 @@ async def test_session_pins_exact_published_version(db_session: AsyncSession) ->
     )
 
     assert session.negotiation_standard_version_id == version.id
+
+
+@pytest.mark.asyncio
+async def test_session_inherits_agents_campaign_when_not_explicitly_selected(
+    db_session: AsyncSession,
+) -> None:
+    user, campaign, scenario, version = await _setup(db_session, published=True)
+
+    session = await create_session(
+        db_session,
+        scenario.id,
+        user.id,
+        FakeDebtorSimulator(),
+    )
+
+    assert session.campaign_id == campaign.id
+    assert session.negotiation_standard_version_id == version.id
