@@ -4,8 +4,10 @@ ElevenLabs provides high-quality multilingual voices that handle Taglish natural
 gTTS (Google Translate) is used as a free fallback when ElevenLabs is not configured.
 """
 
+import asyncio
 import io
 import logging
+from collections.abc import Iterator
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
@@ -25,24 +27,30 @@ class TTSRequest(BaseModel):
     voice_id: str | None = None  # ElevenLabs voice ID override
 
 
-async def _synthesize_elevenlabs(text: str, voice_id: str) -> io.BytesIO:
-    """Synthesize speech using ElevenLabs API."""
+def _synthesize_elevenlabs_stream(text: str, voice_id: str) -> Iterator[bytes]:
+    """Return ElevenLabs' incremental MP3 iterator without buffering it."""
     from elevenlabs import ElevenLabs
 
     client = ElevenLabs(api_key=settings.elevenlabs_api_key)
 
-    audio_generator = client.text_to_speech.convert(
+    return client.text_to_speech.convert(
         voice_id=voice_id,
         text=text,
         model_id="eleven_multilingual_v2",
         output_format="mp3_44100_128",
+        optimize_streaming_latency=2,
     )
 
-    audio_buffer = io.BytesIO()
-    for chunk in audio_generator:
-        audio_buffer.write(chunk)
-    audio_buffer.seek(0)
-    return audio_buffer
+
+def _next_audio_chunk(chunks: Iterator[bytes]) -> bytes | None:
+    """Read one provider chunk in a worker thread, using None as EOF."""
+    return next(chunks, None)
+
+
+def _stream_with_first_chunk(first_chunk: bytes, chunks: Iterator[bytes]) -> Iterator[bytes]:
+    """Preserve a preflighted chunk and lazily forward the rest of the provider stream."""
+    yield first_chunk
+    yield from chunks
 
 
 def _synthesize_gtts(text: str, lang: str) -> io.BytesIO:
@@ -73,18 +81,27 @@ async def synthesize_speech(body: TTSRequest):
     if use_elevenlabs and settings.elevenlabs_api_key:
         try:
             voice_id = body.voice_id or settings.elevenlabs_voice_id
-            audio_buffer = await _synthesize_elevenlabs(body.text, voice_id)
+            audio_chunks = _synthesize_elevenlabs_stream(body.text, voice_id)
+            # Fetch only the first chunk before returning headers. This preserves
+            # the gTTS fallback for provider failures without buffering full audio.
+            first_chunk = await asyncio.to_thread(_next_audio_chunk, audio_chunks)
+            if not first_chunk:
+                raise RuntimeError("ElevenLabs returned an empty audio stream")
             return StreamingResponse(
-                audio_buffer,
+                _stream_with_first_chunk(first_chunk, audio_chunks),
                 media_type="audio/mpeg",
-                headers={"Content-Disposition": "inline; filename=speech.mp3"},
+                headers={
+                    "Cache-Control": "no-store",
+                    "Content-Disposition": "inline; filename=speech.mp3",
+                    "X-Accel-Buffering": "no",
+                },
             )
         except Exception as e:
             logger.warning("ElevenLabs TTS failed: %s — trying gTTS fallback", e)
 
     # Try gTTS fallback
     try:
-        audio_buffer = _synthesize_gtts(body.text, body.lang)
+        audio_buffer = await asyncio.to_thread(_synthesize_gtts, body.text, body.lang)
         return StreamingResponse(
             audio_buffer,
             media_type="audio/mpeg",
