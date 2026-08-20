@@ -1,13 +1,15 @@
 """Tests for scenario API endpoints."""
 
 import uuid
-from unittest.mock import AsyncMock, patch
+from types import SimpleNamespace
+from unittest.mock import ANY, AsyncMock, patch
 
 import pytest
 from httpx import ASGITransport, AsyncClient
 
 from app.main import app
 from app.models import Scenario
+from app.services.auth import require_auth
 
 
 def _make_scenario(
@@ -43,8 +45,40 @@ async def client():
         yield ac
 
 
+@pytest.fixture(autouse=True)
+def authenticated_admin():
+    app.dependency_overrides[require_auth] = lambda: SimpleNamespace(
+        id=uuid.uuid4(), role="admin", user_type=None
+    )
+    yield
+    app.dependency_overrides.clear()
+
+
 class TestListScenarios:
     """Tests for GET /api/scenarios."""
+
+    async def test_rejects_unauthenticated_requests(self, client):
+        app.dependency_overrides.pop(require_auth, None)
+
+        response = await client.get("/api/scenarios")
+
+        assert response.status_code == 401
+
+    async def test_agent_receives_only_campaign_scenarios(self, client):
+        assigned = _make_scenario(name="Assigned")
+        agent = SimpleNamespace(id=uuid.uuid4(), role="user", user_type="agent")
+        app.dependency_overrides[require_auth] = lambda: agent
+
+        with patch(
+            "app.api.scenarios.get_agent_campaign_scenarios",
+            new_callable=AsyncMock,
+            return_value=[assigned],
+        ) as scoped_query:
+            response = await client.get("/api/scenarios")
+
+        assert response.status_code == 200
+        assert [item["id"] for item in response.json()] == [str(assigned.id)]
+        scoped_query.assert_awaited_once_with(ANY, agent.id)
 
     async def test_returns_empty_list_when_no_scenarios(self, client):
         with patch(
@@ -95,6 +129,20 @@ class TestListScenarios:
 
 class TestGetScenario:
     """Tests for GET /api/scenarios/{scenario_id}."""
+
+    async def test_hides_scenario_outside_agents_campaigns(self, client):
+        scenario_id = uuid.uuid4()
+        agent = SimpleNamespace(id=uuid.uuid4(), role="user", user_type="agent")
+        app.dependency_overrides[require_auth] = lambda: agent
+
+        with patch(
+            "app.api.scenarios.get_agent_scenario_ids",
+            new_callable=AsyncMock,
+            return_value=set(),
+        ):
+            response = await client.get(f"/api/scenarios/{scenario_id}")
+
+        assert response.status_code == 404
 
     async def test_returns_scenario_with_full_debtor_profile(self, client):
         scenario = _make_scenario(

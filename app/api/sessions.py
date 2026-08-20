@@ -38,7 +38,8 @@ from app.schemas import (
     WeaknessItem,
 )
 from app.schemas.report import ReportResponse, ReportSectionName, SectionEnvelope
-from app.services.auth import get_current_user, require_admin, require_auth
+from app.services.auth import require_admin, require_agent, require_auth
+from app.services.campaign_scenario_service import get_agent_scenario_ids
 from app.services.campaign_validation_service import validate_campaign_context
 from app.services.debtor_simulator import (
     DebtorSimulatorService,
@@ -282,7 +283,7 @@ def _session_to_response(session: Session) -> SessionResponse:
 async def create_session(
     body: SessionCreate,
     db: AsyncSession = Depends(get_db_session),
-    current_user: User | None = Depends(get_current_user),
+    current_user: User = Depends(require_agent),
 ):
     """Create a new training session.
 
@@ -292,20 +293,12 @@ async def create_session(
     llm_service = LLMService()
     debtor_simulator = DebtorSimulatorService(llm_service)
 
-    # Use the authenticated user's ID, or fallback to random UUID
-    if current_user:
-        agent_id = current_user.id
-        logger.info(
-            "Creating session for authenticated user: %s (%s)",
-            current_user.email,
-            current_user.id,
-        )
-    else:
-        agent_id = uuid4()
-        logger.warning(
-            "Creating session without authenticated user — using random agent_id: %s",
-            agent_id,
-        )
+    agent_id = current_user.id
+    logger.info(
+        "Creating session for authenticated user: %s (%s)",
+        current_user.email,
+        current_user.id,
+    )
 
     if body.creation_key is not None:
         existing = (
@@ -319,8 +312,8 @@ async def create_session(
         if existing is not None:
             return _session_to_response(existing)
 
+    is_admin = current_user.role == UserRole.ADMIN.value
     if body.campaign_id is not None:
-        is_admin = current_user is not None and current_user.role == UserRole.ADMIN.value
         await validate_campaign_context(
             db=db,
             campaign_id=body.campaign_id,
@@ -328,6 +321,10 @@ async def create_session(
             scenario_id=body.scenario_id,
             is_admin=is_admin,
         )
+    elif not is_admin:
+        visible_scenario_ids = await get_agent_scenario_ids(db, agent_id)
+        if body.scenario_id not in visible_scenario_ids:
+            raise HTTPException(status_code=403, detail="Scenario is not assigned to your campaign")
 
     try:
         session = await create_session_service(

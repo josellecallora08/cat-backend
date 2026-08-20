@@ -18,8 +18,11 @@ from app.schemas import (
     ScenarioType,
 )
 from app.schemas.event import EventMetadata
-from app.services.auth import get_current_user, require_admin
-from app.services.campaign_scenario_service import get_agent_campaign_scenarios
+from app.services.auth import require_admin, require_auth
+from app.services.campaign_scenario_service import (
+    get_agent_campaign_scenarios,
+    get_agent_scenario_ids,
+)
 from app.services.event_instances import event_broadcaster
 from app.services.llm_service import LLMMessage, LLMService
 from app.services.scenario_repository import get_scenario_by_id, list_active_scenarios
@@ -31,10 +34,12 @@ router = APIRouter()
 @router.get("", response_model=list[ScenarioListItem])
 async def list_scenarios(
     db: AsyncSession = Depends(get_session),
-    user: User | None = Depends(get_current_user),
+    user: User = Depends(require_auth),
 ) -> list[ScenarioListItem]:
-    """List active training scenarios. Agents see only their campaign scenarios."""
-    if user and user.role == UserRole.USER.value and user.user_type == UserType.AGENT.value:
+    """List active scenarios within the authenticated user's campaign scope."""
+    if user.role != UserRole.ADMIN.value:
+        if user.user_type not in (UserType.AGENT.value, UserType.TRAINER.value):
+            raise HTTPException(status_code=403, detail="Scenario access is not permitted")
         items = await get_agent_campaign_scenarios(db, user.id)
         response: list[ScenarioListItem] = []
         for item in items:
@@ -70,8 +75,20 @@ async def list_scenarios(
 
 
 @router.get("/{scenario_id}", response_model=ScenarioResponse)
-async def get_scenario(scenario_id: UUID, db: AsyncSession = Depends(get_session)):
-    """Get scenario details including debtor profile."""
+async def get_scenario(
+    scenario_id: UUID,
+    db: AsyncSession = Depends(get_session),
+    user: User = Depends(require_auth),
+):
+    """Get scenario details only when visible within the user's campaign scope."""
+    if user.role != UserRole.ADMIN.value:
+        if user.user_type not in (UserType.AGENT.value, UserType.TRAINER.value):
+            raise HTTPException(status_code=403, detail="Scenario access is not permitted")
+        visible_scenario_ids = await get_agent_scenario_ids(db, user.id)
+        if scenario_id not in visible_scenario_ids:
+            # Avoid disclosing whether an out-of-scope scenario exists.
+            raise HTTPException(status_code=404, detail="Scenario not found")
+
     scenario = await get_scenario_by_id(db, scenario_id)
     if scenario is None:
         raise HTTPException(status_code=404, detail="Scenario not found")

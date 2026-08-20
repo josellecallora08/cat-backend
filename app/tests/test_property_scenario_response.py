@@ -14,6 +14,7 @@ conversation_goal.
 import asyncio
 import uuid
 from decimal import Decimal
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 from httpx import ASGITransport, AsyncClient
@@ -23,6 +24,7 @@ from hypothesis import strategies as st
 from app.main import app
 from app.models import Scenario
 from app.schemas import ScenarioType
+from app.services.auth import require_auth
 
 
 # --- Strategies ---
@@ -105,9 +107,15 @@ async def _get_list_response(scenarios_list):
         new_callable=AsyncMock,
         return_value=scenarios_list,
     ):
-        transport = ASGITransport(app=app)
-        async with AsyncClient(transport=transport, base_url="http://test") as client:
-            return await client.get("/api/scenarios")
+        app.dependency_overrides[require_auth] = lambda: SimpleNamespace(
+            id=uuid.uuid4(), role="admin", user_type=None
+        )
+        try:
+            transport = ASGITransport(app=app)
+            async with AsyncClient(transport=transport, base_url="http://test") as client:
+                return await client.get("/api/scenarios")
+        finally:
+            app.dependency_overrides.pop(require_auth, None)
 
 
 async def _get_detail_response(scenario):
@@ -117,9 +125,15 @@ async def _get_detail_response(scenario):
         new_callable=AsyncMock,
         return_value=scenario,
     ):
-        transport = ASGITransport(app=app)
-        async with AsyncClient(transport=transport, base_url="http://test") as client:
-            return await client.get(f"/api/scenarios/{scenario.id}")
+        app.dependency_overrides[require_auth] = lambda: SimpleNamespace(
+            id=uuid.uuid4(), role="admin", user_type=None
+        )
+        try:
+            transport = ASGITransport(app=app)
+            async with AsyncClient(transport=transport, base_url="http://test") as client:
+                return await client.get(f"/api/scenarios/{scenario.id}")
+        finally:
+            app.dependency_overrides.pop(require_auth, None)
 
 
 # --- Property Tests ---

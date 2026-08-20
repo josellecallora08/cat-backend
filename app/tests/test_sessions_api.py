@@ -184,6 +184,48 @@ def _override_db(mock_db):
 class TestCreateSession:
     """Tests for POST /api/sessions."""
 
+    @pytest.fixture(autouse=True)
+    def _auth_override(self):
+        app.dependency_overrides[require_auth] = lambda: SimpleNamespace(
+            id=uuid.uuid4(),
+            email="admin@test.com",
+            role="admin",
+            user_type=None,
+        )
+        yield
+
+    async def test_rejects_unauthenticated_creation(self, client):
+        app.dependency_overrides.pop(require_auth, None)
+
+        response = await client.post(
+            "/api/sessions",
+            json={"scenario_id": str(uuid.uuid4())},
+        )
+
+        assert response.status_code == 401
+
+    async def test_agent_cannot_create_session_for_unassigned_scenario(self, client):
+        agent = SimpleNamespace(
+            id=uuid.uuid4(),
+            email="agent@test.com",
+            role="user",
+            user_type="agent",
+        )
+        app.dependency_overrides[require_auth] = lambda: agent
+
+        with patch(
+            "app.api.sessions.get_agent_scenario_ids",
+            new_callable=AsyncMock,
+            return_value=set(),
+        ):
+            response = await client.post(
+                "/api/sessions",
+                json={"scenario_id": str(uuid.uuid4())},
+            )
+
+        assert response.status_code == 403
+        assert "not assigned" in response.json()["detail"].lower()
+
     async def test_creates_session_returns_201(self, client):
         scenario_id = uuid.uuid4()
         session = _make_session(scenario_id=scenario_id, status="pending")
