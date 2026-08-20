@@ -163,6 +163,8 @@ async def test_complete_campaign_to_pinned_evaluation_and_results_api(
         db_session, scenario.id, agent.id, FakeDebtorSimulator(), campaign.id
     )
     assert session.negotiation_standard_version_id == version.id
+    session_id = session.id
+    agent_id = agent.id
 
     manager = TranscriptManager(db_session)
     transcript_text = [
@@ -177,19 +179,19 @@ async def test_complete_campaign_to_pinned_evaluation_and_results_api(
     ]
     for index, text in enumerate(transcript_text):
         await manager.append_entry(
-            session.id, "agent" if index % 2 == 0 else "debtor", text, datetime.now(UTC)
+            session_id, "agent" if index % 2 == 0 else "debtor", text, datetime.now(UTC)
         )
-    await manager.persist(session.id)
+    await manager.persist(session_id)
     assert (
-        await db_session.scalar(select(Transcript).where(Transcript.session_id == session.id))
+        await db_session.scalar(select(Transcript).where(Transcript.session_id == session_id))
         is not None
     )
-    completed = await end_session(db_session, session.id)
+    completed = await end_session(db_session, session_id)
     assert completed.status == "completed"
 
     llm = FakeEvaluationLLM(_llm_observation())
     pipeline = EvaluationPipeline(llm)
-    result = await pipeline.run(session.id, agent.id, db_session)
+    result = await pipeline.run(session_id, agent_id, db_session)
 
     assert result.evaluation.negotiation_standard_version_id == version.id
     assert result.evaluation.standard_snapshot == version.snapshot
@@ -210,12 +212,12 @@ async def test_complete_campaign_to_pinned_evaluation_and_results_api(
     assert llm.calls == 1
 
     stored = (
-        await db_session.execute(select(Evaluation).where(Evaluation.session_id == session.id))
+        await db_session.execute(select(Evaluation).where(Evaluation.session_id == session_id))
     ).scalar_one()
     assert stored.negotiation_standard_version_id == version.id
     stored_coaching = (
         await db_session.execute(
-            select(CoachingReport).where(CoachingReport.session_id == session.id)
+            select(CoachingReport).where(CoachingReport.session_id == session_id)
         )
     ).scalar_one()
     assert stored_coaching.mistakes_by_category["_rubric_coaching"]["standard_version_id"] == str(
@@ -228,7 +230,7 @@ async def test_complete_campaign_to_pinned_evaluation_and_results_api(
         == "Rude tone"
     )
     assert (
-        await db_session.execute(select(LearningPlan).where(LearningPlan.session_id == session.id))
+        await db_session.execute(select(LearningPlan).where(LearningPlan.session_id == session_id))
     ).scalar_one()
 
     legacy = to_legacy_review(result.evaluation.rubric_result)
@@ -243,9 +245,9 @@ async def test_complete_campaign_to_pinned_evaluation_and_results_api(
     try:
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
-            evaluation_response = await client.get(f"/api/sessions/{session.id}/evaluation")
-            coaching_response = await client.get(f"/api/sessions/{session.id}/coaching")
-            plan_response = await client.get(f"/api/sessions/{session.id}/learning-plan")
+            evaluation_response = await client.get(f"/api/sessions/{session_id}/evaluation")
+            coaching_response = await client.get(f"/api/sessions/{session_id}/coaching")
+            plan_response = await client.get(f"/api/sessions/{session_id}/learning-plan")
         assert evaluation_response.status_code == 200
         assert evaluation_response.json()["standard_version_number"] == 1
         assert evaluation_response.json()["weighted_total"] == 70.0

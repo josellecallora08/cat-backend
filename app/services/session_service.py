@@ -214,6 +214,7 @@ async def get_session(db: AsyncSession, session_id: UUID) -> Session | None:
     stmt = (
         select(Session)
         .options(
+            selectinload(Session.scenario),
             selectinload(Session.campaign),
             selectinload(Session.negotiation_standard_version).selectinload(
                 NegotiationStandardVersion.standard

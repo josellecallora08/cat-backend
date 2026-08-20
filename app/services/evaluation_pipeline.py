@@ -13,6 +13,7 @@ Validates: Requirements 5.1, 6.1, 7.8, 8.2, 8.3
 
 import logging
 from dataclasses import dataclass
+from types import SimpleNamespace
 from uuid import UUID
 
 from sqlalchemy import select
@@ -108,9 +109,17 @@ class EvaluationPipeline:
             if session is None or session.negotiation_standard_version is None:
                 raise ValueError("Session has no pinned published negotiation standard version")
             standard_version = session.negotiation_standard_version
+            pinned_version = SimpleNamespace(
+                id=standard_version.id,
+                version_number=standard_version.version_number,
+                snapshot=standard_version.snapshot,
+                standard=SimpleNamespace(name=standard_version.standard.name),
+            )
             # The session lookup starts a transaction. The rubric evaluation
-            # performs external LLM calls, so release the connection first.
-            await db.close()
+            # performs external LLM calls, so release the connection first
+            # without closing the request-owned session that later stages use.
+            await db.rollback()
+            standard_version = pinned_version
             rubric_transcript = [
                 {**entry, "sequence_number": entry.get("sequence_number", index)}
                 for index, entry in enumerate(transcript)
@@ -311,7 +320,9 @@ class EvaluationPipeline:
             evaluation_row.weaknesses = [
                 item.model_dump(mode="json") for item in evaluation.weaknesses
             ]
-            evaluation_row.negotiation_standard_version_id = evaluation.negotiation_standard_version_id
+            evaluation_row.negotiation_standard_version_id = (
+                evaluation.negotiation_standard_version_id
+            )
             evaluation_row.standard_snapshot = evaluation.standard_snapshot
             evaluation_row.weighted_total = float(canonical.weighted_total)
             evaluation_row.passing_score = canonical.passing_score

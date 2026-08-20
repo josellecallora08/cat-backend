@@ -9,6 +9,7 @@ from collections import defaultdict
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel
 from sqlalchemy import func, select
@@ -44,6 +45,7 @@ from app.services.debtor_simulator import (
     EmotionalState,
     PersonaContext,
 )
+from app.services.evaluation_engine import RubricEvaluationError
 from app.services.evaluation_pipeline import EvaluationPipeline
 from app.services.llm_service import LLMService
 from app.services.report_csv import report_csv_filename, serialize_report_csv
@@ -446,13 +448,73 @@ async def retry_session_evaluation(
             status_code=409,
             detail="Session must be completed before evaluation can be generated",
         )
+    # The pipeline commits its artifacts and SQLAlchemy expires loaded ORM
+    # instances on commit. Keep scalar identifiers before that boundary so the
+    # success response cannot trigger an async lazy-load (MissingGreenlet).
+    persisted_session_id = session.id
+    persisted_agent_id = session.agent_id
 
     try:
         await EvaluationPipeline(LLMService()).run(
-            session_id=session.id,
-            agent_id=session.agent_id,
+            session_id=persisted_session_id,
+            agent_id=persisted_agent_id,
             db=db,
         )
+    except RubricEvaluationError as exc:
+        logger.error(
+            "Evaluation provider returned invalid rubric output for session %s: %s",
+            session_id,
+            "; ".join(f"{item.path}: {item.message}" for item in exc.errors),
+        )
+        raise HTTPException(
+            status_code=502,
+            detail={
+                "code": "invalid_provider_response",
+                "message": (
+                    "The evaluation provider returned a result that failed validation. "
+                    "Review the issues and retry."
+                ),
+                "issues": [
+                    {
+                        "code": item.code,
+                        "path": item.path,
+                        "message": item.message,
+                    }
+                    for item in exc.errors[:10]
+                ],
+            },
+        ) from None
+    except httpx.TimeoutException:
+        logger.error(
+            "Evaluation provider timed out for session %s",
+            session_id,
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=504,
+            detail={
+                "code": "evaluation_provider_timeout",
+                "message": "The evaluation provider timed out. Please retry later.",
+            },
+        ) from None
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code == 429:
+            retry_after = exc.response.headers.get("retry-after", "15")
+            raise HTTPException(
+                status_code=429,
+                detail="Evaluation provider is temporarily rate limited. Please retry later.",
+                headers={"Retry-After": retry_after},
+            ) from None
+        logger.error(
+            "Evaluation retry failed for session %s: %s",
+            session_id,
+            exc,
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="Evaluation generation failed. Please try again.",
+        ) from None
     except Exception as exc:
         logger.error(
             "Evaluation retry failed for session %s: %s",
@@ -467,6 +529,10 @@ async def retry_session_evaluation(
 
     report_ready = True
     try:
+        # Report generation needs several session attributes. Reload them
+        # explicitly after the pipeline commit instead of relying on implicit
+        # async ORM IO from an expired object.
+        await db.refresh(session)
         await generate_report_service(db=db, session=session)
     except Exception as exc:
         # The evaluation artifacts are already durable. Report generation can
@@ -480,7 +546,7 @@ async def retry_session_evaluation(
         )
 
     return {
-        "session_id": str(session.id),
+        "session_id": str(persisted_session_id),
         "evaluation_ready": True,
         "report_ready": report_ready,
     }
@@ -863,20 +929,11 @@ async def _send_message_locked(
         opening_response = select_opening_response(script_content)
         if opening_response is not None:
             # Keep the in-memory simulator state aligned with the persisted
-<<<<<<< HEAD
             # transcript. System initialization messages are not conversation
             # turns, but the scripted debtor response is.
             if not is_system_prompt:
-                persona.conversation_history.append(
-                    Message(role="agent", content=body.text)
-                )
-            persona.conversation_history.append(
-                Message(role="debtor", content=opening_response)
-            )
-=======
-            # transcript; the normal generate_response path appends both
-            # turns, but this early opening-response path bypasses it.
->>>>>>> 481ddf26d626c074345344a018176c4f09868ff9
+                persona.conversation_history.append(Message(role="agent", content=body.text))
+            persona.conversation_history.append(Message(role="debtor", content=opening_response))
             # Record debtor opening response in transcript
             await transcript_manager.append_entry(
                 session_id=session_id,

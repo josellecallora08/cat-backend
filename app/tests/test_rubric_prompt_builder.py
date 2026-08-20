@@ -69,17 +69,21 @@ def test_schema_has_one_strict_category_contract_per_snapshot_block() -> None:
     assert response_format["type"] == "json_schema"
     assert response_format["json_schema"]["strict"] is True
     assert categories["minItems"] == categories["maxItems"] == 1
-    assert categories["prefixItems"][0]["properties"]["rubric_block_id"]["const"] == "opening"
+    assert categories["items"]["properties"]["rubric_block_id"] == {"type": "string"}
+    assert "prefixItems" not in categories
     _assert_strict_objects(root)
 
 
 def test_schema_uses_required_nullable_semantic_values_and_dynamic_names() -> None:
     root = _root_schema(SNAPSHOT)
-    category = root["properties"]["categories"]["prefixItems"][0]
+    category = root["properties"]["categories"]["items"]
     applied = root["properties"]["applied_techniques"]
     applied_item = applied["properties"]["techniques_used"]["items"]
 
     assert category["properties"]["raw_score"]["type"] == ["integer", "null"]
+    assert category["properties"]["strengths"]["items"]["properties"]["criterion_id"] == {
+        "type": "string"
+    }
     assert applied_item["properties"]["technique_name"]["enum"] == [
         "Move Forward",
         "Unsupported Legal Threat",
@@ -123,7 +127,22 @@ def test_transcript_injection_stays_in_serialized_untrusted_user_block() -> None
     assert footer == header.replace("BEGIN", "END")
 
 
+def test_json_object_mode_embeds_the_strict_schema_in_system_prompt() -> None:
+    """JSON-object providers should receive the output contract in the prompt."""
+    messages = build_evaluation_messages(SNAPSHOT, [], include_response_schema=True)
+    system_content = messages[0].content
+    schema_json = system_content.split("RESPONSE_SCHEMA_JSON=", 1)[1].split(
+        "\nEND_RESPONSE_SCHEMA", 1
+    )[0]
+
+    assert json.loads(schema_json)["type"] == "json_schema"
+    assert json.loads(schema_json)["json_schema"]["strict"] is True
+    assert "Do not add overall_score" in system_content
+    assert "OUTPUT_TEMPLATE_JSON=" in system_content
+
+
 def test_snapshot_and_transcript_are_json_serialized() -> None:
+    """Rubric and transcript payloads should use deterministic JSON serialization."""
     transcript = [{"speaker": "agent", "text": 'line\nwith "quotes"'}]
     messages = build_evaluation_messages(SNAPSHOT, transcript)
 

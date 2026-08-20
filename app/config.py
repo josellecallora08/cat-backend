@@ -14,6 +14,7 @@ class Settings(BaseSettings):
         "postgresql+asyncpg://local_test_user:local_test_password@localhost:5432/cat_db"
     )
     debug: bool = False
+    database_echo: bool = False
 
     # Dynamic rubric seed flow
     rubric_seed_enabled: bool = False
@@ -45,7 +46,11 @@ class Settings(BaseSettings):
     # Frontend URL for reset links
     frontend_url: str = "http://localhost:3000"
 
-    # LLM configuration (Ollama/vLLM/Groq OpenAI-compatible API)
+    # LLM configuration (BytePlus ModelArk, Groq, Ollama, or another OpenAI-compatible API)
+    llm_provider: str = Field(
+        default="auto",
+        pattern="^(auto|byteplus|groq|openai-compatible)$",
+    )
     llm_base_url: str = "http://localhost:11434/v1"
     llm_model: str = "qwen3:32b"
     llm_api_key: str = ""

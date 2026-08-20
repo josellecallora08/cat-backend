@@ -116,7 +116,10 @@ class ReportSessionMetadata(BaseModel):
     created_at: datetime | None = None
     ended_at: datetime | None = None
     scenario_id: UUID | None = None
+    scenario_name: str | None = Field(default=None, max_length=255)
     campaign_id: UUID | None = None
+    campaign_name: str | None = Field(default=None, max_length=255)
+    participant_name: str | None = Field(default=None, max_length=255)
 
 
 class ReportResponse(BaseModel):

@@ -510,3 +510,58 @@ class TestPinnedRubricEvaluation:
             )
         assert llm.call_count == 3
         db.add.assert_not_called()
+
+    async def test_truncated_output_retries_with_a_larger_token_budget(self):
+        class TruncatedThenValidLLM:
+            def __init__(self, valid_content):
+                self.valid_content = valid_content
+                self.token_budgets = []
+
+            async def chat_completion(self, messages, **kwargs):
+                self.token_budgets.append(kwargs["max_tokens"])
+                if len(self.token_budgets) == 1:
+                    return LLMResponse(
+                        content='{"status":"evaluated"',
+                        model="test",
+                        finish_reason="length",
+                    )
+                return LLMResponse(
+                    content=self.valid_content,
+                    model="test",
+                    finish_reason="stop",
+                )
+
+        llm = TruncatedThenValidLLM(json.dumps(self.response()))
+        engine = EvaluationEngine(llm_service=llm)
+
+        result = await engine.evaluate_rubric(
+            uuid.uuid4(),
+            [{"sequence_number": i, "speaker": "agent", "text": "Hello"} for i in range(4)],
+            {"id": uuid.uuid4(), "snapshot": self.snapshot()},
+        )
+
+        assert result.weighted_total == 60.0
+        assert llm.token_budgets == [4096, 8192]
+
+    async def test_duplicate_missed_opportunities_are_normalized(self):
+        response = self.response()
+        response["missed_opportunities"] = {
+            "missed_techniques": [
+                {"technique_name": "Rude tone", "reason": "Use a calmer tone."},
+                {"technique_name": " rude TONE ", "reason": "Duplicate model output."},
+            ],
+            "reason_if_empty": "None.",
+        }
+        llm = MockLLMService(json.dumps(response))
+        engine = EvaluationEngine(llm_service=llm)
+
+        result = await engine.evaluate_rubric(
+            uuid.uuid4(),
+            [{"sequence_number": i, "speaker": "agent", "text": "Hello"} for i in range(4)],
+            {"id": uuid.uuid4(), "snapshot": self.snapshot()},
+        )
+
+        missed = result.missed_opportunities.missed_techniques
+        assert len(missed) == 1
+        assert missed[0].technique_name == "Rude tone"
+        assert llm.call_count == 1

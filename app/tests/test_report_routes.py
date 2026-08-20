@@ -83,8 +83,14 @@ async def test_get_report_and_section_routes_return_normalized_contract(
 @pytest.mark.asyncio
 async def test_report_section_route_rejects_unknown_section_name() -> None:
     """Unknown section identifiers fail validation instead of inferring data."""
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
-        response = await client.get(f"/api/sessions/{uuid4()}/report/sections/not-a-section")
+    app.dependency_overrides[require_auth] = lambda: User(
+        id=uuid4(), email="agent@example.test", role="agent", is_active=True
+    )
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.get(f"/api/sessions/{uuid4()}/report/sections/not-a-section")
+    finally:
+        app.dependency_overrides.clear()
 
     assert response.status_code == 422

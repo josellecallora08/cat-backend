@@ -9,6 +9,7 @@ Validates: Requirements 5.1, 5.2, 5.3, 5.4, 5.5, 5.6, 5.7
 
 import json
 import logging
+from time import monotonic
 from typing import Any
 from uuid import UUID
 
@@ -51,6 +52,40 @@ CATEGORY_WEIGHTS: dict[EvaluationCategory, float] = {
 # Minimum number of agent utterances for a meaningful evaluation
 MIN_AGENT_UTTERANCES = 4
 MAX_RUBRIC_ATTEMPTS = 3
+RUBRIC_MAX_OUTPUT_TOKENS = 4096
+RUBRIC_MAX_RETRY_OUTPUT_TOKENS = 8192
+
+
+def _deduplicate_technique_lists(payload: Any) -> int:
+    """Remove repeated technique names while leaving malformed entries for validation."""
+    if not isinstance(payload, dict):
+        return 0
+
+    removed = 0
+    for container_name, list_name in (
+        ("applied_techniques", "techniques_used"),
+        ("missed_opportunities", "missed_techniques"),
+    ):
+        container = payload.get(container_name)
+        if not isinstance(container, dict):
+            continue
+        items = container.get(list_name)
+        if not isinstance(items, list):
+            continue
+
+        seen: set[str] = set()
+        unique_items: list[Any] = []
+        for item in items:
+            name = item.get("technique_name") if isinstance(item, dict) else None
+            key = name.strip().casefold() if isinstance(name, str) else None
+            if key and key in seen:
+                removed += 1
+                continue
+            if key:
+                seen.add(key)
+            unique_items.append(item)
+        container[list_name] = unique_items
+    return removed
 
 
 class RubricEvaluationError(RuntimeError):
@@ -346,40 +381,115 @@ class EvaluationEngine:
             raise ValueError("LLM service is required for rubric evaluation")
 
         snapshot_dict = snapshot.model_dump(mode="json")
-        messages = build_evaluation_messages(snapshot_dict, transcript)
-        response_format = build_strict_response_schema(snapshot_dict)
+        byteplus_json_mode = getattr(self._llm_service, "provider", None) == "byteplus"
+        messages = build_evaluation_messages(
+            snapshot_dict,
+            transcript,
+            include_response_schema=byteplus_json_mode,
+        )
+        response_format = (
+            {"type": "json_object"}
+            if byteplus_json_mode
+            else build_strict_response_schema(snapshot_dict)
+        )
         errors: list[ValidationIssue] = []
+        output_token_budget = RUBRIC_MAX_OUTPUT_TOKENS
 
         for attempt in range(MAX_RUBRIC_ATTEMPTS):
-            response = await self._llm_service.chat_completion(
-                messages,
-                temperature=0.1,
-                response_format=response_format,
-            )
+            attempt_number = attempt + 1
+            started_at = monotonic()
             try:
-                payload = json.loads(response.content)
-                validated = validate_observation(payload, snapshot, transcript)
-                canonical = calculate_rubric_score(validated)
-            except ObservationValidationError as exc:
-                errors = exc.errors
-            except (json.JSONDecodeError, TypeError, ValueError) as exc:
+                response = await self._llm_service.chat_completion(
+                    messages,
+                    temperature=0.0 if byteplus_json_mode else 0.1,
+                    max_tokens=output_token_budget,
+                    response_format=response_format,
+                )
+            except Exception:
+                logger.warning(
+                    "Rubric LLM request failed for session %s on attempt %d/%d after %.3fs",
+                    session_id,
+                    attempt_number,
+                    MAX_RUBRIC_ATTEMPTS,
+                    monotonic() - started_at,
+                    exc_info=True,
+                )
+                raise
+
+            logger.info(
+                "Rubric LLM response received for session %s on attempt %d/%d: "
+                "model=%s finish_reason=%s latency_seconds=%.3f usage=%s",
+                session_id,
+                attempt_number,
+                MAX_RUBRIC_ATTEMPTS,
+                response.model,
+                response.finish_reason,
+                monotonic() - started_at,
+                response.usage,
+            )
+            if response.finish_reason == "length":
                 errors = [
                     ValidationIssue(
-                        code="invalid",
+                        code="truncated",
                         path="response",
-                        message=f"The model response could not be converted into a valid rubric result: {exc}",
+                        message=(
+                            "The model response reached its output-token limit before the "
+                            "rubric JSON was complete."
+                        ),
                     )
                 ]
             else:
-                if db is not None:
-                    await self._persist_rubric_evaluation(
-                        session_id, canonical, snapshot, standard_version, db
-                    )
-                return canonical
+                try:
+                    payload = json.loads(response.content)
+                    duplicates_removed = _deduplicate_technique_lists(payload)
+                    if duplicates_removed:
+                        logger.warning(
+                            "Removed %d duplicate technique entries from rubric response for "
+                            "session %s",
+                            duplicates_removed,
+                            session_id,
+                        )
+                    validated = validate_observation(payload, snapshot, transcript)
+                    canonical = calculate_rubric_score(validated)
+                except ObservationValidationError as exc:
+                    errors = exc.errors
+                except (json.JSONDecodeError, TypeError, ValueError) as exc:
+                    errors = [
+                        ValidationIssue(
+                            code="invalid",
+                            path="response",
+                            message=(
+                                "The model response could not be converted into a valid "
+                                f"rubric result: {exc}"
+                            ),
+                        )
+                    ]
+                else:
+                    if db is not None:
+                        await self._persist_rubric_evaluation(
+                            session_id, canonical, snapshot, standard_version, db
+                        )
+                    return canonical
 
             if attempt < MAX_RUBRIC_ATTEMPTS - 1:
+                if response.finish_reason == "length":
+                    output_token_budget = min(
+                        output_token_budget * 2,
+                        RUBRIC_MAX_RETRY_OUTPUT_TOKENS,
+                    )
+                logger.warning(
+                    "Rubric LLM response failed validation for session %s on attempt %d/%d: %s",
+                    session_id,
+                    attempt_number,
+                    MAX_RUBRIC_ATTEMPTS,
+                    "; ".join(f"{item.path}: {item.message}" for item in errors),
+                )
                 feedback = "; ".join(f"{item.path}: {item.message}" for item in errors)
-                messages = build_evaluation_messages(snapshot_dict, transcript)
+                messages = build_evaluation_messages(
+                    snapshot_dict,
+                    transcript,
+                    include_response_schema=byteplus_json_mode,
+                )
                 messages[0] = LLMMessage(
                     role="system",
                     content=f"{messages[0].content}\nPrevious output failed backend validation. Correct these issues: {feedback}",

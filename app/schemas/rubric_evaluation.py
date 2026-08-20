@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_serializer, model_valid
 
 Slug = Annotated[str, Field(min_length=1, max_length=120, pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$")]
 NonEmptyText = Annotated[str, Field(min_length=1, max_length=10_000)]
+ReasonIfEmptyText = Annotated[str, Field(max_length=10_000)]
 SequenceNumber = Annotated[int, Field(ge=0)]
 
 
@@ -125,7 +126,14 @@ class RubricAppliedTechniques(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
     techniques_used: list[RubricAppliedTechnique]
-    reason_if_empty: NonEmptyText
+    reason_if_empty: ReasonIfEmptyText
+
+    @model_validator(mode="after")
+    def supply_empty_list_reason(self) -> "RubricAppliedTechniques":
+        """A reason is irrelevant when techniques exist; otherwise keep a useful fallback."""
+        if not self.techniques_used and not self.reason_if_empty:
+            self.reason_if_empty = "No techniques were evidenced."
+        return self
 
 
 class RubricMissedOpportunity(BaseModel):
@@ -143,7 +151,14 @@ class RubricMissedOpportunities(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
     missed_techniques: list[RubricMissedOpportunity]
-    reason_if_empty: NonEmptyText
+    reason_if_empty: ReasonIfEmptyText
+
+    @model_validator(mode="after")
+    def supply_empty_list_reason(self) -> "RubricMissedOpportunities":
+        """A reason is irrelevant when opportunities exist; otherwise keep a useful fallback."""
+        if not self.missed_techniques and not self.reason_if_empty:
+            self.reason_if_empty = "No missed opportunities were evidenced."
+        return self
 
 
 class RubricAIObservation(BaseModel):
