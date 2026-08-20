@@ -25,7 +25,9 @@ from app.models import (
     Session,
     Transcript,
 )
+from app.schemas.negotiation_standard import ValidationIssue
 from app.services.auth import require_auth
+from app.services.evaluation_engine import RubricEvaluationError
 from app.services.session_access import get_authorized_session
 
 
@@ -1298,3 +1300,133 @@ class TestCriteriaCoachingCompletionExploration:
         assert campaign_response.campaign_name == "Campaign A"
         assert empty_response.campaign_id is None
         assert empty_response.campaign_name is None
+
+
+class TestEvaluationRetryErrors:
+    @staticmethod
+    def _completed_session():
+        return SimpleNamespace(
+            id=uuid.uuid4(),
+            agent_id=uuid.uuid4(),
+            status="completed",
+        )
+
+    async def test_provider_timeout_returns_safe_504(self):
+        import httpx
+
+        from app.api.sessions import retry_session_evaluation
+
+        session = self._completed_session()
+        pipeline = SimpleNamespace(run=AsyncMock(side_effect=httpx.ReadTimeout("timed out")))
+
+        with (
+            patch(
+                "app.api.sessions.get_authorized_session",
+                new_callable=AsyncMock,
+                return_value=session,
+            ),
+            patch("app.api.sessions.EvaluationPipeline", return_value=pipeline),
+        ):
+            with pytest.raises(HTTPException) as caught:
+                await retry_session_evaluation(
+                    session.id,
+                    db=AsyncMock(),
+                    current_user=SimpleNamespace(id=session.agent_id, role="user"),
+                )
+
+        assert caught.value.status_code == 504
+        assert caught.value.detail["code"] == "evaluation_provider_timeout"
+
+    async def test_invalid_provider_result_returns_safe_502(self):
+        from app.api.sessions import retry_session_evaluation
+
+        session = self._completed_session()
+        error = RubricEvaluationError(
+            [ValidationIssue(code="invalid", path="response", message="bad output")]
+        )
+        pipeline = SimpleNamespace(run=AsyncMock(side_effect=error))
+
+        with (
+            patch(
+                "app.api.sessions.get_authorized_session",
+                new_callable=AsyncMock,
+                return_value=session,
+            ),
+            patch("app.api.sessions.EvaluationPipeline", return_value=pipeline),
+        ):
+            with pytest.raises(HTTPException) as caught:
+                await retry_session_evaluation(
+                    session.id,
+                    db=AsyncMock(),
+                    current_user=SimpleNamespace(id=session.agent_id, role="user"),
+                )
+
+        assert caught.value.status_code == 502
+        assert caught.value.detail["code"] == "invalid_provider_response"
+        assert caught.value.detail["issues"] == [
+            {
+                "code": "invalid",
+                "path": "response",
+                "message": "bad output",
+            }
+        ]
+
+    async def test_success_refreshes_expired_session_before_report_generation(self):
+        from app.api.sessions import retry_session_evaluation
+
+        class CommitExpiringSession:
+            def __init__(self):
+                self._id = uuid.uuid4()
+                self._agent_id = uuid.uuid4()
+                self.status = "completed"
+                self.expired = False
+
+            @property
+            def id(self):
+                if self.expired:
+                    raise RuntimeError("implicit ORM refresh attempted")
+                return self._id
+
+            @property
+            def agent_id(self):
+                if self.expired:
+                    raise RuntimeError("implicit ORM refresh attempted")
+                return self._agent_id
+
+        session = CommitExpiringSession()
+
+        async def expire_after_commit(**_kwargs):
+            session.expired = True
+
+        async def refresh(_session):
+            session.expired = False
+
+        pipeline = SimpleNamespace(run=AsyncMock(side_effect=expire_after_commit))
+        db = AsyncMock()
+        db.refresh = AsyncMock(side_effect=refresh)
+
+        with (
+            patch(
+                "app.api.sessions.get_authorized_session",
+                new_callable=AsyncMock,
+                return_value=session,
+            ),
+            patch("app.api.sessions.EvaluationPipeline", return_value=pipeline),
+            patch(
+                "app.api.sessions.generate_report_service",
+                new_callable=AsyncMock,
+            ) as generate_report,
+        ):
+            response = await retry_session_evaluation(
+                session._id,
+                db=db,
+                current_user=SimpleNamespace(id=session._agent_id, role="user"),
+            )
+
+        assert response == {
+            "session_id": str(session._id),
+            "evaluation_ready": True,
+            "report_ready": True,
+        }
+        db.refresh.assert_awaited_once_with(session)
+        generate_report.assert_awaited_once_with(db=db, session=session)

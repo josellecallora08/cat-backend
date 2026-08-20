@@ -1,7 +1,8 @@
 """LLM service interface abstracting calls to Ollama/vLLM OpenAI-compatible API."""
 
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any, ClassVar, Protocol
+from urllib.parse import urlparse
 
 import httpx
 
@@ -23,6 +24,7 @@ class LLMResponse:
     content: str
     model: str
     usage: dict[str, int] | None = None
+    finish_reason: str | None = None
 
 
 class LLMServiceProtocol(Protocol):
@@ -39,7 +41,9 @@ class LLMServiceProtocol(Protocol):
 
 
 class LLMService:
-    """LLM service that calls an OpenAI-compatible API (Ollama/vLLM)."""
+    """LLM service for BytePlus, Groq, Ollama, and OpenAI-compatible APIs."""
+
+    _SUPPORTED_PROVIDERS: ClassVar[set[str]] = {"byteplus", "groq", "openai-compatible"}
 
     def __init__(
         self,
@@ -47,11 +51,30 @@ class LLMService:
         model: str | None = None,
         timeout: float | None = None,
         api_key: str | None = None,
+        provider: str | None = None,
     ):
         self.base_url = (base_url or settings.llm_base_url).rstrip("/")
         self.model = model or settings.llm_model
         self.timeout = timeout or settings.llm_timeout
         self.api_key = api_key or settings.llm_api_key
+        configured_provider = provider or settings.llm_provider
+        self.provider = self._resolve_provider(configured_provider, self.base_url)
+
+    @classmethod
+    def _resolve_provider(cls, provider: str, base_url: str) -> str:
+        """Resolve an explicit provider or infer one from an OpenAI-compatible host."""
+        normalized = provider.strip().lower()
+        if normalized == "auto":
+            host = (urlparse(base_url).hostname or "").lower()
+            if host.endswith("bytepluses.com"):
+                return "byteplus"
+            if host == "api.groq.com":
+                return "groq"
+            return "openai-compatible"
+        if normalized not in cls._SUPPORTED_PROVIDERS:
+            supported = ", ".join(sorted(cls._SUPPORTED_PROVIDERS))
+            raise ValueError(f"Unsupported LLM provider '{provider}'. Use: {supported}, auto")
+        return normalized
 
     async def chat_completion(
         self,
@@ -84,7 +107,14 @@ class LLMService:
         }
 
         if response_format is not None:
-            payload["response_format"] = response_format
+            provider_response_format = response_format
+            if self.provider == "byteplus" and response_format.get("type") == "json_schema":
+                provider_response_format = {"type": "json_object"}
+            payload["response_format"] = provider_response_format
+
+        if self.provider == "groq" and self.model.startswith("openai/gpt-oss"):
+            payload["reasoning_effort"] = "low"
+            payload["reasoning_format"] = "hidden"
 
         headers: dict[str, str] = {"Content-Type": "application/json"}
         if self.api_key:
@@ -106,4 +136,5 @@ class LLMService:
             content=choice["message"]["content"],
             model=data.get("model", self.model),
             usage=usage,
+            finish_reason=choice.get("finish_reason"),
         )

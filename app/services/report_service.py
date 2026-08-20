@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any
 from sqlalchemy import select
 
 from app.models import CoachingReport, Evaluation, LearningPlan, Session, Transcript
+from app.models.user import User
 
 
 if TYPE_CHECKING:
@@ -17,7 +18,6 @@ if TYPE_CHECKING:
 
     from sqlalchemy.ext.asyncio import AsyncSession
 
-    from app.models.user import User
 from app.schemas.report import (
     EvaluationKind,
     EvaluationVersionMetadata,
@@ -69,6 +69,16 @@ class ReportService:
             (section.data for section in sections if section.name == ReportSectionName.EVALUATION),
             None,
         )
+        agent_id = getattr(session, "agent_id", None)
+        participant_name = (
+            await self.db.scalar(select(User.full_name).where(User.id == agent_id))
+            if agent_id is not None
+            else None
+        )
+        if not isinstance(participant_name, str):
+            participant_name = None
+        scenario = getattr(session, "scenario", None)
+        campaign = getattr(session, "campaign", None)
         sections.append(self._summary(evaluation))
         return ReportResponse(
             session=ReportSessionMetadata(
@@ -77,7 +87,10 @@ class ReportService:
                 created_at=session.created_at,
                 ended_at=session.ended_at,
                 scenario_id=session.scenario_id,
+                scenario_name=getattr(scenario, "name", None),
                 campaign_id=session.campaign_id,
+                campaign_name=getattr(campaign, "name", None),
+                participant_name=participant_name,
             ),
             report_status=self._completion(sections, evaluation),
             score_status=self._score_status(evaluation),
@@ -93,7 +106,9 @@ class ReportService:
             "created_at": session.created_at,
             "ended_at": session.ended_at,
             "scenario_id": session.scenario_id,
+            "scenario_name": getattr(getattr(session, "scenario", None), "name", None),
             "campaign_id": session.campaign_id,
+            "campaign_name": getattr(getattr(session, "campaign", None), "name", None),
         }
 
     async def _load_section(
@@ -283,6 +298,6 @@ class ReportService:
             and ReportService._score_status(evaluation) == ScoreStatus.NOT_APPLICABLE
         ):
             return ReportCompletion.NOT_APPLICABLE
-        if SectionState.FAILED in states:
+        if SectionState.FAILED in states or SectionState.EMPTY in states:
             return ReportCompletion.PARTIAL
         return ReportCompletion.COMPLETE

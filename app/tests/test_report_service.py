@@ -32,7 +32,10 @@ def _session():
         id=uuid4(),
         status="completed",
         scenario_id=uuid4(),
+        scenario=SimpleNamespace(name="Financial Hardship Payment Arrangement"),
+        agent_id=uuid4(),
         campaign_id=None,
+        campaign=None,
         created_at=datetime.now(UTC),
         ended_at=datetime.now(UTC),
         negotiation_standard_version=None,
@@ -58,6 +61,7 @@ async def test_report_aggregates_loaded_and_empty_artifacts():
         rubric_result=None,
     )
     db = AsyncMock()
+    db.scalar.return_value = "Agent Example"
     db.execute.side_effect = [
         _result(
             rows=[
@@ -84,8 +88,11 @@ async def test_report_aggregates_loaded_and_empty_artifacts():
     assert states[ReportSectionName.TRANSCRIPT] is SectionState.LOADED
     assert states[ReportSectionName.EVALUATION] is SectionState.LOADED
     assert states[ReportSectionName.COACHING] is SectionState.EMPTY
-    assert report.report_status is ReportCompletion.COMPLETE
+    assert report.report_status is ReportCompletion.PARTIAL
     assert report.score_status is ScoreStatus.EVALUATED
+    assert report.session.scenario_name == "Financial Hardship Payment Arrangement"
+    assert report.session.participant_name == "Agent Example"
+    assert report.session.campaign_name is None
 
 
 @pytest.mark.asyncio
@@ -242,6 +249,8 @@ def test_completion_aggregation_distinguishes_partial_complete_and_failed() -> N
     )
 
     assert ReportService._completion([loaded], None) is ReportCompletion.COMPLETE
+    empty = SectionEnvelope(name=ReportSectionName.EVALUATION, state=SectionState.EMPTY)
+    assert ReportService._completion([loaded, empty], None) is ReportCompletion.PARTIAL
     assert ReportService._completion([loaded, failed_section], None) is ReportCompletion.PARTIAL
     assert ReportService._completion([failed_section], None) is ReportCompletion.FAILED
 

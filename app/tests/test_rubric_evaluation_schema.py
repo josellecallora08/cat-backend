@@ -51,6 +51,48 @@ def test_valid_evaluated_observation_requires_all_contract_sections() -> None:
     assert observation.applied_techniques.reason_if_empty == "None observed."
 
 
+def test_blank_reason_if_empty_gets_fallback_for_empty_lists() -> None:
+    observation = RubricAIObservation.model_validate(
+        _observation(
+            applied_techniques={"techniques_used": [], "reason_if_empty": ""},
+            missed_opportunities={"missed_techniques": [], "reason_if_empty": "   "},
+        )
+    )
+
+    assert observation.applied_techniques.reason_if_empty == "No techniques were evidenced."
+    assert (
+        observation.missed_opportunities.reason_if_empty
+        == "No missed opportunities were evidenced."
+    )
+
+
+def test_blank_reason_if_empty_is_valid_when_corresponding_list_has_entries() -> None:
+    applied = {
+        "techniques_used": [
+            {
+                "technique_name": "Move Forward",
+                "execution_type": "Executed Properly",
+                "execution_description": "The agent redirected the discussion.",
+                "evidence_sequence_numbers": [1],
+            }
+        ],
+        "reason_if_empty": "",
+    }
+    missed = {
+        "missed_techniques": [
+            {"technique_name": "Summarize", "reason": "The agent did not recap the plan."}
+        ],
+        "reason_if_empty": "",
+    }
+
+    observation = RubricAIObservation.model_validate(
+        _observation(applied_techniques=applied, missed_opportunities=missed)
+    )
+
+    assert observation.applied_techniques.reason_if_empty == ""
+    assert observation.missed_opportunities.reason_if_empty == ""
+
+
 def test_not_applicable_uses_explicit_null_scores() -> None:
     observation = RubricAIObservation.model_validate(
         _observation(status="not_applicable", categories=[_category(None)])
