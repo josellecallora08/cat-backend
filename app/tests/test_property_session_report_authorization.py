@@ -10,19 +10,19 @@ Validates: Requirements 3.3, 3.4, 3.5, 3.7, 4.6
 """
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from types import SimpleNamespace
 
 import pytest
+from httpx import ASGITransport, AsyncClient
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
-from httpx import ASGITransport, AsyncClient
-from sqlalchemy import event
+from sqlalchemy import event, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import selectinload
-from sqlalchemy import select
 
-from app.database import Base, get_session as get_db_session
+from app.database import Base
+from app.database import get_session as get_db_session
 from app.main import app
 from app.models import Scenario, Session
 from app.services.auth import require_auth
@@ -73,9 +73,16 @@ def _override_db(db: AsyncSession):
 
 def _make_scenario() -> Scenario:
     return Scenario(
-        id=uuid.uuid4(), name="Test", scenario_type="FINANCIAL_HARDSHIP",
-        debtor_profile={"name": "X", "outstanding_balance": "100", "days_past_due": 1,
-                        "personality_profile": "calm", "conversation_goal": "pay"},
+        id=uuid.uuid4(),
+        name="Test",
+        scenario_type="FINANCIAL_HARDSHIP",
+        debtor_profile={
+            "name": "X",
+            "outstanding_balance": "100",
+            "days_past_due": 1,
+            "personality_profile": "calm",
+            "conversation_goal": "pay",
+        },
         is_active=True,
     )
 
@@ -85,9 +92,12 @@ async def _seed_completed_session_with_report(async_db, owner_agent_id):
     async_db.add(scenario)
     await async_db.flush()
     session = Session(
-        id=uuid.uuid4(), scenario_id=scenario.id, agent_id=owner_agent_id,
-        status="completed", persona_context={"name": "P"},
-        created_at=datetime.now(timezone.utc),
+        id=uuid.uuid4(),
+        scenario_id=scenario.id,
+        agent_id=owner_agent_id,
+        status="completed",
+        persona_context={"name": "P"},
+        created_at=datetime.now(UTC),
     )
     session.ended_at = session.created_at
     async_db.add(session)

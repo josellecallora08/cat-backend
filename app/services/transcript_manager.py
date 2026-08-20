@@ -9,7 +9,6 @@ Validates: Requirements 4.1, 4.2, 4.3, 4.4, 4.5
 import logging
 from collections import defaultdict
 from datetime import datetime
-from typing import List
 from uuid import UUID
 
 from sqlalchemy import func, select
@@ -18,13 +17,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models import Transcript
 from app.services.db_retry import retry_db_operation
 
+
 logger = logging.getLogger(__name__)
 
 
 class TranscriptValidationError(Exception):
     """Raised when a transcript entry fails validation."""
-
-    pass
 
 
 class TranscriptManager:
@@ -96,7 +94,7 @@ class TranscriptManager:
 
         return entry
 
-    async def get_transcript(self, session_id: UUID) -> List[Transcript]:
+    async def get_transcript(self, session_id: UUID) -> list[Transcript]:
         """Return all transcript entries for a session ordered by sequence_number.
 
         Queries the database for persisted entries ordered ascending by
@@ -188,16 +186,15 @@ class TranscriptManager:
             return next_seq
 
         # Query the database for the current max sequence number
-        stmt = (
-            select(func.max(Transcript.sequence_number))
-            .where(Transcript.session_id == session_id)
+        stmt = select(func.max(Transcript.sequence_number)).where(
+            Transcript.session_id == session_id
         )
         result = await self._db.execute(stmt)
         db_max = result.scalar_one_or_none()
 
         # Consider buffered entries as well
         buffer_max = -1
-        if session_id in self._buffer and self._buffer[session_id]:
+        if self._buffer.get(session_id):
             buffer_max = max(e.sequence_number for e in self._buffer[session_id])
 
         # Next sequence is max of db and buffer + 1

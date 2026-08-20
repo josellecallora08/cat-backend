@@ -13,10 +13,9 @@ Security hardening:
 
 import io
 import logging
-from pathlib import Path
-from typing import Optional, Tuple
 
 from app.services.upload_validator import UploadRejectionReason
+
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +33,7 @@ _MAX_OBJECTS = 10000
 
 def validate_pdf_security(
     file_bytes: bytes,
-) -> Tuple[bool, Optional[UploadRejectionReason]]:
+) -> tuple[bool, UploadRejectionReason | None]:
     """Validate PDF structural security before extraction.
 
     Checks for encryption, attachments, active content, embedded objects,
@@ -79,7 +78,7 @@ def validate_pdf_security(
     return (True, None)
 
 
-def _inspect_pdf_objects(reader) -> Optional[UploadRejectionReason]:
+def _inspect_pdf_objects(reader) -> UploadRejectionReason | None:
     """Walk PDF object tree looking for unsafe structures.
 
     One unified recursive function handles:
@@ -99,7 +98,7 @@ def _inspect_pdf_objects(reader) -> Optional[UploadRejectionReason]:
     visited = set()
     object_count = [0]
 
-    def _check_key(key_str: str) -> Optional[UploadRejectionReason]:
+    def _check_key(key_str: str) -> UploadRejectionReason | None:
         """Check if a dictionary key indicates unsafe content."""
         if key_str in _EMBEDDED_KEYS:
             return UploadRejectionReason.PDF_ATTACHMENT
@@ -111,7 +110,7 @@ def _inspect_pdf_objects(reader) -> Optional[UploadRejectionReason]:
             return UploadRejectionReason.PDF_EXTERNAL_LINK
         return None
 
-    def _inspect(obj, depth: int = 0) -> Optional[UploadRejectionReason]:
+    def _inspect(obj, depth: int = 0) -> UploadRejectionReason | None:
         """Recursively inspect any PDF object. Handles Dict, Array, Indirect."""
         if depth > _MAX_DEPTH:
             return UploadRejectionReason.PDF_UNSAFE_STRUCTURE
@@ -136,6 +135,7 @@ def _inspect_pdf_objects(reader) -> Optional[UploadRejectionReason]:
             if obj is None:
                 return UploadRejectionReason.PDF_MALFORMED
             from pypdf.generic import NullObject
+
             if isinstance(obj, NullObject):
                 return UploadRejectionReason.PDF_MALFORMED
             # After dereference, re-check id for cycles
@@ -146,7 +146,7 @@ def _inspect_pdf_objects(reader) -> Optional[UploadRejectionReason]:
 
         # Handle DictionaryObject
         if isinstance(obj, DictionaryObject):
-            for key in obj.keys():
+            for key in obj:
                 key_str = str(key)
 
                 # Check dangerous keys

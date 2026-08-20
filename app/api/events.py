@@ -2,7 +2,7 @@
 
 import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from jose import JWTError, jwt
@@ -37,8 +37,13 @@ async def _heartbeat_loop(websocket: WebSocket) -> None:
                 websocket.send_json({"ping": True}),
                 timeout=HEARTBEAT_TIMEOUT,
             )
-    except (asyncio.TimeoutError, WebSocketDisconnect, Exception):  # noqa: BLE001
-        pass
+    except (TimeoutError, WebSocketDisconnect):
+        await event_connection_manager.disconnect(websocket)
+        return
+    except Exception:
+        logger.debug("WebSocket heartbeat failed", exc_info=True)
+        await event_connection_manager.disconnect(websocket)
+        return
 
 
 @router.websocket("/ws/events")
@@ -83,9 +88,7 @@ async def events_websocket(websocket: WebSocket) -> None:
             return
 
         # Get user's campaign_ids
-        campaign_stmt = select(CampaignAgent.campaign_id).where(
-            CampaignAgent.agent_id == user.id
-        )
+        campaign_stmt = select(CampaignAgent.campaign_id).where(CampaignAgent.agent_id == user.id)
         campaign_result = await db.execute(campaign_stmt)
         campaign_ids = {row[0] for row in campaign_result.all()}
 
@@ -110,7 +113,7 @@ async def events_websocket(websocket: WebSocket) -> None:
                     event="system.resync",
                     data=EventData(
                         id="0",
-                        timestamp=datetime.now(timezone.utc).isoformat(),
+                        timestamp=datetime.now(UTC).isoformat(),
                     ),
                     seq=await event_store.next_seq(),
                 )

@@ -11,9 +11,11 @@ import asyncio
 import functools
 import logging
 from collections import defaultdict
-from typing import Any, Callable, Dict, List
+from collections.abc import Callable
+from typing import Any
 
 from sqlalchemy.exc import SQLAlchemyError
+
 
 logger = logging.getLogger(__name__)
 
@@ -43,16 +45,14 @@ class InMemoryFallbackStore:
     """
 
     def __init__(self) -> None:
-        self._store: Dict[str, List[Any]] = defaultdict(list)
+        self._store: dict[str, list[Any]] = defaultdict(list)
 
     def save(self, session_id: str, data: Any) -> None:
         """Save data to the in-memory store for later recovery."""
         self._store[session_id].append(data)
-        logger.warning(
-            "Data saved to in-memory fallback store for session %s", session_id
-        )
+        logger.warning("Data saved to in-memory fallback store for session %s", session_id)
 
-    def get(self, session_id: str) -> List[Any]:
+    def get(self, session_id: str) -> list[Any]:
         """Retrieve all stored data for a given session."""
         return self._store.get(session_id, [])
 
@@ -65,7 +65,7 @@ class InMemoryFallbackStore:
         if session_id in self._store:
             del self._store[session_id]
 
-    def all_sessions(self) -> List[str]:
+    def all_sessions(self) -> list[str]:
         """Return all session IDs that have stored data."""
         return list(self._store.keys())
 
@@ -178,9 +178,7 @@ def with_db_retry(
     return decorator
 
 
-def _extract_param(
-    func: Callable, param_name: str | None, args: tuple, kwargs: dict
-) -> Any:
+def _extract_param(func: Callable, param_name: str | None, args: tuple, kwargs: dict) -> Any:
     """Extract a parameter value from function arguments by name."""
     if param_name is None:
         return None

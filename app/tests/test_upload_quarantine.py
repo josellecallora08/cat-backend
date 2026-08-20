@@ -42,11 +42,11 @@ class TestGetQuarantinePath:
             assert result.exists()
 
     @pytest.mark.skipif(
-        platform.system() == "Windows",
-        reason="POSIX permissions not enforced on Windows"
+        platform.system() == "Windows", reason="POSIX permissions not enforced on Windows"
     )
     def test_restricted_permissions(self, tmp_path):
         import stat
+
         qdir = tmp_path / "perms_test"
         with patch.object(upload_quarantine.settings, "upload_quarantine_path", str(qdir)):
             result = get_quarantine_path()
@@ -99,6 +99,7 @@ class TestCleanupExpiredFiles:
                 old_file = tmp_path / "matching.pdf"
                 old_file.write_bytes(b"old")
                 import os
+
                 old_time = time.time() - (25 * 3600)
                 os.utime(old_file, (old_time, old_time))
 
@@ -139,13 +140,16 @@ class TestCleanupExpiredFiles:
         file_path = tmp_path / "retry.pdf"
         file_path.write_bytes(b"retry")
         import os
+
         old_time = time.time() - 3600
         os.utime(file_path, (old_time, old_time))
         upload = SimpleNamespace(id="upload-id", deleted_at=None)
         session_factory, _ = self._session_factory(upload, RuntimeError("database down"))
 
-        with patch.object(upload_quarantine.settings, "upload_quarantine_path", str(tmp_path)), \
-             patch.object(upload_quarantine.settings, "upload_quarantine_retention_hours", 0):
+        with (
+            patch.object(upload_quarantine.settings, "upload_quarantine_path", str(tmp_path)),
+            patch.object(upload_quarantine.settings, "upload_quarantine_retention_hours", 0),
+        ):
             result = await cleanup_expired_files(session_factory)
 
         assert result == CleanupResult(skipped=1, errors=1)
@@ -159,13 +163,16 @@ class TestCleanupExpiredFiles:
         for file_path in (orphan, temp, gitkeep):
             file_path.write_bytes(b"content")
         import os
+
         old_time = time.time() - 3600
         for file_path in (orphan, temp, gitkeep):
             os.utime(file_path, (old_time, old_time))
         session_factory, _ = self._session_factory()
 
-        with patch.object(upload_quarantine.settings, "upload_quarantine_path", str(tmp_path)), \
-             patch.object(upload_quarantine.settings, "upload_quarantine_retention_hours", 0):
+        with (
+            patch.object(upload_quarantine.settings, "upload_quarantine_path", str(tmp_path)),
+            patch.object(upload_quarantine.settings, "upload_quarantine_retention_hours", 0),
+        ):
             result = await cleanup_expired_files(session_factory)
 
         assert result == CleanupResult(orphaned=1)
@@ -174,14 +181,13 @@ class TestCleanupExpiredFiles:
         assert gitkeep.exists()
         assert "Removed orphaned quarantine file: orphan.pdf" in caplog.text
 
-    async def test_filesystem_error_does_not_stop_remaining_files(
-        self, tmp_path, caplog
-    ):
+    async def test_filesystem_error_does_not_stop_remaining_files(self, tmp_path, caplog):
         blocked = tmp_path / "blocked.pdf"
         removable = tmp_path / "removable.pdf"
         for file_path in (blocked, removable):
             file_path.write_bytes(b"content")
         import os
+
         old_time = time.time() - 3600
         for file_path in (blocked, removable):
             os.utime(file_path, (old_time, old_time))
@@ -194,12 +200,10 @@ class TestCleanupExpiredFiles:
                 raise PermissionError("access denied")
             return real_unlink(path, *args, **kwargs)
 
-        with patch.object(
-            upload_quarantine.settings, "upload_quarantine_path", str(tmp_path)
-        ), patch.object(
-            upload_quarantine.settings, "upload_quarantine_retention_hours", 0
-        ), patch.object(
-            Path, "unlink", selective_unlink
+        with (
+            patch.object(upload_quarantine.settings, "upload_quarantine_path", str(tmp_path)),
+            patch.object(upload_quarantine.settings, "upload_quarantine_retention_hours", 0),
+            patch.object(Path, "unlink", selective_unlink),
         ):
             result = await cleanup_expired_files(session_factory)
 
@@ -208,12 +212,11 @@ class TestCleanupExpiredFiles:
         assert not removable.exists()
         assert "Failed to delete quarantine file blocked.pdf" in caplog.text
 
-    async def test_file_removed_concurrently_is_logged_and_skipped(
-        self, tmp_path, caplog
-    ):
+    async def test_file_removed_concurrently_is_logged_and_skipped(self, tmp_path, caplog):
         source = tmp_path / "raced.pdf"
         source.write_bytes(b"content")
         import os
+
         old_time = time.time() - 3600
         os.utime(source, (old_time, old_time))
 
@@ -224,12 +227,10 @@ class TestCleanupExpiredFiles:
             real_unlink(path, *args, **kwargs)
             raise FileNotFoundError("removed by another cleanup pass")
 
-        with patch.object(
-            upload_quarantine.settings, "upload_quarantine_path", str(tmp_path)
-        ), patch.object(
-            upload_quarantine.settings, "upload_quarantine_retention_hours", 0
-        ), patch.object(
-            Path, "unlink", raced_unlink
+        with (
+            patch.object(upload_quarantine.settings, "upload_quarantine_path", str(tmp_path)),
+            patch.object(upload_quarantine.settings, "upload_quarantine_retention_hours", 0),
+            patch.object(Path, "unlink", raced_unlink),
         ):
             result = await cleanup_expired_files(session_factory)
 

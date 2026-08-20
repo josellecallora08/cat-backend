@@ -10,7 +10,6 @@ this module stays testable without needing to fake auth.
 """
 
 import json
-from typing import List, Optional
 from uuid import UUID
 
 import yaml
@@ -128,7 +127,7 @@ async def create_draft_in_transaction(
     return script
 
 
-async def get_script(db: AsyncSession, script_id: UUID) -> Optional[Script]:
+async def get_script(db: AsyncSession, script_id: UUID) -> Script | None:
     """Get a script by ID.
 
     Returns None if the script does not exist or has been soft-deleted.
@@ -145,7 +144,7 @@ async def list_scripts(
     db: AsyncSession,
     page: int = 1,
     page_size: int = 20,
-) -> List[Script]:
+) -> list[Script]:
     """List scripts with pagination, ordered by most recently created first.
 
     Excludes soft-deleted (is_deleted=True) scripts. Includes scripts of any
@@ -355,12 +354,10 @@ async def delete_script(db: AsyncSession, script_id: UUID, admin_id: UUID) -> No
 
     script.is_deleted = True
     await db.commit()
-    return None
+    return
 
 
-async def get_active_published_version(
-    db: AsyncSession, scenario_id: UUID
-) -> Optional[ScriptVersion]:
+async def get_active_published_version(db: AsyncSession, scenario_id: UUID) -> ScriptVersion | None:
     """Get the active Published_Script's current version for a scenario
     (Requirements 4.1, 4.3).
 
@@ -402,8 +399,6 @@ async def get_active_published_version(
     if script.current_version_id is None:
         return None
 
-    version_stmt = select(ScriptVersion).where(
-        ScriptVersion.id == script.current_version_id
-    )
+    version_stmt = select(ScriptVersion).where(ScriptVersion.id == script.current_version_id)
     version_result = await db.execute(version_stmt)
     return version_result.scalar_one_or_none()

@@ -22,7 +22,14 @@ SNAPSHOT = {
             "weight": 50,
             "passing_score": 70,
             "scoring_instructions": "Use evidence.",
-            "positive_behaviors": [{"id": "offer-plan", "name": "Offer a plan", "description": "Offers a plan.", "evidence_instructions": "Quote it."}],
+            "positive_behaviors": [
+                {
+                    "id": "offer-plan",
+                    "name": "Offer a plan",
+                    "description": "Offers a plan.",
+                    "evidence_instructions": "Quote it.",
+                }
+            ],
             "violations": [],
             "penalties": [],
             "recommendation_guidance": "Offer a realistic plan.",
@@ -35,7 +42,14 @@ SNAPSHOT = {
             "passing_score": 70,
             "scoring_instructions": "Use evidence.",
             "positive_behaviors": [],
-            "violations": [{"id": "skip-greeting", "name": "Skip greeting", "description": "Skips greeting.", "evidence_instructions": "Quote it."}],
+            "violations": [
+                {
+                    "id": "skip-greeting",
+                    "name": "Skip greeting",
+                    "description": "Skips greeting.",
+                    "evidence_instructions": "Quote it.",
+                }
+            ],
             "penalties": [],
             "recommendation_guidance": "Start respectfully.",
             "display_order": 0,
@@ -49,8 +63,16 @@ def _evaluation() -> EvaluationResult:
         session_id=uuid4(),
         category_scores=[],
         overall_score=50,
-        strengths=[StrengthItem(description="x", category=EvaluationCategory.COMPLIANCE, transcript_excerpt="x")],
-        weaknesses=[WeaknessItem(description="x", category=EvaluationCategory.COMPLIANCE, transcript_excerpt="x")],
+        strengths=[
+            StrengthItem(
+                description="x", category=EvaluationCategory.COMPLIANCE, transcript_excerpt="x"
+            )
+        ],
+        weaknesses=[
+            WeaknessItem(
+                description="x", category=EvaluationCategory.COMPLIANCE, transcript_excerpt="x"
+            )
+        ],
         negotiation_standard_version_id=VERSION_ID,
         standard_version_number=7,
         standard_snapshot=SNAPSHOT,
@@ -68,11 +90,24 @@ def _evaluation() -> EvaluationResult:
                     "weighted_contribution": 25,
                     "passing_score": 70,
                     "passed": False,
-                    "evidence": [{"sequence_number": 2, "speaker": "agent", "excerpt": "No greeting", "explanation": "Missing greeting."}],
+                    "evidence": [
+                        {
+                            "sequence_number": 2,
+                            "speaker": "agent",
+                            "excerpt": "No greeting",
+                            "explanation": "Missing greeting.",
+                        }
+                    ],
                     "strengths": [],
                     "violations": [],
                     "failed_criteria": ["skip-greeting"],
-                    "recommendation_inputs": [{"criterion_id": "skip-greeting", "transcript_sequence_number": 2, "need": "Add a greeting."}],
+                    "recommendation_inputs": [
+                        {
+                            "criterion_id": "skip-greeting",
+                            "transcript_sequence_number": 2,
+                            "need": "Add a greeting.",
+                        }
+                    ],
                 },
                 {
                     "rubric_block_id": "custom-resolution",
@@ -84,11 +119,24 @@ def _evaluation() -> EvaluationResult:
                     "weighted_contribution": 25,
                     "passing_score": 70,
                     "passed": False,
-                    "evidence": [{"sequence_number": 4, "speaker": "agent", "excerpt": "No plan", "explanation": "No plan."}],
+                    "evidence": [
+                        {
+                            "sequence_number": 4,
+                            "speaker": "agent",
+                            "excerpt": "No plan",
+                            "explanation": "No plan.",
+                        }
+                    ],
                     "strengths": [],
                     "violations": [],
                     "failed_criteria": ["offer-plan"],
-                    "recommendation_inputs": [{"criterion_id": "offer-plan", "transcript_sequence_number": 4, "need": "Offer a plan."}],
+                    "recommendation_inputs": [
+                        {
+                            "criterion_id": "offer-plan",
+                            "transcript_sequence_number": 4,
+                            "need": "Offer a plan.",
+                        }
+                    ],
                 },
             ],
             "weighted_total": 50,
@@ -97,8 +145,22 @@ def _evaluation() -> EvaluationResult:
             "applied_techniques": {"techniques_used": [], "reason_if_empty": "None."},
             "missed_opportunities": {"missed_techniques": [], "reason_if_empty": "None."},
             "recommendations": [
-                {"rubric_block_id": "custom-opening", "criterion_id": "skip-greeting", "evidence_sequence_number": 2, "explanation": "Missing greeting.", "recommended_response": "Hello.", "coaching_advice": "Start respectfully."},
-                {"rubric_block_id": "custom-resolution", "criterion_id": "offer-plan", "evidence_sequence_number": 4, "explanation": "No plan.", "recommended_response": "Let us plan.", "coaching_advice": "Offer a realistic plan."},
+                {
+                    "rubric_block_id": "custom-opening",
+                    "criterion_id": "skip-greeting",
+                    "evidence_sequence_number": 2,
+                    "explanation": "Missing greeting.",
+                    "recommended_response": "Hello.",
+                    "coaching_advice": "Start respectfully.",
+                },
+                {
+                    "rubric_block_id": "custom-resolution",
+                    "criterion_id": "offer-plan",
+                    "evidence_sequence_number": 4,
+                    "explanation": "No plan.",
+                    "recommended_response": "Let us plan.",
+                    "coaching_advice": "Offer a realistic plan.",
+                },
             ],
         },
     )

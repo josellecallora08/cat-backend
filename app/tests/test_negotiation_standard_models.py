@@ -70,6 +70,90 @@ def test_standard_defaults_and_campaign_uniqueness(sqlite_session: OrmSession) -
         sqlite_session.flush()
 
 
+def test_legacy_standard_without_source_identity_remains_valid(sqlite_session: OrmSession) -> None:
+    admin = _user()
+    campaign = _campaign()
+    standard = NegotiationStandard(
+        campaign=campaign,
+        name="Legacy Standard",
+        created_by=admin.id,
+        updated_by=admin.id,
+    )
+    sqlite_session.add_all([admin, standard])
+    sqlite_session.flush()
+
+    assert standard.source_id is None
+    assert standard.source_rubric_key is None
+    assert sqlite_session.get(NegotiationStandard, standard.id) is standard
+
+
+def test_source_identity_is_unique_for_seeded_standards(sqlite_session: OrmSession) -> None:
+    admin = _user()
+    first_campaign = _campaign()
+    second_campaign = _campaign()
+    sqlite_session.add_all([admin, first_campaign, second_campaign])
+    sqlite_session.flush()
+
+    first = NegotiationStandard(
+        campaign_id=first_campaign.id,
+        name="First",
+        source_id="approved-rubrics-v1",
+        source_rubric_key="collections quality rubric",
+        created_by=admin.id,
+        updated_by=admin.id,
+    )
+    duplicate = NegotiationStandard(
+        campaign_id=second_campaign.id,
+        name="Duplicate",
+        source_id="approved-rubrics-v1",
+        source_rubric_key="collections quality rubric",
+        created_by=admin.id,
+        updated_by=admin.id,
+    )
+    sqlite_session.add(first)
+    sqlite_session.flush()
+    sqlite_session.add(duplicate)
+
+    with pytest.raises(IntegrityError):
+        sqlite_session.flush()
+
+
+def test_version_content_hash_is_unique_per_standard(sqlite_session: OrmSession) -> None:
+    admin = _user()
+    campaign = _campaign()
+    standard = NegotiationStandard(
+        campaign=campaign,
+        name="Standard",
+        created_by=admin.id,
+        updated_by=admin.id,
+    )
+    sqlite_session.add_all([admin, standard])
+    sqlite_session.flush()
+
+    first = NegotiationStandardVersion(
+        standard_id=standard.id,
+        version_number=1,
+        snapshot={"schema_version": 1, "blocks": []},
+        content_hash="c" * 64,
+        created_by=admin.id,
+        published_by=admin.id,
+    )
+    sqlite_session.add(first)
+    sqlite_session.flush()
+    duplicate = NegotiationStandardVersion(
+        standard_id=standard.id,
+        version_number=2,
+        snapshot={"schema_version": 1, "blocks": []},
+        content_hash="c" * 64,
+        created_by=admin.id,
+        published_by=admin.id,
+    )
+    sqlite_session.add(duplicate)
+
+    with pytest.raises(IntegrityError):
+        sqlite_session.flush()
+
+
 def test_version_snapshot_round_trips_and_is_unique(sqlite_session: OrmSession) -> None:
     admin = _user()
     campaign = _campaign()

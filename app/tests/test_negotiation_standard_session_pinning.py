@@ -6,7 +6,14 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.database import Base
-from app.models import Campaign, CampaignAgent, NegotiationStandard, NegotiationStandardVersion, Scenario, User
+from app.models import (
+    Campaign,
+    CampaignAgent,
+    NegotiationStandard,
+    NegotiationStandardVersion,
+    Scenario,
+    User,
+)
 from app.services.debtor_simulator import EmotionalState, PersonaContext
 from app.services.session_service import PublishedStandardRequiredError, create_session
 
@@ -36,12 +43,23 @@ async def db_session() -> AsyncSession:
     await engine.dispose()
 
 
-async def _setup(db: AsyncSession, published: bool) -> tuple[User, Campaign, Scenario, NegotiationStandardVersion | None]:
-    user = User(id=uuid.uuid4(), email=f"{uuid.uuid4()}@example.test", full_name="Agent", role="user", user_type="agent")
+async def _setup(
+    db: AsyncSession, published: bool
+) -> tuple[User, Campaign, Scenario, NegotiationStandardVersion | None]:
+    user = User(
+        id=uuid.uuid4(),
+        email=f"{uuid.uuid4()}@example.test",
+        full_name="Agent",
+        role="user",
+        user_type="agent",
+    )
     campaign = Campaign(id=uuid.uuid4(), name=f"Campaign {uuid.uuid4()}")
     scenario = Scenario(
-        id=uuid.uuid4(), name="Scenario", scenario_type="PAYMENT_EXTENSION",
-        description="Test", debtor_profile={"name": "Debtor", "personality_profile": "calm"},
+        id=uuid.uuid4(),
+        name="Scenario",
+        scenario_type="PAYMENT_EXTENSION",
+        description="Test",
+        debtor_profile={"name": "Debtor", "personality_profile": "calm"},
     )
     campaign.scenarios.append(scenario)
     campaign.agent_assignments.append(CampaignAgent(agent_id=user.id, role="participant"))
@@ -50,15 +68,22 @@ async def _setup(db: AsyncSession, published: bool) -> tuple[User, Campaign, Sce
     version = None
     if published:
         standard = NegotiationStandard(
-            campaign_id=campaign.id, name="Standard", status="published",
+            campaign_id=campaign.id,
+            name="Standard",
+            status="published",
             draft_content={"schema_version": 1, "overall_passing_score": 70, "blocks": []},
-            created_by=user.id, updated_by=user.id,
+            created_by=user.id,
+            updated_by=user.id,
         )
         db.add(standard)
         await db.flush()
         version = NegotiationStandardVersion(
-            standard_id=standard.id, version_number=1, snapshot=standard.draft_content,
-            content_hash="a" * 64, created_by=user.id, published_by=user.id,
+            standard_id=standard.id,
+            version_number=1,
+            snapshot=standard.draft_content,
+            content_hash="a" * 64,
+            created_by=user.id,
+            published_by=user.id,
         )
         db.add(version)
         await db.flush()
@@ -68,7 +93,9 @@ async def _setup(db: AsyncSession, published: bool) -> tuple[User, Campaign, Sce
 
 
 @pytest.mark.asyncio
-async def test_missing_published_standard_blocks_selected_campaign(db_session: AsyncSession) -> None:
+async def test_missing_published_standard_blocks_selected_campaign(
+    db_session: AsyncSession,
+) -> None:
     user, campaign, scenario, _version = await _setup(db_session, published=False)
 
     with pytest.raises(PublishedStandardRequiredError) as error:
@@ -81,6 +108,8 @@ async def test_missing_published_standard_blocks_selected_campaign(db_session: A
 async def test_session_pins_exact_published_version(db_session: AsyncSession) -> None:
     user, campaign, scenario, version = await _setup(db_session, published=True)
 
-    session = await create_session(db_session, scenario.id, user.id, FakeDebtorSimulator(), campaign.id)
+    session = await create_session(
+        db_session, scenario.id, user.id, FakeDebtorSimulator(), campaign.id
+    )
 
     assert session.negotiation_standard_version_id == version.id

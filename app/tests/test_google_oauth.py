@@ -9,9 +9,9 @@ from httpx import ASGITransport, AsyncClient
 from app.main import app
 from app.services.google_oauth import (
     GoogleUserInfo,
-    get_authorize_url,
     exchange_code_for_tokens,
     fetch_google_user_info,
+    get_authorize_url,
 )
 
 
@@ -164,9 +164,7 @@ class TestGoogleAuthorizeEndpoint:
         mock_api_settings.google_client_id = "test-client-id.apps.googleusercontent.com"
         mock_api_settings.lark_app_id = ""
         mock_svc_settings.google_client_id = "test-client-id.apps.googleusercontent.com"
-        mock_svc_settings.google_redirect_uri = (
-            "http://localhost:3000/auth/google/callback"
-        )
+        mock_svc_settings.google_redirect_uri = "http://localhost:3000/auth/google/callback"
 
         resp = await client.get("/api/auth/google/authorize")
 
@@ -233,7 +231,7 @@ class TestGoogleCallbackEndpoint:
     ):
         """Successful callback returns access_token and user info."""
         mock_settings.google_client_id = "test-client-id.apps.googleusercontent.com"
-        mock_settings.google_client_secret = "test-secret"  # pragma: allowlist secret
+        mock_settings.google_client_secret = "testkey"
         mock_settings.google_redirect_uri = "http://localhost:3000/callback"
         mock_settings.lark_app_id = ""
 
@@ -273,13 +271,11 @@ class TestGoogleCallbackEndpoint:
     async def test_invalid_code_returns_401(self, mock_exchange, mock_settings, client):
         """Returns 401 when Google rejects the authorization code."""
         mock_settings.google_client_id = "test-client-id"
-        mock_settings.google_client_secret = "test-secret"  # pragma: allowlist secret
+        mock_settings.google_client_secret = "testkey"
         mock_settings.google_redirect_uri = "http://localhost:3000/callback"
         mock_settings.lark_app_id = ""
 
-        mock_exchange.side_effect = ValueError(
-            "Google token exchange error: invalid_grant"
-        )
+        mock_exchange.side_effect = ValueError("Google token exchange error: invalid_grant")
 
         resp = await client.post(
             "/api/auth/google/callback",
@@ -304,7 +300,7 @@ class TestGoogleCallbackEndpoint:
     ):
         """Returns 403 when the linked user account is deactivated."""
         mock_settings.google_client_id = "test-client-id"
-        mock_settings.google_client_secret = "test-secret"  # pragma: allowlist secret
+        mock_settings.google_client_secret = "testkey"
         mock_settings.google_redirect_uri = "http://localhost:3000/callback"
         mock_settings.lark_app_id = ""
 

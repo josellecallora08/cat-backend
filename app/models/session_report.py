@@ -9,12 +9,12 @@ with an incremented `report_version` rather than mutating a prior payload.
 import uuid
 
 from sqlalchemy import (
+    JSON,
     Column,
     DateTime,
     ForeignKey,
     Index,
     Integer,
-    JSON,
     String,
     Text,
     UniqueConstraint,
@@ -25,6 +25,7 @@ from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
 from app.database import Base
+
 
 # Use JSONB on PostgreSQL, JSON on other backends (e.g., SQLite for tests).
 JSONVariant = JSON().with_variant(JSONB, "postgresql")
@@ -86,9 +87,7 @@ class SessionReport(Base):
     # finite ``reason_code`` is the machine-readable row-level contract.
     failure_reason = Column(Text, nullable=True)
     reason_code = Column(String(40), nullable=True)
-    created_at = Column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(
         DateTime(timezone=True),
         server_default=func.now(),

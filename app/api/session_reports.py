@@ -19,11 +19,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_session as get_db_session
 from app.models.user import User
-from app.services.auth import require_auth
+from app.schemas.report import ReportResponse
+from app.services.auth import require_admin, require_auth
+from app.services.report_service import ReportService
 from app.services.session_access import get_authorized_session
 from app.services.session_report_export import (
-    ExportFormatNotImplementedError,
     SUPPORTED_FORMATS,
+    ExportFormatNotImplementedError,
     UnsupportedExportFormatError,
     build_export_filename,
     render_export,
@@ -36,14 +38,13 @@ from app.services.session_report_service import (
     get_report_status,
 )
 
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
 
-async def _get_authorized_session(
-    db: AsyncSession, session_id: UUID, current_user: User
-):
+async def _get_authorized_session(db: AsyncSession, session_id: UUID, current_user: User):
     """Apply the shared policy while keeping report errors non-sensitive."""
     try:
         return await get_authorized_session(db, session_id, current_user)
@@ -73,40 +74,26 @@ async def get_session_report_status(
         raise HTTPException(
             status_code=500,
             detail="Unable to determine report status. Please try again.",
-        )
+        ) from None
 
 
-@router.get("/{session_id}/report")
+@router.get("/{session_id}/report", response_model=ReportResponse)
 async def get_session_report(
     session_id: UUID,
     db: AsyncSession = Depends(get_db_session),
     current_user: User = Depends(require_auth),
-):
-    """Return the current (highest ready-version) report for an authorized session."""
-    session = await _get_authorized_session(db, session_id, current_user)
-
+) -> ReportResponse:
+    """Return the stable six-section report for an authorized session."""
     try:
-        report = await get_current_report(db, session.id)
+        return await ReportService(db).get_report(session_id, current_user)
+    except HTTPException:
+        raise
     except Exception:
         logger.error("Session report retrieval failed")
         raise HTTPException(
             status_code=500,
             detail="Unable to retrieve the session report. Please try again.",
-        )
-    if report is None:
-        raise HTTPException(
-            status_code=404,
-            detail="No report is available for this session",
-        )
-
-    return {
-        "session_id": str(report.session_id),
-        "report_version": report.report_version,
-        "status": report.status,
-        "content_hash": report.content_hash,
-        "created_at": report.created_at.isoformat() if report.created_at else None,
-        "payload": report.payload,
-    }
+        ) from None
 
 
 @router.post("/{session_id}/report", status_code=201)
@@ -124,19 +111,19 @@ async def create_session_report(
         raise HTTPException(
             status_code=409,
             detail="Session must be completed before a report can be generated",
-        )
+        ) from None
     except SessionReportConflictError:
         raise HTTPException(
             status_code=409,
             detail="A report generation conflict occurred. Please try again.",
-        )
+        ) from None
     except Exception:
         # Do not leak assembly internals; generate_report already recorded
         # a safe failure_reason on the persisted failed row.
         raise HTTPException(
             status_code=500,
             detail="Report generation failed. Please try again.",
-        )
+        ) from None
 
     return {
         "session_id": str(report.session_id),
@@ -151,15 +138,15 @@ async def create_session_report(
 @router.get("/{session_id}/report/export")
 async def export_session_report(
     session_id: UUID,
-    format: str = Query(default="json"),
+    export_format: str = Query(default="json", alias="format"),
     db: AsyncSession = Depends(get_db_session),
-    current_user: User = Depends(require_auth),
+    current_user: User = Depends(require_admin),
 ):
     session = await _get_authorized_session(db, session_id, current_user)
 
     # Reject unsupported formats before report lookup/rendering. Authorization
     # still completes first, so denied requests preserve the policy boundary.
-    if format not in SUPPORTED_FORMATS:
+    if export_format not in SUPPORTED_FORMATS:
         raise HTTPException(status_code=400, detail="Unsupported export format")
 
     try:
@@ -169,7 +156,7 @@ async def export_session_report(
         raise HTTPException(
             status_code=500,
             detail="Unable to retrieve the session report for export. Please try again.",
-        )
+        ) from None
     if report is None:
         raise HTTPException(
             status_code=404,
@@ -177,25 +164,25 @@ async def export_session_report(
         )
 
     try:
-        body, media_type = render_export(report, format)
+        body, media_type = render_export(report, export_format)
     except UnsupportedExportFormatError:
         raise HTTPException(
             status_code=400,
             detail="Unsupported export format",
-        )
+        ) from None
     except ExportFormatNotImplementedError:
         raise HTTPException(
             status_code=501,
             detail="The requested export format is not available",
-        )
+        ) from None
     except Exception:
         logger.error("Session report export rendering failed")
         raise HTTPException(
             status_code=500,
             detail="Unable to export the session report. Please try again.",
-        )
+        ) from None
 
-    filename = build_export_filename(str(session.id), report.report_version, format)
+    filename = build_export_filename(str(session.id), report.report_version, export_format)
     return Response(
         content=body,
         media_type=media_type,

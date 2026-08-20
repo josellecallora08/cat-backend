@@ -41,9 +41,8 @@ class AdminUserCreate(BaseModel):
                     "user_type is required when role is 'user' "
                     f"and must be one of: {', '.join(sorted(VALID_USER_TYPES))}"
                 )
-        elif self.role == "admin":
-            if self.user_type is not None:
-                self.user_type = None
+        elif self.role == "admin" and self.user_type is not None:
+            self.user_type = None
 
         return self
 
@@ -69,9 +68,8 @@ class AdminUserUpdate(BaseModel):
                     "user_type is required when role is 'user' "
                     f"and must be one of: {', '.join(sorted(VALID_USER_TYPES))}"
                 )
-        elif self.role == "admin":
-            if self.user_type is not None:
-                self.user_type = None
+        elif self.role == "admin" and self.user_type is not None:
+            self.user_type = None
 
         return self
 

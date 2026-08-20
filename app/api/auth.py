@@ -15,23 +15,28 @@ from app.models.user import User, UserRole, UserType
 from app.services.auth import (
     create_access_token,
     hash_password,
-    verify_password,
-    require_auth,
     require_admin,
+    require_auth,
+    verify_password,
 )
 from app.services.google_oauth import (
     exchange_code_for_tokens as google_exchange_code,
+)
+from app.services.google_oauth import (
     fetch_google_user_info,
-    get_authorize_url as google_get_authorize_url,
     get_or_create_google_user,
+)
+from app.services.google_oauth import (
+    get_authorize_url as google_get_authorize_url,
 )
 from app.services.lark_oauth import (
     exchange_code_for_user_token,
-    fetch_lark_user_info,
     fetch_lark_user_department,
+    fetch_lark_user_info,
     get_authorize_url,
     get_or_create_lark_user,
 )
+
 
 logger = logging.getLogger(__name__)
 
@@ -94,9 +99,7 @@ async def register(body: RegisterRequest, db: AsyncSession = Depends(get_session
 
     # Validate role
     if body.role not in (UserRole.ADMIN.value, UserRole.USER.value):
-        raise HTTPException(
-            status_code=400, detail="Invalid role. Must be 'admin' or 'user'"
-        )
+        raise HTTPException(status_code=400, detail="Invalid role. Must be 'admin' or 'user'")
 
     # Determine user_type for non-admin registrations
     user_type = UserType.AGENT.value if body.role == UserRole.USER.value else None
@@ -161,11 +164,7 @@ async def login(
     result = await db.execute(stmt)
     user = result.scalar_one_or_none()
 
-    if (
-        not user
-        or not user.hashed_password
-        or not verify_password(password, user.hashed_password)
-    ):
+    if not user or not user.hashed_password or not verify_password(password, user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password",

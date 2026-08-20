@@ -9,7 +9,7 @@ Validates: Requirements 8.2
 """
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 from hypothesis import HealthCheck, given, settings
@@ -76,65 +76,81 @@ sequence_numbers = st.integers(min_value=0, max_value=1000)
 
 # Evaluation category scores
 category_scores_strategy = st.lists(
-    st.fixed_dictionaries({
-        "category": st.sampled_from([
-            "call_opening", "compliance", "empathy_communication", "negotiation_resolution"
-        ]),
-        "score": scores,
-    }),
+    st.fixed_dictionaries(
+        {
+            "category": st.sampled_from(
+                ["call_opening", "compliance", "empathy_communication", "negotiation_resolution"]
+            ),
+            "score": scores,
+        }
+    ),
     min_size=1,
     max_size=4,
 )
 
 # Strengths and weaknesses
 strength_weakness_items = st.lists(
-    st.fixed_dictionaries({
-        "description": artifact_text,
-        "category": st.sampled_from([
-            "call_opening", "compliance", "empathy_communication", "negotiation_resolution"
-        ]),
-        "transcript_excerpt": artifact_text,
-    }),
+    st.fixed_dictionaries(
+        {
+            "description": artifact_text,
+            "category": st.sampled_from(
+                ["call_opening", "compliance", "empathy_communication", "negotiation_resolution"]
+            ),
+            "transcript_excerpt": artifact_text,
+        }
+    ),
     min_size=1,
     max_size=5,
 )
 
 # Mistakes by category
-mistakes_strategy = st.fixed_dictionaries({
-    "call_opening": st.lists(
-        st.fixed_dictionaries({
-            "transcript_position": st.integers(min_value=0, max_value=50),
-            "transcript_excerpt": artifact_text,
-            "explanation": artifact_text,
-            "recommended_alternative": artifact_text,
-        }),
-        min_size=0,
-        max_size=3,
-    ),
-    "compliance": st.lists(
-        st.fixed_dictionaries({
-            "transcript_position": st.integers(min_value=0, max_value=50),
-            "transcript_excerpt": artifact_text,
-            "explanation": artifact_text,
-            "recommended_alternative": artifact_text,
-        }),
-        min_size=0,
-        max_size=3,
-    ),
-})
+mistakes_strategy = st.fixed_dictionaries(
+    {
+        "call_opening": st.lists(
+            st.fixed_dictionaries(
+                {
+                    "transcript_position": st.integers(min_value=0, max_value=50),
+                    "transcript_excerpt": artifact_text,
+                    "explanation": artifact_text,
+                    "recommended_alternative": artifact_text,
+                }
+            ),
+            min_size=0,
+            max_size=3,
+        ),
+        "compliance": st.lists(
+            st.fixed_dictionaries(
+                {
+                    "transcript_position": st.integers(min_value=0, max_value=50),
+                    "transcript_excerpt": artifact_text,
+                    "explanation": artifact_text,
+                    "recommended_alternative": artifact_text,
+                }
+            ),
+            min_size=0,
+            max_size=3,
+        ),
+    }
+)
 
 # Weak competencies for learning plans
 weak_competencies_strategy = st.lists(
-    st.fixed_dictionaries({
-        "category": st.sampled_from([
-            "call_opening", "compliance", "empathy_communication", "negotiation_resolution"
-        ]),
-        "score": st.integers(min_value=0, max_value=69),
-        "recommended_scenario": st.sampled_from([
-            "Financial Hardship", "Payment Arrangement",
-            "Compliance Fundamentals", "Call Opening Basics",
-        ]),
-    }),
+    st.fixed_dictionaries(
+        {
+            "category": st.sampled_from(
+                ["call_opening", "compliance", "empathy_communication", "negotiation_resolution"]
+            ),
+            "score": st.integers(min_value=0, max_value=69),
+            "recommended_scenario": st.sampled_from(
+                [
+                    "Financial Hardship",
+                    "Payment Arrangement",
+                    "Compliance Fundamentals",
+                    "Call Opening Basics",
+                ]
+            ),
+        }
+    ),
     min_size=0,
     max_size=4,
 )
@@ -378,7 +394,7 @@ class TestSessionArtifactAssociation:
             session_id=session.id,
             speaker=speaker,
             utterance_text=utterance_text,
-            timestamp_ms=datetime.now(timezone.utc),
+            timestamp_ms=datetime.now(UTC),
             sequence_number=seq_num,
         )
         async_db.add(transcript_entry)
@@ -431,8 +447,20 @@ class TestSessionArtifactAssociation:
             session_id=session.id,
             overall_score=75.0,
             category_scores=[{"category": "compliance", "score": 80}],
-            strengths=[{"description": "Good opening", "category": "call_opening", "transcript_excerpt": "Hello"}],
-            weaknesses=[{"description": "Missed compliance", "category": "compliance", "transcript_excerpt": "..."}],
+            strengths=[
+                {
+                    "description": "Good opening",
+                    "category": "call_opening",
+                    "transcript_excerpt": "Hello",
+                }
+            ],
+            weaknesses=[
+                {
+                    "description": "Missed compliance",
+                    "category": "compliance",
+                    "transcript_excerpt": "...",
+                }
+            ],
             is_too_short=False,
         )
         async_db.add(evaluation)
@@ -462,7 +490,7 @@ class TestSessionArtifactAssociation:
                 session_id=session.id,
                 speaker=speaker,
                 utterance_text=f"Utterance {i}",
-                timestamp_ms=datetime.now(timezone.utc),
+                timestamp_ms=datetime.now(UTC),
                 sequence_number=i,
             )
             async_db.add(transcript)

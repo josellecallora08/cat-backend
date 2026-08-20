@@ -16,9 +16,9 @@ import uuid
 from decimal import Decimal
 from unittest.mock import AsyncMock, patch
 
+from httpx import ASGITransport, AsyncClient
 from hypothesis import given, settings
 from hypothesis import strategies as st
-from httpx import ASGITransport, AsyncClient
 
 from app.main import app
 from app.models import Scenario

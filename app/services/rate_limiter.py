@@ -3,8 +3,8 @@
 Uses a sliding window approach. For production, swap with Redis-backed implementation.
 """
 
-import time
 import threading
+import time
 from collections import defaultdict
 from dataclasses import dataclass, field
 
@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 @dataclass
 class RateLimitWindow:
     """Tracks request timestamps within a window."""
+
     timestamps: list[float] = field(default_factory=list)
 
 

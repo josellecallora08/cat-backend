@@ -43,9 +43,7 @@ def _compute_improvement_trend(scores: list[float]) -> float | None:
 
 async def _get_campaign_agent_ids(db: AsyncSession, campaign_id: UUID) -> list[UUID]:
     """Get all agent IDs assigned to a campaign."""
-    stmt = select(CampaignAgent.agent_id).where(
-        CampaignAgent.campaign_id == campaign_id
-    )
+    stmt = select(CampaignAgent.agent_id).where(CampaignAgent.campaign_id == campaign_id)
     result = await db.execute(stmt)
     return list(result.scalars().all())
 
@@ -75,7 +73,7 @@ async def _get_agent_names(db: AsyncSession, agent_ids: list[UUID]) -> dict[UUID
         return {}
     stmt = select(User.id, User.full_name).where(User.id.in_(agent_ids))
     result = await db.execute(stmt)
-    return {uid: name for uid, name in result.all()}
+    return dict(result.all())
 
 
 async def _get_score_history(
@@ -261,9 +259,7 @@ async def get_campaign_dashboard(
     overall_avg = round(sum(all_scores) / len(all_scores), 1) if all_scores else None
 
     # Score history (optionally filtered by agent)
-    score_history = await _get_score_history(
-        db, agent_ids, scenario_ids, agent_id_filter
-    )
+    score_history = await _get_score_history(db, agent_ids, scenario_ids, agent_id_filter)
 
     # Category averages
     category_averages = await _get_category_averages(db, agent_ids, scenario_ids)
@@ -357,9 +353,7 @@ async def get_agent_progress(
             scenario_name=scenario.name if scenario else "Unknown",
             date=sess.created_at.isoformat() if sess.created_at else "",
             overall_score=(
-                round(eval_.overall_score, 1)
-                if eval_ and not eval_.is_too_short
-                else None
+                round(eval_.overall_score, 1) if eval_ and not eval_.is_too_short else None
             ),
             status=sess.status,
         )
@@ -368,7 +362,7 @@ async def get_agent_progress(
 
     # Per-scenario performance
     scenario_perf: dict[UUID, dict] = {}
-    for sess, eval_, scenario in session_rows:
+    for _sess, eval_, scenario in session_rows:
         if eval_ and not eval_.is_too_short and scenario:
             sid = scenario.id
             if sid not in scenario_perf:

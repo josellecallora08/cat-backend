@@ -1,6 +1,7 @@
 """Configuration and scheduler tests for quarantine cleanup."""
 
 import asyncio
+import contextlib
 import logging
 import time
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -19,11 +20,24 @@ class TestQuarantineCleanupConfig:
         assert "treated as 0" in caplog.text
 
     def test_retention_above_limit_is_clamped(self):
-        assert Settings(upload_quarantine_retention_hours=8761).upload_quarantine_retention_hours == 8760
+        assert (
+            Settings(upload_quarantine_retention_hours=8761).upload_quarantine_retention_hours
+            == 8760
+        )
 
     def test_interval_is_clamped_to_supported_range(self):
-        assert Settings(upload_quarantine_cleanup_interval_minutes=0).upload_quarantine_cleanup_interval_minutes == 1
-        assert Settings(upload_quarantine_cleanup_interval_minutes=1441).upload_quarantine_cleanup_interval_minutes == 1440
+        assert (
+            Settings(
+                upload_quarantine_cleanup_interval_minutes=0
+            ).upload_quarantine_cleanup_interval_minutes
+            == 1
+        )
+        assert (
+            Settings(
+                upload_quarantine_cleanup_interval_minutes=1441
+            ).upload_quarantine_cleanup_interval_minutes
+            == 1440
+        )
 
     def test_valid_values_are_not_changed(self):
         settings = Settings(
@@ -39,16 +53,16 @@ async def test_scheduler_runs_an_initial_cleanup_and_can_be_cancelled():
     cleanup = AsyncMock()
     fake_session_factory = MagicMock()
 
-    with patch("app.database.async_session_factory", fake_session_factory), \
-         patch.object(upload_quarantine, "cleanup_expired_files", cleanup), \
-         patch.object(upload_quarantine.settings, "upload_quarantine_cleanup_interval_minutes", 60):
+    with (
+        patch("app.database.async_session_factory", fake_session_factory),
+        patch.object(upload_quarantine, "cleanup_expired_files", cleanup),
+        patch.object(upload_quarantine.settings, "upload_quarantine_cleanup_interval_minutes", 60),
+    ):
         await upload_quarantine.start_cleanup_scheduler(app)
         cleanup.assert_awaited_once_with(fake_session_factory)
         app.state.quarantine_cleanup_task.cancel()
-        try:
+        with contextlib.suppress(asyncio.CancelledError):
             await app.state.quarantine_cleanup_task
-        except asyncio.CancelledError:
-            pass
 
     cleanup.assert_awaited_once_with(fake_session_factory)
 
@@ -66,19 +80,19 @@ async def test_scheduler_reloads_interval_before_each_recurring_pass():
             return
         raise asyncio.CancelledError
 
-    with patch("app.database.async_session_factory", fake_session_factory), \
-         patch.object(upload_quarantine, "cleanup_expired_files", cleanup), \
-         patch.object(upload_quarantine.asyncio, "sleep", side_effect=fake_sleep), \
-         patch.object(
-             upload_quarantine.settings,
-             "upload_quarantine_cleanup_interval_minutes",
-             1,
-         ):
+    with (
+        patch("app.database.async_session_factory", fake_session_factory),
+        patch.object(upload_quarantine, "cleanup_expired_files", cleanup),
+        patch.object(upload_quarantine.asyncio, "sleep", side_effect=fake_sleep),
+        patch.object(
+            upload_quarantine.settings,
+            "upload_quarantine_cleanup_interval_minutes",
+            1,
+        ),
+    ):
         await upload_quarantine.start_cleanup_scheduler(app)
-        try:
+        with contextlib.suppress(asyncio.CancelledError):
             await app.state.quarantine_cleanup_task
-        except asyncio.CancelledError:
-            pass
 
     assert sleep_calls == [60, 120]
     assert cleanup.await_count == 2
@@ -102,10 +116,9 @@ async def test_next_cleanup_pass_uses_modified_retention_setting(tmp_path):
     context.__aexit__ = AsyncMock(return_value=False)
     session_factory = MagicMock(return_value=context)
 
-    with patch.object(
-        upload_quarantine.settings, "upload_quarantine_path", str(tmp_path)
-    ), patch.object(
-        upload_quarantine.settings, "upload_quarantine_retention_hours", 2
+    with (
+        patch.object(upload_quarantine.settings, "upload_quarantine_path", str(tmp_path)),
+        patch.object(upload_quarantine.settings, "upload_quarantine_retention_hours", 2),
     ):
         first = await cleanup_expired_files(session_factory)
         upload_quarantine.settings.upload_quarantine_retention_hours = 0
@@ -130,9 +143,7 @@ async def test_scheduler_shutdown_timeout_does_not_block(caplog):
     await asyncio.sleep(0)
     app.state.quarantine_cleanup_task = task
 
-    stopped = await upload_quarantine.stop_cleanup_scheduler(
-        app, timeout_seconds=0.01
-    )
+    stopped = await upload_quarantine.stop_cleanup_scheduler(app, timeout_seconds=0.01)
 
     assert stopped is False
     assert "Timed out waiting" in caplog.text

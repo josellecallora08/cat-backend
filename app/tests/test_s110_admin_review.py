@@ -10,17 +10,17 @@ Tests cover:
 - Allowed actions: table-driven state tests
 - Audit: structured log verification
 """
+
 import json
 import logging
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from httpx import ASGITransport, AsyncClient
 
 from app.main import app
-from app.models.script_upload import UploadStatus
 from app.services.auth import get_current_user, require_admin
 from app.services.review_service import derive_actions, derive_review_status
 
@@ -39,9 +39,7 @@ VALID_CONTRACT = {
     "trigger_phrases": [{"phrase": "pay", "behavior": "agree"}],
     "emotional_state_rules": [{"trigger": "yell", "state_change": "angry"}],
     "payment_conditions": [{"condition": "full", "term": "monthly", "accepted": True}],
-    "escalation_conditions": [
-        {"condition": "hang up", "behavior": "end", "ends_call": True}
-    ],
+    "escalation_conditions": [{"condition": "hang up", "behavior": "end", "ends_call": True}],
     "prohibited_responses": ["never"],
     "conversation_goal": {"target_outcome": "pay", "completion_condition": "done"},
 }
@@ -85,7 +83,9 @@ def _make_upload(
     upload.status = status
     upload.scan_status = scan_status
     upload.extraction_status = extraction_status
-    upload.extracted_content = extracted_content if extracted_content is not None else json.dumps(VALID_CONTRACT)
+    upload.extracted_content = (
+        extracted_content if extracted_content is not None else json.dumps(VALID_CONTRACT)
+    )
     upload.scenario_id = scenario_id if scenario_id is not None else uuid.uuid4()
     upload.script_id = script_id
     upload.uploaded_by = uploaded_by or uuid.uuid4()
@@ -96,9 +96,9 @@ def _make_upload(
     upload.storage_key = "test-uuid-key.txt"
     upload.scan_signature = scan_signature
     upload.extraction_error = extraction_error
-    upload.created_at = datetime(2025, 1, 1, tzinfo=timezone.utc)
-    upload.updated_at = datetime(2025, 1, 1, tzinfo=timezone.utc)
-    upload.quarantine_expires_at = quarantine_expires_at or datetime(2025, 1, 2, tzinfo=timezone.utc)
+    upload.created_at = datetime(2025, 1, 1, tzinfo=UTC)
+    upload.updated_at = datetime(2025, 1, 1, tzinfo=UTC)
+    upload.quarantine_expires_at = quarantine_expires_at or datetime(2025, 1, 2, tzinfo=UTC)
     upload.deleted_at = None
     upload.rejected_at = rejected_at
     upload.rejected_by = rejected_by
@@ -114,8 +114,8 @@ def _make_script(*, script_id=None, status="draft", draft_content=None, is_delet
     script.draft_content = draft_content if draft_content is not None else VALID_CONTRACT
     script.current_version_id = None
     script.is_deleted = is_deleted
-    script.created_at = datetime(2025, 1, 1, tzinfo=timezone.utc)
-    script.updated_at = datetime(2025, 1, 1, tzinfo=timezone.utc)
+    script.created_at = datetime(2025, 1, 1, tzinfo=UTC)
+    script.updated_at = datetime(2025, 1, 1, tzinfo=UTC)
     return script
 
 
@@ -270,6 +270,7 @@ class TestReviewAuth:
     async def test_admin_gets_through(self, client, admin_override):
         """Admin auth passes — will get 404 for missing upload."""
         from app.database import get_session as get_db
+
         mock_db = AsyncMock()
         mock_result = MagicMock()
         mock_result.scalar_one_or_none.return_value = None
@@ -312,6 +313,7 @@ class TestReviewDetail:
     async def test_completed_upload_no_script(self, client, admin_override):
         upload = _make_upload(script_id=None)
         from app.database import get_session as get_db
+
         app.dependency_overrides[get_db] = lambda: _mock_db_for_review(upload)
         try:
             r = await client.get(f"/api/scripts/uploads/{upload.id}/review")
@@ -330,6 +332,7 @@ class TestReviewDetail:
         script = _make_script(status="draft")
         upload = _make_upload(script_id=script.id)
         from app.database import get_session as get_db
+
         app.dependency_overrides[get_db] = lambda: _mock_db_for_review(upload, script)
         try:
             r = await client.get(f"/api/scripts/uploads/{upload.id}/review")
@@ -344,10 +347,9 @@ class TestReviewDetail:
             app.dependency_overrides.pop(get_db, None)
 
     async def test_infected_upload_omits_content(self, client, admin_override):
-        upload = _make_upload(
-            scan_status="infected", status="failed", scan_signature="Eicar-Test"
-        )
+        upload = _make_upload(scan_status="infected", status="failed", scan_signature="Eicar-Test")
         from app.database import get_session as get_db
+
         app.dependency_overrides[get_db] = lambda: _mock_db_for_review(upload)
         try:
             r = await client.get(f"/api/scripts/uploads/{upload.id}/review")
@@ -362,6 +364,7 @@ class TestReviewDetail:
 
     async def test_missing_upload_returns_404(self, client, admin_override):
         from app.database import get_session as get_db
+
         app.dependency_overrides[get_db] = lambda: _mock_db_for_review(None)
         try:
             r = await client.get(f"/api/scripts/uploads/{uuid.uuid4()}/review")
@@ -372,8 +375,9 @@ class TestReviewDetail:
     async def test_no_storage_key_in_response(self, client, admin_override):
         upload = _make_upload()
         # Set quarantine_expires_at in the future so the warning won't fire
-        upload.quarantine_expires_at = datetime(2099, 1, 1, tzinfo=timezone.utc)
+        upload.quarantine_expires_at = datetime(2099, 1, 1, tzinfo=UTC)
         from app.database import get_session as get_db
+
         app.dependency_overrides[get_db] = lambda: _mock_db_for_review(upload)
         try:
             r = await client.get(f"/api/scripts/uploads/{upload.id}/review")
@@ -388,6 +392,7 @@ class TestReviewDetail:
         script = _make_script(draft_content={"invalid": "data"})
         upload = _make_upload(script_id=script.id)
         from app.database import get_session as get_db
+
         app.dependency_overrides[get_db] = lambda: _mock_db_for_review(upload, script)
         try:
             r = await client.get(f"/api/scripts/uploads/{upload.id}/review")
@@ -404,6 +409,7 @@ class TestReviewDetail:
         uploader_id = uuid.uuid4()
         upload = _make_upload(uploaded_by=uploader_id)
         from app.database import get_session as get_db
+
         app.dependency_overrides[get_db] = lambda: _mock_db_for_review(upload)
         try:
             r = await client.get(f"/api/scripts/uploads/{upload.id}/review")
@@ -446,6 +452,7 @@ class TestEditReview:
         script = _make_script(status="draft")
         upload = _make_upload(script_id=script.id)
         from app.database import get_session as get_db
+
         mock_db = _mock_db_for_edit(upload, script)
         app.dependency_overrides[get_db] = lambda: mock_db
 
@@ -468,6 +475,7 @@ class TestEditReview:
         script = _make_script(status="draft")
         upload = _make_upload(script_id=script.id)
         from app.database import get_session as get_db
+
         mock_db = _mock_db_for_edit(upload, script)
         app.dependency_overrides[get_db] = lambda: mock_db
 
@@ -483,6 +491,7 @@ class TestEditReview:
         script = _make_script(status="draft")
         upload = _make_upload(script_id=script.id)
         from app.database import get_session as get_db
+
         mock_db = _mock_db_for_edit(upload, script)
         app.dependency_overrides[get_db] = lambda: mock_db
 
@@ -497,6 +506,7 @@ class TestEditReview:
     async def test_no_linked_script_rejected(self, client, admin_override):
         upload = _make_upload(script_id=None)
         from app.database import get_session as get_db
+
         mock_db = AsyncMock()
         mock_result = MagicMock()
         mock_result.scalar_one_or_none.return_value = upload
@@ -515,6 +525,7 @@ class TestEditReview:
         script = _make_script(status="published")
         upload = _make_upload(script_id=script.id)
         from app.database import get_session as get_db
+
         mock_db = _mock_db_for_edit(upload, script)
         app.dependency_overrides[get_db] = lambda: mock_db
 
@@ -528,9 +539,10 @@ class TestEditReview:
 
     async def test_concurrent_edit_returns_409(self, client, admin_override):
         script = _make_script(status="draft")
-        script.updated_at = datetime(2025, 6, 1, tzinfo=timezone.utc)
+        script.updated_at = datetime(2025, 6, 1, tzinfo=UTC)
         upload = _make_upload(script_id=script.id)
         from app.database import get_session as get_db
+
         mock_db = _mock_db_for_edit(upload, script)
         app.dependency_overrides[get_db] = lambda: mock_db
 
@@ -550,6 +562,7 @@ class TestEditReview:
         script = _make_script(status="draft")
         upload = _make_upload(script_id=script.id)
         from app.database import get_session as get_db
+
         mock_db = _mock_db_for_edit(upload, script)
         app.dependency_overrides[get_db] = lambda: mock_db
 
@@ -566,31 +579,33 @@ class TestEditReview:
         script = _make_script(status="draft")
         upload = _make_upload(script_id=script.id)
         from app.database import get_session as get_db
+
         mock_db = _mock_db_for_edit(upload, script)
         app.dependency_overrides[get_db] = lambda: mock_db
 
-        with patch(
-            "app.services.script_registry.update_draft",
-            new_callable=AsyncMock,
-            return_value=script,
+        with (
+            patch(
+                "app.services.script_registry.update_draft",
+                new_callable=AsyncMock,
+                return_value=script,
+            ),
+            caplog.at_level(logging.INFO, logger="app.api.review"),
         ):
-            with caplog.at_level(logging.INFO, logger="app.api.review"):
-                r = await client.patch(
-                    f"/api/scripts/uploads/{upload.id}/review",
-                    json={"script_contract": VALID_CONTRACT},
-                )
-                assert r.status_code == 200
-                # Find audit record
-                audit_records = [
-                    rec for rec in caplog.records
-                    if rec.getMessage() == "upload_draft_edited"
-                ]
-                assert len(audit_records) == 1
-                rec = audit_records[0]
-                assert rec.__dict__["upload_id"] == str(upload.id)
-                assert rec.__dict__["script_id"] == str(script.id)
-                # No contract content in audit
-                assert "Hello" not in str(rec.__dict__)
+            r = await client.patch(
+                f"/api/scripts/uploads/{upload.id}/review",
+                json={"script_contract": VALID_CONTRACT},
+            )
+            assert r.status_code == 200
+            # Find audit record
+            audit_records = [
+                rec for rec in caplog.records if rec.getMessage() == "upload_draft_edited"
+            ]
+            assert len(audit_records) == 1
+            rec = audit_records[0]
+            assert rec.__dict__["upload_id"] == str(upload.id)
+            assert rec.__dict__["script_id"] == str(script.id)
+            # No contract content in audit
+            assert "Hello" not in str(rec.__dict__)
         app.dependency_overrides.pop(get_db, None)
 
 
@@ -603,6 +618,7 @@ class TestRejectReview:
     async def test_valid_rejection(self, client, admin_override):
         upload = _make_upload()
         from app.database import get_session as get_db
+
         mock_db = AsyncMock()
         call_count = {"n": 0}
 
@@ -656,6 +672,7 @@ class TestRejectReview:
         script = _make_script(status="published")
         upload = _make_upload(script_id=script.id)
         from app.database import get_session as get_db
+
         mock_db = AsyncMock()
         call_count = {"n": 0}
 
@@ -683,7 +700,7 @@ class TestRejectReview:
         app.dependency_overrides.pop(get_db, None)
 
     async def test_already_rejected_idempotent(self, client, admin_override):
-        rej_time = datetime(2025, 6, 1, tzinfo=timezone.utc)
+        rej_time = datetime(2025, 6, 1, tzinfo=UTC)
         rej_by = uuid.uuid4()
         upload = _make_upload(
             status="rejected",
@@ -692,6 +709,7 @@ class TestRejectReview:
             rejection_reason="Previous reason",
         )
         from app.database import get_session as get_db
+
         mock_db = AsyncMock()
         mock_result = MagicMock()
         mock_result.scalar_one_or_none.return_value = upload
@@ -708,12 +726,11 @@ class TestRejectReview:
         assert data["rejection_reason"] == "Previous reason"
         app.dependency_overrides.pop(get_db, None)
 
-    async def test_commit_failure_does_not_delete_source(
-        self, client, admin_override
-    ):
+    async def test_commit_failure_does_not_delete_source(self, client, admin_override):
         """External quarantine cleanup happens only after durable rejection."""
         upload = _make_upload()
         from app.database import get_session as get_db
+
         mock_db = AsyncMock()
         result = MagicMock()
         result.scalar_one_or_none.return_value = upload
@@ -751,14 +768,19 @@ class TestPublishReview:
         script = _make_script(status="draft")
         upload = _make_upload(script_id=script.id)
         from app.database import get_session as get_db
+
         mock_db = _mock_db_for_review(upload, script)
         app.dependency_overrides[get_db] = lambda: mock_db
 
         mock_version = MagicMock()
         mock_version.version_number = 1
-        mock_version.published_at = datetime(2025, 7, 1, tzinfo=timezone.utc)
+        mock_version.published_at = datetime(2025, 7, 1, tzinfo=UTC)
 
-        with patch("app.services.script_registry.publish", new_callable=AsyncMock, return_value=mock_version):
+        with patch(
+            "app.services.script_registry.publish",
+            new_callable=AsyncMock,
+            return_value=mock_version,
+        ):
             r = await client.post(f"/api/scripts/uploads/{upload.id}/review/publish")
             assert r.status_code == 200
             data = r.json()
@@ -770,6 +792,7 @@ class TestPublishReview:
     async def test_no_linked_script_rejected(self, client, admin_override):
         upload = _make_upload(script_id=None)
         from app.database import get_session as get_db
+
         mock_db = AsyncMock()
         mock_result = MagicMock()
         mock_result.scalar_one_or_none.return_value = upload
@@ -784,6 +807,7 @@ class TestPublishReview:
     async def test_infected_upload_cannot_publish(self, client, admin_override):
         upload = _make_upload(scan_status="infected", status="failed")
         from app.database import get_session as get_db
+
         mock_db = AsyncMock()
         mock_result = MagicMock()
         mock_result.scalar_one_or_none.return_value = upload
@@ -801,6 +825,7 @@ class TestPublishReview:
         upload = _make_upload(status="rejected")
         upload.script_id = uuid.uuid4()
         from app.database import get_session as get_db
+
         mock_db = AsyncMock()
         mock_result = MagicMock()
         mock_result.scalar_one_or_none.return_value = upload
@@ -815,26 +840,32 @@ class TestPublishReview:
         script = _make_script(status="draft")
         upload = _make_upload(script_id=script.id)
         from app.database import get_session as get_db
+
         mock_db = _mock_db_for_review(upload, script)
         app.dependency_overrides[get_db] = lambda: mock_db
 
         mock_version = MagicMock()
         mock_version.version_number = 1
-        mock_version.published_at = datetime(2025, 7, 1, tzinfo=timezone.utc)
+        mock_version.published_at = datetime(2025, 7, 1, tzinfo=UTC)
 
-        with patch("app.services.script_registry.publish", new_callable=AsyncMock, return_value=mock_version):
-            with caplog.at_level(logging.INFO, logger="app.api.review"):
-                r = await client.post(f"/api/scripts/uploads/{upload.id}/review/publish")
-                assert r.status_code == 200
-                audit_records = [
-                    rec for rec in caplog.records
-                    if rec.getMessage() == "upload_script_published"
-                ]
-                assert len(audit_records) == 1
-                rec = audit_records[0]
-                assert rec.__dict__["version_number"] == 1
-                # No contract content in audit
-                assert "Hello" not in str(rec.__dict__)
+        with (
+            patch(
+                "app.services.script_registry.publish",
+                new_callable=AsyncMock,
+                return_value=mock_version,
+            ),
+            caplog.at_level(logging.INFO, logger="app.api.review"),
+        ):
+            r = await client.post(f"/api/scripts/uploads/{upload.id}/review/publish")
+            assert r.status_code == 200
+            audit_records = [
+                rec for rec in caplog.records if rec.getMessage() == "upload_script_published"
+            ]
+            assert len(audit_records) == 1
+            rec = audit_records[0]
+            assert rec.__dict__["version_number"] == 1
+            # No contract content in audit
+            assert "Hello" not in str(rec.__dict__)
         app.dependency_overrides.pop(get_db, None)
 
 
@@ -847,6 +878,7 @@ class TestRetryReview:
     async def test_infected_cannot_retry(self, client, admin_override):
         upload = _make_upload(scan_status="infected", status="failed")
         from app.database import get_session as get_db
+
         mock_db = AsyncMock()
         mock_result = MagicMock()
         mock_result.scalar_one_or_none.return_value = upload
@@ -864,6 +896,7 @@ class TestRetryReview:
     async def test_deleted_cannot_retry(self, client, admin_override):
         upload = _make_upload(status="deleted")
         from app.database import get_session as get_db
+
         mock_db = AsyncMock()
         mock_result = MagicMock()
         mock_result.scalar_one_or_none.return_value = upload
@@ -881,6 +914,7 @@ class TestRetryReview:
     async def test_rejected_cannot_retry(self, client, admin_override):
         upload = _make_upload(status="rejected")
         from app.database import get_session as get_db
+
         mock_db = AsyncMock()
         mock_result = MagicMock()
         mock_result.scalar_one_or_none.return_value = upload
@@ -898,6 +932,7 @@ class TestRetryReview:
     async def test_invalid_target_rejected(self, client, admin_override):
         upload = _make_upload()
         from app.database import get_session as get_db
+
         mock_db = AsyncMock()
         call_count = {"n": 0}
 
@@ -924,6 +959,7 @@ class TestRetryReview:
 
     async def test_missing_upload_returns_404(self, client, admin_override):
         from app.database import get_session as get_db
+
         mock_db = AsyncMock()
         mock_result = MagicMock()
         mock_result.scalar_one_or_none.return_value = None
@@ -940,6 +976,7 @@ class TestRetryReview:
     async def test_scan_retry_missing_source_returns_410(self, client, admin_override):
         upload = _make_upload(scan_status="error", status="failed")
         from app.database import get_session as get_db
+
         mock_db = AsyncMock()
         call_count = {"n": 0}
 

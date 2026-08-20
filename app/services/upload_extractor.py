@@ -25,6 +25,7 @@ Policies:
 """
 
 import codecs
+import contextlib
 import csv
 import hashlib
 import html
@@ -33,6 +34,7 @@ import logging
 import re
 import urllib.parse
 from pathlib import Path
+
 
 logger = logging.getLogger(__name__)
 
@@ -68,17 +70,14 @@ _HTML_TAG_RE = re.compile(r"<[^>]{0,2000}>", re.DOTALL)
 
 # ─── Markdown links ──────────────────────────────────────────────────────
 _MD_LINK_RE = re.compile(
-    r"(!?\[[^\]]*\])"
-    r"\("
-    r"((?:[^()]*|\([^()]*\))*)"
-    r"\)",
+    r"(!?\[[^\]]*\])" r"\(" r"((?:[^()]*|\([^()]*\))*)" r"\)",
     re.DOTALL,
 )
 # Reference-style definition: [id]: URL "optional title"
 _MD_REF_DEF_RE = re.compile(
     r"^(\s{0,3}\[[^\]]+\]:\s+)"  # [id]: (with up to 3 leading spaces)
-    r"(\S+)"                      # destination
-    r"(.*)?$",                    # optional title
+    r"(\S+)"  # destination
+    r"(.*)?$",  # optional title
     re.MULTILINE,
 )
 
@@ -89,10 +88,10 @@ _URI_NORMALIZATION_MAX_ITER = 3
 
 class ExtractionError(Exception):
     """Raised when content extraction fails."""
-    pass
 
 
 # ─── Encoding ─────────────────────────────────────────────────────────────
+
 
 def _normalize_encoding(raw_bytes: bytes) -> str:
     """Decode bytes to str. BOM > strict UTF-8 > chardet > replacement.
@@ -113,7 +112,7 @@ def _normalize_encoding(raw_bytes: bytes) -> str:
             return raw_bytes.decode("utf-32")
         except (UnicodeDecodeError, LookupError):
             pass
-    if raw_bytes.startswith(codecs.BOM_UTF16_LE) or raw_bytes.startswith(codecs.BOM_UTF16_BE):
+    if raw_bytes.startswith((codecs.BOM_UTF16_LE, codecs.BOM_UTF16_BE)):
         try:
             return raw_bytes.decode("utf-16")
         except (UnicodeDecodeError, LookupError):
@@ -133,6 +132,7 @@ def _normalize_encoding(raw_bytes: bytes) -> str:
     # 3. chardet with confidence threshold
     try:
         import chardet
+
         detected = chardet.detect(raw_bytes)
         encoding = detected.get("encoding")
         confidence = detected.get("confidence")
@@ -168,6 +168,7 @@ def _is_chardet_trustworthy(encoding: str, confidence) -> bool:
 
 # ─── Text helpers ─────────────────────────────────────────────────────────
 
+
 def _strip_control_chars(text: str) -> str:
     """Remove C0/C1 control characters, preserving tab, newline, CR."""
     return _CONTROL_CHAR_RE.sub("", text)
@@ -182,6 +183,7 @@ def _enforce_size_limit(text: str) -> str:
 
 
 # ─── CSV formula neutralization ───────────────────────────────────────────
+
 
 def _neutralize_csv_cell(cell: str) -> str:
     """Neutralize formula triggers in a CSV cell.
@@ -230,7 +232,7 @@ def _extract_scheme_portion(uri: str) -> tuple[str, bool]:
     """Extract bounded scheme-candidate. Returns (candidate, was_truncated)."""
     colon_idx = uri.find(":")
     if 0 < colon_idx <= _MAX_SCHEME_CANDIDATE_LEN:
-        return (uri[:colon_idx + 1], False)
+        return (uri[: colon_idx + 1], False)
     truncated = len(uri) > _MAX_SCHEME_CANDIDATE_LEN
     return (uri[:_MAX_SCHEME_CANDIDATE_LEN], truncated)
 
@@ -261,14 +263,12 @@ def _is_dangerous_uri(uri: str) -> bool:
         prev = candidate
         candidate = candidate.lstrip(" \t\r\n\x0b\x0c")
         candidate = html.unescape(candidate)
-        try:
+        with contextlib.suppress(Exception):
             candidate = urllib.parse.unquote(candidate)
-        except Exception:
-            pass
         # Narrow to scheme boundary once colon visible
         new_colon = candidate.find(":")
         if new_colon > 0:
-            candidate = candidate[:new_colon + 1]
+            candidate = candidate[: new_colon + 1]
             was_truncated = False
         # Check safe scheme
         cl = candidate[:10].lower()
@@ -298,10 +298,7 @@ def _sanitize_md_link(match: re.Match) -> str:
     bracket_part = match.group(1)
     uri = match.group(2)
     if _is_dangerous_uri(uri):
-        if bracket_part.startswith("!"):
-            text = bracket_part[2:-1]
-        else:
-            text = bracket_part[1:-1]
+        text = bracket_part[2:-1] if bracket_part.startswith("!") else bracket_part[1:-1]
         return text
     return match.group(0)
 
@@ -339,6 +336,7 @@ def _sanitize_markdown(text: str) -> str:
 
 
 # ─── Format extractors ────────────────────────────────────────────────────
+
 
 def extract_pdf(file_path: Path) -> str:
     """Extract page text only from a PDF."""
@@ -429,9 +427,7 @@ def extract_csv(file_path: Path, max_bytes: int | None = None) -> str:
         for row in reader:
             row_count += 1
             if row_count > _MAX_CSV_ROWS:
-                raise ExtractionError(
-                    f"CSV exceeds maximum row count of {_MAX_CSV_ROWS}"
-                )
+                raise ExtractionError(f"CSV exceeds maximum row count of {_MAX_CSV_ROWS}")
             safe_row = [_neutralize_csv_cell(cell) for cell in row]
             # Serialize this single row to get its exact UTF-8 byte size
             row_buf = io.StringIO()

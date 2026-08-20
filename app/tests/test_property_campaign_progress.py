@@ -5,8 +5,8 @@ Properties 6, 7, and 10: progress correctness, campaign ordering, and no orderin
 """
 
 from types import SimpleNamespace
-from uuid import UUID, uuid4
 from unittest.mock import AsyncMock, MagicMock
+from uuid import UUID, uuid4
 
 import pytest
 from hypothesis import given, settings
@@ -80,9 +80,7 @@ class TestCampaignProgressProperties:
         expected_count = sum(accomplished for _, accomplished in scenarios)
         assert response.total_scenarios == len(scenarios)
         assert response.accomplished_scenarios == expected_count
-        assert response.is_completed is (
-            bool(scenarios) and expected_count == len(scenarios)
-        )
+        assert response.is_completed is (bool(scenarios) and expected_count == len(scenarios))
         assert [item.accomplished for item in response.scenarios] == [
             accomplished for _, accomplished in scenarios
         ]
@@ -90,9 +88,7 @@ class TestCampaignProgressProperties:
     @given(scenario_count=st.integers(min_value=0, max_value=12))
     @settings(max_examples=100)
     @pytest.mark.asyncio
-    async def test_zero_scenario_campaign_is_completed(
-        self, scenario_count: int
-    ) -> None:
+    async def test_zero_scenario_campaign_is_completed(self, scenario_count: int) -> None:
         """**Validates: Requirements 4.6, 6.6**"""
         campaign_id, agent_id = uuid4(), uuid4()
         rows = [
@@ -128,8 +124,7 @@ class TestCampaignProgressProperties:
     ) -> None:
         """**Validates: Requirement 6.3**"""
         campaign_rows = [
-            SimpleNamespace(id=uuid4(), name=name, description=None)
-            for name, _ in campaigns
+            SimpleNamespace(id=uuid4(), name=name, description=None) for name, _ in campaigns
         ]
         progress_rows = [
             SimpleNamespace(
@@ -137,7 +132,7 @@ class TestCampaignProgressProperties:
                 total_scenarios=1,
                 accomplished_scenarios=int(is_completed),
             )
-            for row, (_, is_completed) in zip(campaign_rows, campaigns)
+            for row, (_, is_completed) in zip(campaign_rows, campaigns, strict=False)
         ]
         db = MagicMock()
         db.execute = AsyncMock(
@@ -173,8 +168,6 @@ class TestCampaignProgressProperties:
         response = await get_campaign_progress(db, uuid4(), uuid4())
 
         expected = [index in completed_indices for index in range(scenario_count)]
-        assert sorted(item.scenario_id for item in response.scenarios) == sorted(
-            scenario_ids
-        )
+        assert sorted(item.scenario_id for item in response.scenarios) == sorted(scenario_ids)
         assert {item.accomplished for item in response.scenarios} == set(expected)
         assert response.is_completed is (bool(expected) and all(expected))

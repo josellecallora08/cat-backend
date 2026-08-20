@@ -8,7 +8,7 @@ stored as a separate column. State transitions are documented inline.
 """
 
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any
 from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator
@@ -23,7 +23,7 @@ class ReviewWarning(BaseModel):
 
     code: str
     message: str
-    field: Optional[str] = None
+    field: str | None = None
     severity: str = "warning"  # info | warning | error
 
 
@@ -31,8 +31,8 @@ class ReviewScanResult(BaseModel):
     """Sanitized scan result for admin review (never exposes internals)."""
 
     status: str  # clean | infected | error | pending
-    signature: Optional[str] = None
-    error: Optional[str] = None  # safe, summarized error message
+    signature: str | None = None
+    error: str | None = None  # safe, summarized error message
 
 
 class ReviewDetailResponse(BaseModel):
@@ -50,13 +50,13 @@ class ReviewDetailResponse(BaseModel):
     filename_original: str
     mime_type: str
     file_size_bytes: int
-    scenario_id: Optional[UUID] = None
+    scenario_id: UUID | None = None
     uploaded_by: UUID
 
     # Content (omitted for infected/unsafe uploads)
-    sanitized_content: Optional[str] = None
-    script_contract: Optional[dict[str, Any]] = None
-    contract_format: Optional[str] = None
+    sanitized_content: str | None = None
+    script_contract: dict[str, Any] | None = None
+    contract_format: str | None = None
 
     # Warnings
     warnings: list[ReviewWarning] = Field(default_factory=list)
@@ -68,8 +68,8 @@ class ReviewDetailResponse(BaseModel):
     upload_status: str
     scan_status: str
     extraction_status: str
-    script_id: Optional[UUID] = None
-    script_status: Optional[str] = None
+    script_id: UUID | None = None
+    script_status: str | None = None
     review_status: str
 
     # Actions
@@ -79,14 +79,14 @@ class ReviewDetailResponse(BaseModel):
     can_publish: bool = False
 
     # Rejection metadata
-    rejection_reason: Optional[str] = None
-    rejected_by: Optional[UUID] = None
-    rejected_at: Optional[datetime] = None
+    rejection_reason: str | None = None
+    rejected_by: UUID | None = None
+    rejected_at: datetime | None = None
 
     # Timestamps
     created_at: datetime
-    updated_at: Optional[datetime] = None
-    published_at: Optional[datetime] = None
+    updated_at: datetime | None = None
+    published_at: datetime | None = None
 
 
 class ReviewEditRequest(BaseModel):
@@ -99,7 +99,7 @@ class ReviewEditRequest(BaseModel):
     model_config = {"extra": "forbid"}
 
     script_contract: dict[str, Any]
-    expected_updated_at: Optional[datetime] = None  # Optimistic concurrency
+    expected_updated_at: datetime | None = None  # Optimistic concurrency
 
 
 class ReviewEditResponse(BaseModel):
@@ -126,7 +126,7 @@ class ReviewRetryResponse(BaseModel):
     """Response after a successful retry."""
 
     upload_id: UUID
-    script_id: Optional[UUID] = None
+    script_id: UUID | None = None
     review_status: str
     warnings: list[ReviewWarning] = Field(default_factory=list)
 
@@ -140,7 +140,7 @@ class ReviewRejectRequest(BaseModel):
     model_config = {"extra": "forbid"}
 
     reason: str = Field(min_length=1, max_length=2000)
-    reason_code: Optional[str] = Field(default=None, max_length=100)
+    reason_code: str | None = Field(default=None, max_length=100)
 
     @field_validator("reason")
     @classmethod

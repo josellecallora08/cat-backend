@@ -9,7 +9,7 @@ import string
 from uuid import UUID
 
 from fastapi import HTTPException
-from sqlalchemy import select, update
+from sqlalchemy import or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Session
@@ -25,9 +25,30 @@ class UserService:
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
 
-    async def list_users(self) -> list[User]:
-        """Return all users ordered by creation date descending."""
-        stmt = select(User).order_by(User.created_at.desc())
+    async def list_users(
+        self,
+        search: str | None = None,
+        role: str | None = None,
+        user_type: str | None = None,
+        is_active: bool | None = None,
+    ) -> list[User]:
+        """Return filtered users ordered by creation date descending."""
+        stmt = select(User)
+        if search and search.strip():
+            search_pattern = f"%{search.strip()}%"
+            stmt = stmt.where(
+                or_(
+                    User.full_name.ilike(search_pattern),
+                    User.email.ilike(search_pattern),
+                )
+            )
+        if role is not None:
+            stmt = stmt.where(User.role == role)
+        if user_type is not None:
+            stmt = stmt.where(User.user_type == user_type)
+        if is_active is not None:
+            stmt = stmt.where(User.is_active == is_active)
+        stmt = stmt.order_by(User.created_at.desc())
         result = await self.db.execute(stmt)
         return list(result.scalars().all())
 
@@ -66,9 +87,7 @@ class UserService:
         await event_broadcaster.emit("user.created", user.id)
         return user
 
-    async def update_user(
-        self, user_id: UUID, payload: AdminUserUpdate, admin_id: UUID
-    ) -> User:
+    async def update_user(self, user_id: UUID, payload: AdminUserUpdate, admin_id: UUID) -> User:
         """Update user details. Prevents self-demotion.
 
         Args:
@@ -84,11 +103,12 @@ class UserService:
         """
         user = await self._get_user_or_404(user_id)
 
-        if user_id == admin_id and user.role == UserRole.ADMIN.value:
-            if payload.role != UserRole.ADMIN.value:
-                raise HTTPException(
-                    status_code=400, detail="Cannot demote your own account"
-                )
+        if (
+            user_id == admin_id
+            and user.role == UserRole.ADMIN.value
+            and payload.role != UserRole.ADMIN.value
+        ):
+            raise HTTPException(status_code=400, detail="Cannot demote your own account")
 
         user.full_name = payload.full_name
         user.role = payload.role
@@ -98,9 +118,7 @@ class UserService:
         await event_broadcaster.emit("user.updated", user.id)
         return user
 
-    async def set_user_status(
-        self, user_id: UUID, is_active: bool, admin_id: UUID
-    ) -> User:
+    async def set_user_status(self, user_id: UUID, is_active: bool, admin_id: UUID) -> User:
         """Activate or deactivate a user. Prevents self-deactivation.
 
         Args:
@@ -115,9 +133,7 @@ class UserService:
             HTTPException: 404 if user not found, 400 if self-deactivation attempted.
         """
         if user_id == admin_id and not is_active:
-            raise HTTPException(
-                status_code=400, detail="Cannot deactivate your own account"
-            )
+            raise HTTPException(status_code=400, detail="Cannot deactivate your own account")
 
         user = await self._get_user_or_404(user_id)
         user.is_active = is_active
@@ -139,9 +155,7 @@ class UserService:
             HTTPException: 404 if user not found, 400 if self-deletion attempted.
         """
         if user_id == admin_id:
-            raise HTTPException(
-                status_code=400, detail="Cannot delete your own account"
-            )
+            raise HTTPException(status_code=400, detail="Cannot delete your own account")
 
         user = await self._get_user_or_404(user_id)
 

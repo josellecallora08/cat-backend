@@ -2,21 +2,20 @@
 
 import sys
 import zipfile
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
+from app.services import upload_scanner
+from app.services.upload_quarantine import sanitize_filename
+from app.services.upload_scanner import scan_file
 from app.services.upload_validator import (
     UploadRejectionReason,
+    validate_docx_archive,
     validate_extension,
     validate_file_signature,
-    validate_docx_archive,
     validate_mime_type,
 )
-from app.services.upload_quarantine import sanitize_filename
-from app.services.upload_scanner import ScanResult, scan_file
-from app.services import upload_scanner
 
 
 class TestExtensionSpoofing:
@@ -33,7 +32,7 @@ class TestExtensionSpoofing:
         assert valid is True
 
         # But binary signature check catches it!
-        exe_header = b"\x4D\x5A\x90\x00\x03\x00\x00\x00"  # MZ header
+        exe_header = b"\x4d\x5a\x90\x00\x03\x00\x00\x00"  # MZ header
         valid, reason = validate_file_signature("malware.pdf", exe_header)
         assert valid is False
         assert reason == UploadRejectionReason.SIGNATURE_MISMATCH
@@ -47,7 +46,7 @@ class TestExtensionSpoofing:
         assert valid is True
 
         # PK signature in a .txt file triggers binary content detection
-        zip_header = b"\x50\x4B\x03\x04\x00\x00\x00\x00"
+        zip_header = b"\x50\x4b\x03\x04\x00\x00\x00\x00"
         valid, reason = validate_file_signature("payload.txt", zip_header)
         assert valid is False
         assert reason == UploadRejectionReason.SIGNATURE_MISMATCH
@@ -92,12 +91,15 @@ class TestDocxZipBomb:
 class TestPathTraversal:
     """Task 17.3: Path traversal in filename."""
 
-    @pytest.mark.parametrize("malicious_name,must_not_contain", [
-        ("../../etc/passwd", "/"),
-        ("..\\..\\windows\\system32\\config\\sam", "\\"),
-        ("../../../root/.ssh/id_rsa", "/"),
-        ("%2e%2e/etc/shadow", "/"),  # URL-encoded traversal (/ stripped)
-    ])
+    @pytest.mark.parametrize(
+        "malicious_name,must_not_contain",
+        [
+            ("../../etc/passwd", "/"),
+            ("..\\..\\windows\\system32\\config\\sam", "\\"),
+            ("../../../root/.ssh/id_rsa", "/"),
+            ("%2e%2e/etc/shadow", "/"),  # URL-encoded traversal (/ stripped)
+        ],
+    )
     def test_path_traversal_sanitized(self, malicious_name, must_not_contain):
         result = sanitize_filename(malicious_name)
         assert must_not_contain not in result
@@ -120,10 +122,7 @@ class TestMalwareDetection:
     def test_eicar_triggers_rejection_when_scanner_available(self, tmp_path):
         """When ClamAV is running, EICAR test string should be detected."""
         # EICAR standard test string
-        eicar = (
-            b"X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-"
-            b"STANDARD-ANTIVIRUS-TEST-FILE!$H+H*"
-        )
+        eicar = b"X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*"
         test_file = tmp_path / "eicar.txt"
         test_file.write_bytes(eicar)
 
@@ -133,9 +132,7 @@ class TestMalwareDetection:
             # Mock ClamAV detecting the EICAR signature
             with patch("app.services.upload_scanner._connect_to_clamd") as mock_connect:
                 mock_cd = MagicMock()
-                mock_cd.scan.return_value = {
-                    str(test_file): ("FOUND", "Eicar-Signature")
-                }
+                mock_cd.scan.return_value = {str(test_file): ("FOUND", "Eicar-Signature")}
                 mock_connect.return_value = mock_cd
 
                 with patch.object(

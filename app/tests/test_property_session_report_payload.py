@@ -15,8 +15,9 @@ Properties:
 Validates: Requirements 1.5, 1.7, 1.10, 1.11, 1.12, 2.5
 """
 
+import itertools
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import pytest
@@ -28,7 +29,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from sqlalchemy.orm import selectinload
 
 from app.database import Base
-from app.models import CoachingReport, Evaluation, LearningPlan, Scenario, Session, Transcript
+from app.models import Evaluation, Scenario, Session, Transcript
 from app.schemas import SessionStatus, TranscriptEntry
 from app.schemas.rubric_evaluation import (
     CanonicalEvaluationResult,
@@ -36,11 +37,11 @@ from app.schemas.rubric_evaluation import (
     RubricEvidence,
 )
 from app.schemas.session_report import (
+    SECTION_REASON_MATRIX,
     CoachingSection,
     EvaluationSection,
     LearningPlanSection,
     LegacyEvaluationResult,
-    SECTION_REASON_MATRIX,
     SessionReportPayload,
     SessionReportSummary,
     TranscriptSection,
@@ -93,24 +94,24 @@ def _make_scenario() -> Scenario:
 
 
 def _make_session(scenario_id: uuid.UUID) -> Session:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     return Session(
         id=uuid.uuid4(),
         scenario_id=scenario_id,
         agent_id=uuid.uuid4(),
         status="completed",
-        persona_context={"name": "Test Persona", "communication_style": "calm", "emotional_state": 3},
+        persona_context={
+            "name": "Test Persona",
+            "communication_style": "calm",
+            "emotional_state": 3,
+        },
         created_at=now - timedelta(minutes=10),
         ended_at=now,
     )
 
 
 async def _reload_session(async_db: AsyncSession, session_id: uuid.UUID) -> Session:
-    stmt = (
-        select(Session)
-        .options(selectinload(Session.campaign))
-        .where(Session.id == session_id)
-    )
+    stmt = select(Session).options(selectinload(Session.campaign)).where(Session.id == session_id)
     result = await async_db.execute(stmt)
     return result.scalar_one()
 
@@ -127,6 +128,7 @@ speakers = st.sampled_from(["agent", "debtor"])
 
 
 # --- Property 1: Determinism ---
+
 
 class TestDeterminism:
     """Property 1: identical stored inputs assemble to byte-identical payloads."""
@@ -148,20 +150,43 @@ class TestDeterminism:
         async_db.add(session)
         await async_db.flush()
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         for i in range(num_entries):
-            async_db.add(Transcript(
-                id=uuid.uuid4(), session_id=session.id,
-                speaker="agent" if i % 2 == 0 else "debtor",
-                utterance_text=f"utterance {i}", timestamp_ms=now, sequence_number=i,
-            ))
-        async_db.add(Evaluation(
-            id=uuid.uuid4(), session_id=session.id, overall_score=overall_score,
-            category_scores=[{"category": "compliance", "score": 80, "strengths": [], "weaknesses": []}],
-            strengths=[{"description": "Good opening", "category": "call_opening", "transcript_excerpt": "Hi"}],
-            weaknesses=[{"description": "Missed disclosure", "category": "compliance", "transcript_excerpt": "..."}],
-            is_too_short=False,
-        ))
+            async_db.add(
+                Transcript(
+                    id=uuid.uuid4(),
+                    session_id=session.id,
+                    speaker="agent" if i % 2 == 0 else "debtor",
+                    utterance_text=f"utterance {i}",
+                    timestamp_ms=now,
+                    sequence_number=i,
+                )
+            )
+        async_db.add(
+            Evaluation(
+                id=uuid.uuid4(),
+                session_id=session.id,
+                overall_score=overall_score,
+                category_scores=[
+                    {"category": "compliance", "score": 80, "strengths": [], "weaknesses": []}
+                ],
+                strengths=[
+                    {
+                        "description": "Good opening",
+                        "category": "call_opening",
+                        "transcript_excerpt": "Hi",
+                    }
+                ],
+                weaknesses=[
+                    {
+                        "description": "Missed disclosure",
+                        "category": "compliance",
+                        "transcript_excerpt": "...",
+                    }
+                ],
+                is_too_short=False,
+            )
+        )
         await async_db.commit()
 
         reloaded_1 = await _reload_session(async_db, session.id)
@@ -177,6 +202,7 @@ class TestDeterminism:
 
 
 # --- Property 2: No fabricated values ---
+
 
 class TestNoFabrication:
     """Property 2: absent artifacts never carry a fabricated score or content."""
@@ -195,13 +221,18 @@ class TestNoFabrication:
         async_db.add(session)
         await async_db.flush()
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         for i in range(num_transcripts):
-            async_db.add(Transcript(
-                id=uuid.uuid4(), session_id=session.id,
-                speaker="agent" if i % 2 == 0 else "debtor",
-                utterance_text=f"utterance {i}", timestamp_ms=now, sequence_number=i,
-            ))
+            async_db.add(
+                Transcript(
+                    id=uuid.uuid4(),
+                    session_id=session.id,
+                    speaker="agent" if i % 2 == 0 else "debtor",
+                    utterance_text=f"utterance {i}",
+                    timestamp_ms=now,
+                    sequence_number=i,
+                )
+            )
         await async_db.commit()
 
         reloaded = await _reload_session(async_db, session.id)
@@ -227,6 +258,7 @@ class TestNoFabrication:
 
 # --- Property 3: Canonical/legacy mutual exclusivity ---
 
+
 class TestBranchExclusivity:
     """Property 3: canonical and legacy evaluation data are never both populated."""
 
@@ -243,13 +275,31 @@ class TestBranchExclusivity:
         async_db.add(session)
         await async_db.flush()
 
-        async_db.add(Evaluation(
-            id=uuid.uuid4(), session_id=session.id, overall_score=overall_score,
-            category_scores=[{"category": "compliance", "score": 80, "strengths": [], "weaknesses": []}],
-            strengths=[{"description": "Good opening", "category": "call_opening", "transcript_excerpt": "Hi"}],
-            weaknesses=[{"description": "Missed disclosure", "category": "compliance", "transcript_excerpt": "..."}],
-            is_too_short=False,
-        ))
+        async_db.add(
+            Evaluation(
+                id=uuid.uuid4(),
+                session_id=session.id,
+                overall_score=overall_score,
+                category_scores=[
+                    {"category": "compliance", "score": 80, "strengths": [], "weaknesses": []}
+                ],
+                strengths=[
+                    {
+                        "description": "Good opening",
+                        "category": "call_opening",
+                        "transcript_excerpt": "Hi",
+                    }
+                ],
+                weaknesses=[
+                    {
+                        "description": "Missed disclosure",
+                        "category": "compliance",
+                        "transcript_excerpt": "...",
+                    }
+                ],
+                is_too_short=False,
+            )
+        )
         await async_db.commit()
 
         reloaded = await _reload_session(async_db, session.id)
@@ -262,6 +312,7 @@ class TestBranchExclusivity:
 
 
 # --- Property 5: Transcript ordering ---
+
 
 class TestTranscriptOrdering:
     """Property 5: assembled transcript entries are strictly increasing by sequence."""
@@ -283,13 +334,19 @@ class TestTranscriptOrdering:
         async_db.add(session)
         await async_db.flush()
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         # Insert in reverse to prove assembly sorts, not just relies on insert order.
         for seq in reversed(sequences):
-            async_db.add(Transcript(
-                id=uuid.uuid4(), session_id=session.id, speaker="agent",
-                utterance_text=f"utterance {seq}", timestamp_ms=now, sequence_number=seq,
-            ))
+            async_db.add(
+                Transcript(
+                    id=uuid.uuid4(),
+                    session_id=session.id,
+                    speaker="agent",
+                    utterance_text=f"utterance {seq}",
+                    timestamp_ms=now,
+                    sequence_number=seq,
+                )
+            )
         await async_db.commit()
 
         reloaded = await _reload_session(async_db, session.id)
@@ -297,12 +354,13 @@ class TestTranscriptOrdering:
 
         result_sequences = [e.sequence_number for e in payload.transcript.entries]
         assert result_sequences == sorted(sequences)
-        for a, b in zip(result_sequences, result_sequences[1:]):
+        for a, b in itertools.pairwise(result_sequences):
             assert a < b
         await async_db.rollback()
 
 
 # --- Property 8: Terminal outcomes carry a reason ---
+
 
 class TestTerminalOutcomesHaveReason:
     """Property 8: too_short and not_applicable evaluations always carry a reason."""
@@ -318,10 +376,17 @@ class TestTerminalOutcomesHaveReason:
         async_db.add(session)
         await async_db.flush()
 
-        async_db.add(Evaluation(
-            id=uuid.uuid4(), session_id=session.id, overall_score=0.0,
-            category_scores=[], strengths=[], weaknesses=[], is_too_short=is_too_short,
-        ))
+        async_db.add(
+            Evaluation(
+                id=uuid.uuid4(),
+                session_id=session.id,
+                overall_score=0.0,
+                category_scores=[],
+                strengths=[],
+                weaknesses=[],
+                is_too_short=is_too_short,
+            )
+        )
         await async_db.commit()
 
         reloaded = await _reload_session(async_db, session.id)
@@ -338,7 +403,7 @@ class TestTerminalOutcomesHaveReason:
 
 
 def _memory_summary() -> SessionReportSummary:
-    now = datetime(2024, 1, 1, tzinfo=timezone.utc)
+    now = datetime(2024, 1, 1, tzinfo=UTC)
     return SessionReportSummary(
         session_id=uuid.UUID("00000000-0000-0000-0000-000000000001"),
         scenario_id=uuid.UUID("00000000-0000-0000-0000-000000000002"),
@@ -351,7 +416,7 @@ def _memory_summary() -> SessionReportSummary:
 
 
 def _memory_transcript(sequences: list[int]) -> TranscriptSection:
-    timestamp = datetime(2024, 1, 1, tzinfo=timezone.utc)
+    timestamp = datetime(2024, 1, 1, tzinfo=UTC)
     return TranscriptSection(
         available=True,
         entries=[
@@ -547,9 +612,7 @@ class TestDeterministicInMemoryPayloadProperties:
             "available": True,
             "mode": "canonical",
             "blocks": [canonical_block],
-            "legacy_mistakes_by_category": (
-                {"compliance": []} if include_legacy else {}
-            ),
+            "legacy_mistakes_by_category": ({"compliance": []} if include_legacy else {}),
         }
         if include_legacy:
             with pytest.raises(ValidationError):
@@ -586,17 +649,14 @@ class TestDeterministicInMemoryPayloadProperties:
         if reference in sequences:
             assert payload is not None
             assert (
-                payload.evaluation.canonical.categories[0].evidence[0].sequence_number
-                == reference
+                payload.evaluation.canonical.categories[0].evidence[0].sequence_number == reference
             )
         else:
             assert payload is None
 
     @settings(max_examples=20)
     @given(missing_section=st.sampled_from(["evaluation", "coaching", "learning_plan"]))
-    def test_missing_artifacts_have_typed_reasons_and_empty_content(
-        self, missing_section: str
-    ):
+    def test_missing_artifacts_have_typed_reasons_and_empty_content(self, missing_section: str):
         """Unavailable sections carry reasons and do not fabricate content."""
         sections = {
             "evaluation": EvaluationSection(
@@ -663,12 +723,19 @@ class TestDeterministicInMemoryPayloadProperties:
     @given(
         section_name=st.sampled_from(tuple(SECTION_REASON_MATRIX)),
         reason_code=st.sampled_from(
-            ["artifact_missing", "empty_transcript", "not_applicable", "session_too_short", "legacy_only", "no_evidence", "no_coaching", "no_learning_plan"]
+            [
+                "artifact_missing",
+                "empty_transcript",
+                "not_applicable",
+                "session_too_short",
+                "legacy_only",
+                "no_evidence",
+                "no_coaching",
+                "no_learning_plan",
+            ]
         ),
     )
-    def test_reason_matrix_rejects_cross_section_reasons(
-        self, section_name: str, reason_code: str
-    ):
+    def test_reason_matrix_rejects_cross_section_reasons(self, section_name: str, reason_code: str):
         """A section cannot silently accept a reason owned by another section."""
         allowed = SECTION_REASON_MATRIX[section_name]
         if reason_code in allowed:
@@ -704,7 +771,11 @@ class TestDeterministicInMemoryPayloadProperties:
         assert canonical_serialize(base) != canonical_serialize(expanded)
 
     @settings(max_examples=25)
-    @given(key_order=st.permutations(("summary", "transcript", "evaluation", "coaching", "learning_plan")))
+    @given(
+        key_order=st.permutations(
+            ("summary", "transcript", "evaluation", "coaching", "learning_plan")
+        )
+    )
     def test_stable_serialization_ignores_mapping_key_order(self, key_order: tuple[str, ...]):
         """Equivalent stable inputs serialize to identical bytes and hashes."""
         payload = _memory_payload(branch="canonical", sequences=[0])

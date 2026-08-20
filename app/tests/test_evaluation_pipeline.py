@@ -44,7 +44,7 @@ def make_llm_evaluation_response(
 
     strengths = [
         {
-            "description": f"Strength {i+1} description",
+            "description": f"Strength {i + 1} description",
             "category": categories[i % len(categories)],
             "transcript_excerpt": f"Agent message {i}",
         }
@@ -53,7 +53,7 @@ def make_llm_evaluation_response(
 
     weaknesses = [
         {
-            "description": f"Weakness {i+1} description",
+            "description": f"Weakness {i + 1} description",
             "category": categories[i % len(categories)],
             "transcript_excerpt": f"Agent message {i}",
         }
@@ -80,7 +80,9 @@ class MockLLMService:
         self.call_count = 0
         self.last_messages = None
 
-    async def chat_completion(self, messages, *, temperature=None, max_tokens=None, response_format=None):
+    async def chat_completion(
+        self, messages, *, temperature=None, max_tokens=None, response_format=None
+    ):
         self.call_count += 1
         self.last_messages = messages
         return LLMResponse(
@@ -139,7 +141,9 @@ class TestEvaluateTooShortSession:
         result = await engine.evaluate(session_id, short_transcript)
         assert result.overall_score == 0.0
 
-    async def test_too_short_does_not_call_llm(self, engine, session_id, short_transcript, mock_llm_service):
+    async def test_too_short_does_not_call_llm(
+        self, engine, session_id, short_transcript, mock_llm_service
+    ):
         """Too-short session should NOT call the LLM."""
         await engine.evaluate(session_id, short_transcript)
         assert mock_llm_service.call_count == 0
@@ -149,7 +153,9 @@ class TestEvaluateTooShortSession:
         result = await engine.evaluate(session_id, short_transcript)
         assert result.session_id == session_id
 
-    async def test_too_short_has_placeholder_strengths_weaknesses(self, engine, session_id, short_transcript):
+    async def test_too_short_has_placeholder_strengths_weaknesses(
+        self, engine, session_id, short_transcript
+    ):
         """Too-short session should have placeholder strength and weakness."""
         result = await engine.evaluate(session_id, short_transcript)
         assert len(result.strengths) == 1
@@ -161,7 +167,9 @@ class TestEvaluateTooShortSession:
 class TestEvaluateNormalSession:
     """Tests for evaluate() with a normal-length session."""
 
-    async def test_normal_session_calls_llm(self, engine, session_id, normal_transcript, mock_llm_service):
+    async def test_normal_session_calls_llm(
+        self, engine, session_id, normal_transcript, mock_llm_service
+    ):
         """Normal session should call the LLM exactly once."""
         await engine.evaluate(session_id, normal_transcript)
         assert mock_llm_service.call_count == 1
@@ -171,7 +179,9 @@ class TestEvaluateNormalSession:
         result = await engine.evaluate(session_id, normal_transcript)
         assert result.is_too_short is False
 
-    async def test_normal_session_has_four_category_scores(self, engine, session_id, normal_transcript):
+    async def test_normal_session_has_four_category_scores(
+        self, engine, session_id, normal_transcript
+    ):
         """Normal session should produce exactly 4 category scores."""
         result = await engine.evaluate(session_id, normal_transcript)
         assert len(result.category_scores) == 4
@@ -228,13 +238,17 @@ class TestEvaluateNormalSession:
         result = await engine.evaluate(session_id, normal_transcript)
         assert isinstance(result, EvaluationResult)
 
-    async def test_llm_called_with_json_response_format(self, engine, session_id, normal_transcript, mock_llm_service):
+    async def test_llm_called_with_json_response_format(
+        self, engine, session_id, normal_transcript, mock_llm_service
+    ):
         """LLM should be called with response_format for JSON."""
         await engine.evaluate(session_id, normal_transcript)
         # Verify the LLM was called (we can check the mock was invoked)
         assert mock_llm_service.call_count == 1
 
-    async def test_transcript_formatted_in_prompt(self, engine, session_id, normal_transcript, mock_llm_service):
+    async def test_transcript_formatted_in_prompt(
+        self, engine, session_id, normal_transcript, mock_llm_service
+    ):
         """The transcript should be included in the user message to the LLM."""
         await engine.evaluate(session_id, normal_transcript)
         user_message = mock_llm_service.last_messages[1]
@@ -332,7 +346,9 @@ class TestEvaluatePersistence:
         mock_db.add = MagicMock()
         mock_db.commit = AsyncMock()
 
-        with patch("app.services.evaluation_engine.retry_db_operation", new_callable=AsyncMock) as mock_retry:
+        with patch(
+            "app.services.evaluation_engine.retry_db_operation", new_callable=AsyncMock
+        ) as mock_retry:
             mock_retry.return_value = None
             result = await engine.evaluate(session_id, normal_transcript, db=mock_db)
 
@@ -347,7 +363,9 @@ class TestEvaluatePersistence:
         mock_db.add = MagicMock()
         mock_db.commit = AsyncMock()
 
-        with patch("app.services.evaluation_engine.retry_db_operation", new_callable=AsyncMock) as mock_retry:
+        with patch(
+            "app.services.evaluation_engine.retry_db_operation", new_callable=AsyncMock
+        ) as mock_retry:
             mock_retry.return_value = None
             result = await engine.evaluate(session_id, short_transcript, db=mock_db)
 
@@ -406,13 +424,17 @@ class TestPinnedRubricEvaluation:
                     "passing_score": 70,
                     "scoring_instructions": "Use evidence.",
                     "positive_behaviors": [],
-                    "violations": [{
-                        "id": "rude-tone",
-                        "name": "Rude tone",
-                        "description": "Uses a rude tone.",
-                        "evidence_instructions": "Quote it.",
-                    }],
-                    "penalties": [{"violation_id": "rude-tone", "deduction": 20, "max_occurrences": 1}],
+                    "violations": [
+                        {
+                            "id": "rude-tone",
+                            "name": "Rude tone",
+                            "description": "Uses a rude tone.",
+                            "evidence_instructions": "Quote it.",
+                        }
+                    ],
+                    "penalties": [
+                        {"violation_id": "rude-tone", "deduction": 20, "max_occurrences": 1}
+                    ],
                     "recommendation_guidance": "Use a respectful tone.",
                     "display_order": 0,
                 }
@@ -424,15 +446,30 @@ class TestPinnedRubricEvaluation:
         return {
             "status": "evaluated",
             "summary": "The agent used a grounded opening.",
-            "categories": [{
-                "rubric_block_id": "opening",
-                "raw_score": 80,
-                "evidence": [{"sequence_number": 0, "speaker": "agent", "excerpt": "Hello", "explanation": "Greeting."}],
-                "strengths": [],
-                "violations": [{"violation_id": "rude-tone", "explanation": "Tone issue.", "evidence_sequence_numbers": [0]}],
-                "failed_criteria": [],
-                "recommendation_inputs": [],
-            }],
+            "categories": [
+                {
+                    "rubric_block_id": "opening",
+                    "raw_score": 80,
+                    "evidence": [
+                        {
+                            "sequence_number": 0,
+                            "speaker": "agent",
+                            "excerpt": "Hello",
+                            "explanation": "Greeting.",
+                        }
+                    ],
+                    "strengths": [],
+                    "violations": [
+                        {
+                            "violation_id": "rude-tone",
+                            "explanation": "Tone issue.",
+                            "evidence_sequence_numbers": [0],
+                        }
+                    ],
+                    "failed_criteria": [],
+                    "recommendation_inputs": [],
+                }
+            ],
             "applied_techniques": {"techniques_used": [], "reason_if_empty": "None."},
             "missed_opportunities": {"missed_techniques": [], "reason_if_empty": "None."},
         }

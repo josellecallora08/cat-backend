@@ -10,18 +10,23 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from typing import Any, Optional
-from uuid import UUID
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING, Any
 
-from app.services.debtor_simulator import DebtorSimulatorService, PersonaContext
-from app.services.transcript_manager import TranscriptManager
 from app.services.voice.audio_buffer import AudioBuffer
 from app.services.voice.peer_connection_manager import PeerConnectionManager
-from app.services.voice.stt_service import STTServiceProtocol, TranscriptionResult
-from app.services.voice.tts_service import TTSServiceProtocol, AudioStream
 from app.services.voice.vad import VADProcessor
+
+
+if TYPE_CHECKING:
+    from uuid import UUID
+
+    from app.services.debtor_simulator import DebtorSimulatorService, PersonaContext
+    from app.services.transcript_manager import TranscriptManager
+    from app.services.voice.stt_service import STTServiceProtocol
+    from app.services.voice.tts_service import TTSServiceProtocol
+
 
 logger = logging.getLogger(__name__)
 
@@ -60,9 +65,9 @@ class VoicePipelineOrchestrator:
         transcript_manager: TranscriptManager,
         stt_service: STTServiceProtocol,
         tts_service: TTSServiceProtocol,
-        peer_connection_manager: Optional[PeerConnectionManager] = None,
-        vad: Optional[VADProcessor] = None,
-        audio_buffer: Optional[AudioBuffer] = None,
+        peer_connection_manager: PeerConnectionManager | None = None,
+        vad: VADProcessor | None = None,
+        audio_buffer: AudioBuffer | None = None,
         script_content: dict[str, Any] | None = None,
     ) -> None:
         """Initialize the voice pipeline orchestrator.
@@ -141,9 +146,7 @@ class VoicePipelineOrchestrator:
         try:
             while self._state.is_active:
                 try:
-                    frame = await asyncio.wait_for(
-                        track.recv(), timeout=5.0
-                    )
+                    frame = await asyncio.wait_for(track.recv(), timeout=5.0)
                     # Extract raw PCM bytes from the frame
                     if hasattr(frame, "to_ndarray"):
                         # aiortc AudioFrame - convert to bytes
@@ -157,7 +160,7 @@ class VoicePipelineOrchestrator:
                         pcm_bytes = bytes(frame)
 
                     await self.process_audio_frame(pcm_bytes)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     # No frame received within timeout - continue listening
                     continue
                 except Exception as e:
@@ -172,7 +175,7 @@ class VoicePipelineOrchestrator:
         finally:
             logger.info("Session %s: audio track handling ended", self.session_id)
 
-    async def process_audio_frame(self, frame: bytes) -> Optional[bytes]:
+    async def process_audio_frame(self, frame: bytes) -> bytes | None:
         """Process a single audio frame through the VAD → buffer → STT → LLM → TTS pipeline.
 
         Routes the frame through VAD for speech detection, accumulates in the
@@ -210,7 +213,7 @@ class VoicePipelineOrchestrator:
 
         return None
 
-    async def _process_utterance(self) -> Optional[bytes]:
+    async def _process_utterance(self) -> bytes | None:
         """Process a complete utterance: STT → transcript → LLM → TTS → transcript.
 
         Flushes the audio buffer, transcribes via STT, records the agent's
@@ -228,11 +231,9 @@ class VoicePipelineOrchestrator:
             TTS audio bytes for the debtor response, or None on failure.
         """
         from app.services.debtor_simulator import (
-            select_opening_response,
-            evaluate_escalation_conditions,
             evaluate_conversation_goal_completion,
-            match_trigger_phrase,
-            match_payment_condition,
+            evaluate_escalation_conditions,
+            select_opening_response,
         )
 
         # Step 1: Flush buffer to get PCM bytes
@@ -246,19 +247,15 @@ class VoicePipelineOrchestrator:
         try:
             transcription = self._stt_service.transcribe(pcm_audio)
         except Exception as e:
-            logger.error(
-                "Session %s: STT transcription failed: %s", self.session_id, e
-            )
+            logger.error("Session %s: STT transcription failed: %s", self.session_id, e)
             return None
 
         if not transcription.text or not transcription.text.strip():
-            logger.debug(
-                "Session %s: empty transcription, skipping", self.session_id
-            )
+            logger.debug("Session %s: empty transcription, skipping", self.session_id)
             return None
 
         agent_text = transcription.text.strip()
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         # Step 3: Record agent transcript entry
         try:
@@ -285,7 +282,7 @@ class VoicePipelineOrchestrator:
                         session_id=self.session_id,
                         speaker="debtor",
                         text=opening,
-                        timestamp=datetime.now(timezone.utc),
+                        timestamp=datetime.now(UTC),
                     )
                 except Exception as e:
                     logger.error(
@@ -296,9 +293,7 @@ class VoicePipelineOrchestrator:
 
                 # Synthesize opening response via TTS
                 try:
-                    audio_stream = await self._tts_service.synthesize(
-                        opening, language="tl"
-                    )
+                    audio_stream = await self._tts_service.synthesize(opening, language="tl")
                     response_audio = audio_stream.data
                 except Exception as e:
                     logger.error(
@@ -330,7 +325,7 @@ class VoicePipelineOrchestrator:
                             session_id=self.session_id,
                             speaker="debtor",
                             text=escalation_behavior,
-                            timestamp=datetime.now(timezone.utc),
+                            timestamp=datetime.now(UTC),
                         )
                     except Exception as e:
                         logger.error(
@@ -357,9 +352,7 @@ class VoicePipelineOrchestrator:
                     await self.teardown()
                     # Queue the sentinel after teardown; teardown clears stale
                     # output, so queuing it before teardown loses the signal.
-                    await self._output_queue.put(
-                        CallEndSignal(reason=escalation_behavior)
-                    )
+                    await self._output_queue.put(CallEndSignal(reason=escalation_behavior))
                     return response_audio
 
             # Check conversation goal completion
@@ -373,7 +366,7 @@ class VoicePipelineOrchestrator:
                         session_id=self.session_id,
                         speaker="debtor",
                         text=completion_message,
-                        timestamp=datetime.now(timezone.utc),
+                        timestamp=datetime.now(UTC),
                     )
                 except Exception as e:
                     logger.error(
@@ -419,7 +412,7 @@ class VoicePipelineOrchestrator:
             return None
 
         debtor_text = simulator_response.text.strip()
-        response_time = datetime.now(timezone.utc)
+        response_time = datetime.now(UTC)
 
         # Step 5: Record debtor transcript entry
         try:
@@ -443,9 +436,7 @@ class VoicePipelineOrchestrator:
             )
             response_audio = audio_stream.data
         except Exception as e:
-            logger.error(
-                "Session %s: TTS synthesis failed: %s", self.session_id, e
-            )
+            logger.error("Session %s: TTS synthesis failed: %s", self.session_id, e)
             return None
 
         # Step 7: Queue audio for WebRTC output
@@ -462,7 +453,7 @@ class VoicePipelineOrchestrator:
 
         return response_audio
 
-    async def get_next_response_audio(self) -> Optional[bytes | CallEndSignal]:
+    async def get_next_response_audio(self) -> bytes | CallEndSignal | None:
         """Get the next queued response audio for WebRTC output.
 
         Returns:

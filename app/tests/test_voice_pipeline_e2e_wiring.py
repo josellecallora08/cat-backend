@@ -9,10 +9,9 @@ agent and debtor utterances.
 Requirements: 3.1, 3.2, 3.3, 3.4, 4.1, 4.3
 """
 
-import asyncio
 import struct
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -26,8 +25,8 @@ from app.services.debtor_simulator import (
 from app.services.voice.audio_buffer import AudioBuffer
 from app.services.voice.peer_connection_manager import PeerConnectionManager
 from app.services.voice.pipeline_factory import create_voice_pipeline
-from app.services.voice.stt_service import MockSTTService, TranscriptionResult
-from app.services.voice.tts_service import AudioStream, MockTTSService
+from app.services.voice.stt_service import MockSTTService
+from app.services.voice.tts_service import MockTTSService
 from app.services.voice.vad import FRAME_SIZE_BYTES, VADProcessor
 from app.services.voice.voice_pipeline import VoicePipelineOrchestrator
 
@@ -184,11 +183,11 @@ class TestPipelineEndToEndWiring:
 
         # Verify TTS was called with debtor response
         assert len(mock_tts_service.synthesize_calls) == 1
-        synthesized_text, language = mock_tts_service.synthesize_calls[0]
+        synthesized_text, _language = mock_tts_service.synthesize_calls[0]
         assert "trouble with my finances" in synthesized_text
 
         # Verify output was queued
-        queued_audio = await pipeline.get_next_response_audio()
+        await pipeline.get_next_response_audio()
         # The output queue already has the audio (it was put there internally)
         # response_audio was returned directly from process_audio_frame
 
@@ -230,9 +229,7 @@ class TestPipelineEndToEndWiring:
         assert isinstance(debtor_call.kwargs["timestamp"], datetime)
 
     @pytest.mark.asyncio
-    async def test_transcript_timestamps_are_chronological(
-        self, pipeline, mock_transcript_manager
-    ):
+    async def test_transcript_timestamps_are_chronological(self, pipeline, mock_transcript_manager):
         """Agent timestamp precedes debtor timestamp in each exchange.
 
         Validates: Requirement 4.3 (timestamp with millisecond precision).
@@ -278,13 +275,12 @@ class TestPipelineEndToEndWiring:
                 if result is not None:
                     break
 
-        # 3 exchanges × 2 entries (agent + debtor) = 6 transcript entries
+        # 3 exchanges x 2 entries (agent + debtor) = 6 transcript entries
         assert mock_transcript_manager.append_entry.call_count == 6
 
         # Verify alternating agent/debtor pattern
         speakers = [
-            call.kwargs["speaker"]
-            for call in mock_transcript_manager.append_entry.call_args_list
+            call.kwargs["speaker"] for call in mock_transcript_manager.append_entry.call_args_list
         ]
         assert speakers == ["agent", "debtor", "agent", "debtor", "agent", "debtor"]
 
@@ -320,7 +316,7 @@ class TestPipelineEndToEndWiring:
 
         # Buffer should have accumulated 10 frames
         assert pipeline._audio_buffer.frame_count == 10
-        assert pipeline._audio_buffer.duration_ms == 200  # 10 × 20ms
+        assert pipeline._audio_buffer.duration_ms == 200  # 10 x 20ms
 
     @pytest.mark.asyncio
     async def test_output_queue_receives_tts_audio(self, pipeline):
@@ -450,9 +446,7 @@ class TestPipelineFactory:
         assert orchestrator._audio_buffer.max_duration_ms == 15_000
 
     @pytest.mark.asyncio
-    async def test_factory_pipeline_processes_audio_end_to_end(
-        self, session_id, persona
-    ):
+    async def test_factory_pipeline_processes_audio_end_to_end(self, session_id, persona):
         """Pipeline created by factory correctly processes audio through full chain."""
         mock_db = AsyncMock()
         mock_llm = AsyncMock()

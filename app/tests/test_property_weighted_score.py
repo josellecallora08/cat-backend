@@ -16,13 +16,16 @@ from hypothesis import strategies as st
 from app.schemas import EvaluationCategory
 from app.services.evaluation_engine import EvaluationEngine
 
+
 # Strategy: generate a score integer in [0, 100] for each category
-scores_strategy = st.fixed_dictionaries({
-    EvaluationCategory.CALL_OPENING: st.integers(min_value=0, max_value=100),
-    EvaluationCategory.COMPLIANCE: st.integers(min_value=0, max_value=100),
-    EvaluationCategory.EMPATHY_COMMUNICATION: st.integers(min_value=0, max_value=100),
-    EvaluationCategory.NEGOTIATION_RESOLUTION: st.integers(min_value=0, max_value=100),
-})
+scores_strategy = st.fixed_dictionaries(
+    {
+        EvaluationCategory.CALL_OPENING: st.integers(min_value=0, max_value=100),
+        EvaluationCategory.COMPLIANCE: st.integers(min_value=0, max_value=100),
+        EvaluationCategory.EMPATHY_COMMUNICATION: st.integers(min_value=0, max_value=100),
+        EvaluationCategory.NEGOTIATION_RESOLUTION: st.integers(min_value=0, max_value=100),
+    }
+)
 
 
 class TestWeightedScoreCalculation:
@@ -45,9 +48,7 @@ class TestWeightedScoreCalculation:
             + scores[EvaluationCategory.NEGOTIATION_RESOLUTION] * 0.25
         )
 
-        assert result == expected, (
-            f"Expected weighted score {expected}, got {result}"
-        )
+        assert result == expected, f"Expected weighted score {expected}, got {result}"
 
     @given(scores=scores_strategy)
     @settings(max_examples=100)
@@ -59,6 +60,4 @@ class TestWeightedScoreCalculation:
         engine = EvaluationEngine()
         result = engine.calculate_overall_score(scores)
 
-        assert 0 <= result <= 100, (
-            f"Overall score {result} is out of valid range [0, 100]"
-        )
+        assert 0 <= result <= 100, f"Overall score {result} is out of valid range [0, 100]"

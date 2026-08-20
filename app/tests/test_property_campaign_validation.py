@@ -103,20 +103,14 @@ class TestCampaignValidationProperties:
             assert (error.value.status_code, error.value.detail) == expected
 
             expected_queries = 1 if not campaign_exists else 2
-            if (
-                campaign_exists
-                and assigned
-                and campaign_status == CampaignStatus.ACTIVE.value
-            ):
+            if campaign_exists and assigned and campaign_status == CampaignStatus.ACTIVE.value:
                 expected_queries = 3
             assert db.execute.await_count == expected_queries
 
     @given(campaign_status=campaign_statuses)
     @settings(max_examples=100)
     @pytest.mark.asyncio
-    async def test_admin_bypasses_assignment_and_status_checks(
-        self, campaign_status: str
-    ) -> None:
+    async def test_admin_bypasses_assignment_and_status_checks(self, campaign_status: str) -> None:
         """**Validates: Requirement 3.5**"""
         campaign_id, agent_id, scenario_id = uuid4(), uuid4(), uuid4()
         db = _db(
@@ -137,9 +131,7 @@ class TestCampaignValidationProperties:
     @given(campaign_status=st.just(CampaignStatus.ACTIVE.value))
     @settings(max_examples=100)
     @pytest.mark.asyncio
-    async def test_scenario_outside_campaign_is_rejected(
-        self, campaign_status: str
-    ) -> None:
+    async def test_scenario_outside_campaign_is_rejected(self, campaign_status: str) -> None:
         """**Validates: Requirements 2.5, 2.6**"""
         campaign_id, agent_id, scenario_id = uuid4(), uuid4(), uuid4()
         db = _db(

@@ -4,7 +4,7 @@ Feature: campaign-based-session-selection
 Property 8: Session Response Campaign Context.
 """
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
@@ -37,7 +37,7 @@ def _session(campaign: SimpleNamespace | None) -> SimpleNamespace:
         campaign_id=campaign.id if campaign else None,
         campaign=campaign,
         persona_context=None,
-        created_at=datetime(2024, 1, 1, tzinfo=timezone.utc),
+        created_at=datetime(2024, 1, 1, tzinfo=UTC),
         ended_at=None,
     )
 

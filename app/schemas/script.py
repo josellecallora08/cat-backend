@@ -15,6 +15,7 @@ from typing import Annotated
 
 from pydantic import BaseModel, Field, model_validator
 
+
 # Free-text fields share a common ceiling; kept as a local constant here
 # (structural default) while the configurable version lives in app/config.py
 # and is enforced by app/services/script_validator.py.
@@ -160,6 +161,7 @@ class ScriptContract(BaseModel):
 from datetime import datetime
 from typing import Literal
 from uuid import UUID
+
 
 ScriptFormat = Literal["json", "yaml"]
 

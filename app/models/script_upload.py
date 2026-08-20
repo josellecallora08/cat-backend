@@ -1,7 +1,7 @@
 """ScriptUpload model: persistent metadata for uploaded training documents."""
 
 import uuid
-from enum import Enum
+from enum import StrEnum
 
 from sqlalchemy import (
     Column,
@@ -17,8 +17,9 @@ from sqlalchemy.sql import func
 from app.database import Base
 
 
-class UploadStatus(str, Enum):
+class UploadStatus(StrEnum):
     """Upload processing status."""
+
     PENDING = "pending"
     SCANNING = "scanning"
     EXTRACTING = "extracting"
@@ -43,7 +44,9 @@ class ScriptUpload(Base):
     filename_original = Column(String(255), nullable=False)
     mime_type = Column(String(100), nullable=False)
     file_size_bytes = Column(Integer, nullable=False)
-    content_hash = Column(String(64), nullable=True)  # SHA-256 hex; null for pre-extraction failures
+    content_hash = Column(
+        String(64), nullable=True
+    )  # SHA-256 hex; null for pre-extraction failures
 
     # Storage
     storage_key = Column(String(255), nullable=False)  # UUID filename in quarantine
@@ -52,9 +55,13 @@ class ScriptUpload(Base):
     uploaded_by = Column(Uuid, ForeignKey("users.id"), nullable=False)
 
     # Processing status
-    scan_status = Column(String(20), nullable=False, default="pending")  # pending/clean/infected/error
+    scan_status = Column(
+        String(20), nullable=False, default="pending"
+    )  # pending/clean/infected/error
     scan_signature = Column(String(255), nullable=True)  # malware signature if detected
-    extraction_status = Column(String(20), nullable=False, default="pending")  # pending/completed/failed
+    extraction_status = Column(
+        String(20), nullable=False, default="pending"
+    )  # pending/completed/failed
     extraction_error = Column(Text, nullable=True)  # error message if extraction failed
 
     # Extracted content (stored as sanitized pending text, NOT yet a ScriptContract)
@@ -75,9 +82,7 @@ class ScriptUpload(Base):
     rejection_reason = Column(Text, nullable=True)
 
     # Timestamps
-    created_at = Column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )

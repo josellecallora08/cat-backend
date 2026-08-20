@@ -1,7 +1,7 @@
 """Tests for campaign management API endpoints."""
 
 import uuid
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -40,8 +40,8 @@ def _make_campaign(
     campaign.status = status
     campaign.start_date = start_date or date(2025, 1, 1)
     campaign.end_date = end_date or date(2025, 6, 30)
-    campaign.created_at = datetime(2025, 1, 1, tzinfo=timezone.utc)
-    campaign.updated_at = datetime(2025, 1, 1, tzinfo=timezone.utc)
+    campaign.created_at = datetime(2025, 1, 1, tzinfo=UTC)
+    campaign.updated_at = datetime(2025, 1, 1, tzinfo=UTC)
 
     if scenarios is None:
         scenario = MagicMock()
@@ -216,8 +216,8 @@ class TestListCampaigns:
                     agents_count=3,
                     start_date=date(2025, 1, 1),
                     end_date=date(2025, 6, 30),
-                    created_at=datetime(2025, 1, 1, tzinfo=timezone.utc),
-                    updated_at=datetime(2025, 1, 1, tzinfo=timezone.utc),
+                    created_at=datetime(2025, 1, 1, tzinfo=UTC),
+                    updated_at=datetime(2025, 1, 1, tzinfo=UTC),
                 ),
             ],
             total=1,
@@ -250,8 +250,8 @@ class TestListCampaigns:
                     agents_count=1,
                     start_date=date(2025, 1, 1),
                     end_date=date(2025, 6, 30),
-                    created_at=datetime(2025, 1, 1, tzinfo=timezone.utc),
-                    updated_at=datetime(2025, 1, 1, tzinfo=timezone.utc),
+                    created_at=datetime(2025, 1, 1, tzinfo=UTC),
+                    updated_at=datetime(2025, 1, 1, tzinfo=UTC),
                 ),
             ],
             total=1,
