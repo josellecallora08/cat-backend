@@ -226,6 +226,27 @@ async def publish_standard(
             )
         ).scalar_one_or_none()
     if current is not None and current.content_hash == content_hash:
+        # Re-publishing an unchanged draft is idempotent, but it must still
+        # complete the lifecycle transition from draft to published. This can
+        # happen after reopening a standard without changing its content.
+        if (
+            standard.status != "published"
+            or standard.current_version_id != current.id
+        ):
+            standard.current_version_id = current.id
+            standard.status = "published"
+            standard.updated_by = admin_id
+            standard.revision += 1
+            await db.commit()
+            await db.refresh(standard)
+            _audit(
+                "negotiation_standard_published",
+                standard,
+                admin_id,
+                version_id=current.id,
+                version_number=current.version_number,
+                idempotent=True,
+            )
         return current
 
     next_number = (current.version_number + 1) if current is not None else 1

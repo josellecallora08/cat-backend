@@ -132,7 +132,12 @@ async def get_agent_campaign_scenarios(
     if not active_campaign_ids:
         return []
 
-    # Collect active scenarios from those campaigns, deduplicated
+    # Collect active scenarios from those campaigns. `Scenario.debtor_profile`
+    # is a `json` column, which Postgres cannot compare for equality, so a
+    # SQL-level `DISTINCT` across full rows fails with
+    # "could not identify an equality operator for type json". A scenario can
+    # also be linked to multiple of the agent's active campaigns, producing
+    # duplicate rows here, so dedupe by scenario id in Python instead.
     scenarios_stmt = (
         select(Scenario)
         .join(
@@ -143,10 +148,10 @@ async def get_agent_campaign_scenarios(
             campaign_scenarios.c.campaign_id.in_(active_campaign_ids),
             Scenario.is_active == True,  # noqa: E712
         )
-        .distinct()
     )
     result = await db.execute(scenarios_stmt)
     scenarios = list(result.scalars().all())
+    deduplicated = list({s.id: s for s in scenarios}.values())
 
     return [
         AgentCampaignScenarioItem(
@@ -155,7 +160,7 @@ async def get_agent_campaign_scenarios(
             scenario_type=s.scenario_type,
             description=s.description or "",
         )
-        for s in scenarios
+        for s in deduplicated
     ]
 
 
