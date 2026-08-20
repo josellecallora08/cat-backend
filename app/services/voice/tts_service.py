@@ -12,7 +12,11 @@ from __future__ import annotations
 import asyncio
 import re
 from dataclasses import dataclass
-from typing import AsyncIterator, Protocol
+from typing import TYPE_CHECKING, Protocol
+
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
 
 
 # Audio format constants
@@ -101,9 +105,7 @@ class TTSService:
         try:
             self._voice = self._piper_voice_cls.load(voice_model)
         except Exception as e:
-            raise TTSSynthesisError(
-                f"Failed to load voice model '{voice_model}': {e}"
-            )
+            raise TTSSynthesisError(f"Failed to load voice model '{voice_model}': {e}")
 
     async def synthesize(self, text: str, language: str = "en") -> AudioStream:
         """Synthesize text to PCM audio.
@@ -134,9 +136,7 @@ class TTSService:
         except TTSSynthesisError:
             raise
         except Exception as e:
-            raise TTSSynthesisError(
-                f"Synthesis failed: {e}", original_text=text
-            ) from e
+            raise TTSSynthesisError(f"Synthesis failed: {e}", original_text=text) from e
 
     def _synthesize_sync(self, text: str) -> bytes:
         """Synchronous synthesis using Piper voice.
@@ -164,9 +164,7 @@ class TTSService:
 
         return pcm_data
 
-    async def synthesize_streaming(
-        self, text_chunks: AsyncIterator[str]
-    ) -> AsyncIterator[bytes]:
+    async def synthesize_streaming(self, text_chunks: AsyncIterator[str]) -> AsyncIterator[bytes]:
         """Stream synthesis as LLM tokens arrive, chunked by sentence boundaries.
 
         Accumulates incoming text chunks until a sentence boundary is detected,
@@ -254,9 +252,7 @@ class MockTTSService:
             raise TTSSynthesisError("Cannot synthesize empty text", original_text=text)
 
         if self._should_fail:
-            raise TTSSynthesisError(
-                "Mock synthesis failure", original_text=text
-            )
+            raise TTSSynthesisError("Mock synthesis failure", original_text=text)
 
         self.synthesize_calls.append((text, language))
 
@@ -273,9 +269,7 @@ class MockTTSService:
             channels=TTS_CHANNELS,
         )
 
-    async def synthesize_streaming(
-        self, text_chunks: AsyncIterator[str]
-    ) -> AsyncIterator[bytes]:
+    async def synthesize_streaming(self, text_chunks: AsyncIterator[str]) -> AsyncIterator[bytes]:
         """Stream mock synthesis, chunked by sentence boundaries.
 
         Uses the same sentence-splitting logic as the real service.

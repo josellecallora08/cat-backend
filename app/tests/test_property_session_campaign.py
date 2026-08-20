@@ -7,7 +7,7 @@ Properties 1, 2, and 11: persistence, deletion nullification, and no-campaign cr
 """
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from types import SimpleNamespace
 
 import pytest
@@ -152,7 +152,7 @@ class TestCriteriaCoachingCampaignSerializerExploration:
             campaign=campaign,
             persona_context=None,
             status="completed",
-            created_at=datetime(2024, 1, 1, tzinfo=timezone.utc),
+            created_at=datetime(2024, 1, 1, tzinfo=UTC),
             ended_at=None,
             negotiation_standard_version=None,
         )
@@ -173,7 +173,7 @@ class TestCriteriaCoachingCampaignSerializerExploration:
             campaign=None,
             persona_context=None,
             status="completed",
-            created_at=datetime(2024, 1, 1, tzinfo=timezone.utc),
+            created_at=datetime(2024, 1, 1, tzinfo=UTC),
             ended_at=None,
             negotiation_standard_version=None,
         )

@@ -1,16 +1,17 @@
 """Dashboard API endpoint for aggregated training analytics."""
 
 import logging
-from typing import Optional
-from uuid import UUID as PyUUID
+from datetime import date, datetime, time, timedelta
+from math import isfinite
+from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
-from sqlalchemy import func, select, desc, asc
+from sqlalchemy import String, asc, cast, desc, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_session
-from app.models import Session, Evaluation, Scenario, Transcript
+from app.models import Evaluation, Scenario, Session, Transcript
 from app.models.campaign import Campaign, CampaignAgent, CampaignStatus
 from app.models.user import User, UserRole, UserType
 from app.services.auth import require_auth
@@ -19,6 +20,7 @@ from app.services.trainer_service import (
     get_trainer_campaign,
     get_trainer_campaign_agent_ids,
 )
+
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +37,7 @@ class RecentSession(BaseModel):
     scenario_name: str
     persona_name: str
     status: str
-    overall_score: Optional[float] = None
+    overall_score: float | None = None
     created_at: str
 
 
@@ -48,7 +50,7 @@ class AgentRanking(BaseModel):
     sessions_completed: int
     average_score: float
     best_score: float
-    improvement: Optional[float] = None  # Score change over last sessions
+    improvement: float | None = None  # Score change over last sessions
 
 
 class DashboardStats(BaseModel):
@@ -58,11 +60,11 @@ class DashboardStats(BaseModel):
     completed_sessions: int
     active_sessions: int
     total_scenarios: int
-    average_overall_score: Optional[float] = None
+    average_overall_score: float | None = None
     category_averages: list[CategoryAverage]
     recent_sessions: list[RecentSession]
     total_conversations: int  # total transcript entries
-    improvement_trend: Optional[float] = None  # score change over last 5 sessions
+    improvement_trend: float | None = None  # score change over last 5 sessions
     campaign_name: str | None = None
     campaign_id: str | None = None
     leaderboard: list[AgentRanking] | None = None
@@ -92,16 +94,12 @@ async def get_dashboard(
     - Leaderboard (for admins and trainers; None for agents)
     """
     # Determine role and resolve scoping
-    is_trainer = (
-        user.role == UserRole.USER.value and user.user_type == UserType.TRAINER.value
-    )
-    is_agent = (
-        user.role == UserRole.USER.value and user.user_type == UserType.AGENT.value
-    )
+    is_trainer = user.role == UserRole.USER.value and user.user_type == UserType.TRAINER.value
+    is_agent = user.role == UserRole.USER.value and user.user_type == UserType.AGENT.value
 
     campaign_name: str | None = None
     campaign_id_str: str | None = None
-    scoped_agent_ids: list[PyUUID] | None = None
+    scoped_agent_ids: list[UUID] | None = None
 
     if is_trainer:
         # Resolve trainer's campaign and scope to campaign's agents
@@ -141,7 +139,7 @@ async def get_dashboard(
         pass
 
     # Determine campaign-scoped scenario IDs for agents
-    campaign_scenario_ids: set[PyUUID] | None = None
+    campaign_scenario_ids: set[UUID] | None = None
     if is_agent:
         campaign_scenario_ids = await get_agent_scenario_ids(db, user.id)
 
@@ -151,7 +149,7 @@ async def get_dashboard(
         # Trainer: scope to campaign agent IDs
         session_filter.append(Session.agent_id.in_(scoped_agent_ids))
     elif agent_id:
-        session_filter.append(Session.agent_id == PyUUID(agent_id))
+        session_filter.append(Session.agent_id == UUID(agent_id))
     if campaign_scenario_ids is not None:
         session_filter.append(Session.scenario_id.in_(campaign_scenario_ids))
 
@@ -162,18 +160,14 @@ async def get_dashboard(
     total_result = await db.execute(count_q)
     total_sessions = total_result.scalar_one()
 
-    completed_q = (
-        select(func.count()).select_from(Session).where(Session.status == "completed")
-    )
+    completed_q = select(func.count()).select_from(Session).where(Session.status == "completed")
     for f in session_filter:
         completed_q = completed_q.where(f)
     completed_result = await db.execute(completed_q)
     completed_sessions = completed_result.scalar_one()
 
     active_q = (
-        select(func.count())
-        .select_from(Session)
-        .where(Session.status.in_(["pending", "active"]))
+        select(func.count()).select_from(Session).where(Session.status.in_(["pending", "active"]))
     )
     for f in session_filter:
         active_q = active_q.where(f)
@@ -263,9 +257,7 @@ async def get_dashboard(
         for f in session_filter:
             transcript_q = transcript_q.where(f)
         if campaign_scenario_ids is not None:
-            transcript_q = transcript_q.where(
-                Session.scenario_id.in_(campaign_scenario_ids)
-            )
+            transcript_q = transcript_q.where(Session.scenario_id.in_(campaign_scenario_ids))
     else:
         transcript_q = select(func.count()).select_from(Transcript)
     transcript_result = await db.execute(transcript_q)
@@ -297,9 +289,7 @@ async def get_dashboard(
                 overall_score=round(evaluation.overall_score, 1)
                 if evaluation and not evaluation.is_too_short
                 else None,
-                created_at=(
-                    session.created_at.isoformat() if session.created_at else ""
-                ),
+                created_at=(session.created_at.isoformat() if session.created_at else ""),
             )
         )
 
@@ -313,12 +303,10 @@ async def get_dashboard(
         for f in session_filter:
             trend_stmt = trend_stmt.where(f)
         if campaign_scenario_ids is not None:
-            trend_stmt = trend_stmt.where(
-                Session.scenario_id.in_(campaign_scenario_ids)
-            )
+            trend_stmt = trend_stmt.where(Session.scenario_id.in_(campaign_scenario_ids))
     trend_stmt = trend_stmt.order_by(desc(Evaluation.created_at)).limit(10)
     scored_result = await db.execute(trend_stmt)
-    scored_list = [row for row in scored_result.scalars().all()]
+    scored_list = list(scored_result.scalars().all())
 
     if len(scored_list) >= 6:
         recent_avg = sum(scored_list[:5]) / 5
@@ -346,7 +334,7 @@ async def get_dashboard(
     )
 
 
-async def _get_agent_campaign(db: AsyncSession, agent_id: PyUUID) -> Campaign | None:
+async def _get_agent_campaign(db: AsyncSession, agent_id: UUID) -> Campaign | None:
     """Resolve the first active campaign an agent is assigned to.
 
     Returns the Campaign object or None if the agent has no active campaign.
@@ -366,7 +354,7 @@ async def _get_agent_campaign(db: AsyncSession, agent_id: PyUUID) -> Campaign | 
 
 async def _compute_leaderboard(
     db: AsyncSession,
-    scoped_agent_ids: list[PyUUID] | None = None,
+    scoped_agent_ids: list[UUID] | None = None,
 ) -> list[AgentRanking]:
     """Compute agent rankings, optionally scoped to a list of agent IDs.
 
@@ -417,13 +405,9 @@ async def _compute_leaderboard(
         if len(scores) >= 4:
             recent = scores[-3:]
             earlier = scores[:3]
-            improvement = round(
-                sum(recent) / len(recent) - sum(earlier) / len(earlier), 1
-            )
+            improvement = round(sum(recent) / len(recent) - sum(earlier) / len(earlier), 1)
 
-        name = user_names.get(aid_str) or _agent_names.get(
-            aid_str, f"Agent {aid_str[:8]}"
-        )
+        name = user_names.get(aid_str) or _agent_names.get(aid_str, f"Agent {aid_str[:8]}")
 
         rankings.append(
             AgentRanking(
@@ -451,7 +435,7 @@ class SessionListItem(BaseModel):
     agent_name: str
     agent_email: str
     status: str
-    overall_score: Optional[float] = None
+    overall_score: float | None = None
     created_at: str
 
 
@@ -465,13 +449,17 @@ class PaginatedSessions(BaseModel):
 
 @router.get("/dashboard/sessions", response_model=PaginatedSessions)
 async def list_all_sessions(
-    page: int = 1,
-    page_size: int = 20,
-    agent_id: str | None = None,
-    status: str | None = None,
-    sort_by: str = "created_at",
-    sort_dir: str = "desc",
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    agent_id: UUID | None = Query(default=None),
+    status: str | None = Query(default=None, pattern="^(pending|active|completed)$"),
+    search: str | None = Query(default=None, max_length=200),
+    sort_by: str = Query(default="created_at", pattern="^(created_at|score|scenario|status)$"),
+    sort_dir: str = Query(default="desc", pattern="^(asc|desc)$"),
+    start_date: date | None = Query(default=None),
+    end_date: date | None = Query(default=None),
     db: AsyncSession = Depends(get_session),
+    user: User = Depends(require_auth),
 ):
     """List all sessions with scenario, evaluation, and agent info (paginated).
 
@@ -483,20 +471,51 @@ async def list_all_sessions(
       - sort_by: one of "created_at", "score", "scenario", "status"
       - sort_dir: "asc" or "desc"
     """
-    # Clamp values
-    page = max(1, page)
-    page_size = max(1, min(100, page_size))
     offset = (page - 1) * page_size
+
+    if start_date and end_date and end_date < start_date:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="end_date must be on or after start_date",
+        )
 
     # Build filter conditions
     conditions = []
-    if agent_id:
-        conditions.append(Session.agent_id == PyUUID(agent_id))
+    if user.role == UserRole.USER.value and user.user_type == UserType.AGENT.value:
+        conditions.append(Session.agent_id == user.id)
+    elif user.role == UserRole.USER.value and user.user_type == UserType.TRAINER.value:
+        campaign = await get_trainer_campaign(db, user.id)
+        trainer_agent_ids = (
+            await get_trainer_campaign_agent_ids(db, campaign.id) if campaign else []
+        )
+        conditions.append(Session.agent_id.in_(trainer_agent_ids))
+    if agent_id is not None:
+        conditions.append(Session.agent_id == agent_id)
     if status:
         conditions.append(Session.status == status)
+    if start_date:
+        conditions.append(Session.created_at >= datetime.combine(start_date, time.min))
+    if end_date:
+        end_exclusive = datetime.combine(end_date + timedelta(days=1), time.min)
+        conditions.append(Session.created_at < end_exclusive)
+    if search and search.strip():
+        search_pattern = f"%{search.strip()}%"
+        search_condition = or_(
+            cast(Session.id, String).ilike(search_pattern),
+            cast(Session.persona_context, String).ilike(search_pattern),
+            Scenario.name.ilike(search_pattern),
+            User.full_name.ilike(search_pattern),
+            User.email.ilike(search_pattern),
+        )
+        conditions.append(search_condition)
 
     # Count total
-    count_stmt = select(func.count()).select_from(Session)
+    count_stmt = (
+        select(func.count())
+        .select_from(Session)
+        .outerjoin(Scenario, Scenario.id == Session.scenario_id)
+        .outerjoin(User, User.id == Session.agent_id)
+    )
     for cond in conditions:
         count_stmt = count_stmt.where(cond)
     total = (await db.execute(count_stmt)).scalar_one()
@@ -518,7 +537,7 @@ async def list_all_sessions(
         "scenario": Scenario.name,
         "status": Session.status,
     }
-    sort_col = sort_columns.get(sort_by, Session.created_at)
+    sort_col = sort_columns[sort_by]
     direction = asc if sort_dir == "asc" else desc
     # NULLS LAST so unscored sessions don't dominate score sorts; stable tiebreak by created_at
     stmt = (
@@ -567,11 +586,33 @@ class ScoreDataPoint(BaseModel):
 
     session_number: int
     overall_score: float
-    call_opening: Optional[float] = None
-    compliance: Optional[float] = None
-    empathy_communication: Optional[float] = None
-    negotiation_resolution: Optional[float] = None
+    call_opening: float | None = None
+    compliance: float | None = None
+    empathy_communication: float | None = None
+    negotiation_resolution: float | None = None
     date: str
+
+
+def _extract_category_scores(category_scores: object) -> dict[str, float]:
+    """Extract valid numeric category scores from legacy or rubric JSON."""
+    if not isinstance(category_scores, list):
+        return {}
+
+    extracted: dict[str, float] = {}
+    for score_item in category_scores:
+        if not isinstance(score_item, dict):
+            continue
+        category = score_item.get("category")
+        score = score_item.get("score")
+        if not isinstance(category, str) or isinstance(score, bool):
+            continue
+        try:
+            numeric_score = float(score)
+        except (TypeError, ValueError):
+            continue
+        if isfinite(numeric_score):
+            extracted[category] = numeric_score
+    return extracted
 
 
 @router.get("/dashboard/score-history", response_model=list[ScoreDataPoint])
@@ -593,14 +634,10 @@ async def get_score_history(
     Excludes too-short sessions.
     """
     # Determine role and resolve scoping
-    is_trainer = (
-        user.role == UserRole.USER.value and user.user_type == UserType.TRAINER.value
-    )
-    is_agent = (
-        user.role == UserRole.USER.value and user.user_type == UserType.AGENT.value
-    )
+    is_trainer = user.role == UserRole.USER.value and user.user_type == UserType.TRAINER.value
+    is_agent = user.role == UserRole.USER.value and user.user_type == UserType.AGENT.value
 
-    scoped_agent_ids: list[PyUUID] | None = None
+    scoped_agent_ids: list[UUID] | None = None
 
     if is_trainer:
         # Resolve trainer's campaign and scope to campaign's agents
@@ -626,7 +663,7 @@ async def get_score_history(
         )
     elif agent_id:
         stmt = stmt.join(Session, Session.id == Evaluation.session_id).where(
-            Session.agent_id == PyUUID(agent_id)
+            Session.agent_id == UUID(agent_id)
         )
 
     stmt = stmt.order_by(Evaluation.created_at.asc()).limit(50)
@@ -635,23 +672,18 @@ async def get_score_history(
     evaluations = result.scalars().all()
 
     data_points = []
-    for i, eval in enumerate(evaluations):
-        # Extract per-category scores
-        cat_scores: dict[str, float] = {}
-        if isinstance(eval.category_scores, list):
-            for cs in eval.category_scores:
-                if isinstance(cs, dict) and "category" in cs and "score" in cs:
-                    cat_scores[cs["category"]] = float(cs["score"])
+    for i, evaluation in enumerate(evaluations):
+        cat_scores = _extract_category_scores(evaluation.category_scores)
 
         data_points.append(
             ScoreDataPoint(
                 session_number=i + 1,
-                overall_score=round(eval.overall_score, 1),
+                overall_score=round(evaluation.overall_score, 1),
                 call_opening=cat_scores.get("call_opening"),
                 compliance=cat_scores.get("compliance"),
                 empathy_communication=cat_scores.get("empathy_communication"),
                 negotiation_resolution=cat_scores.get("negotiation_resolution"),
-                date=eval.created_at.isoformat() if eval.created_at else "",
+                date=evaluation.created_at.isoformat() if evaluation.created_at else "",
             )
         )
 
@@ -727,9 +759,7 @@ async def list_agents(db: AsyncSession = Depends(get_session)):
     stmt = select(User).where(User.is_active.is_(True)).order_by(User.full_name)
     result = await db.execute(stmt)
     users = result.scalars().all()
-    return [
-        AgentListItem(id=str(u.id), full_name=u.full_name, email=u.email) for u in users
-    ]
+    return [AgentListItem(id=str(u.id), full_name=u.full_name, email=u.email) for u in users]
 
 
 # In-memory agent name registry (for MVP demo without auth)
@@ -765,12 +795,8 @@ async def get_leaderboard(
     Returns top performers with session count, average/best scores, and trend.
     """
     # Determine role
-    is_agent = (
-        user.role == UserRole.USER.value and user.user_type == UserType.AGENT.value
-    )
-    is_trainer = (
-        user.role == UserRole.USER.value and user.user_type == UserType.TRAINER.value
-    )
+    is_agent = user.role == UserRole.USER.value and user.user_type == UserType.AGENT.value
+    is_trainer = user.role == UserRole.USER.value and user.user_type == UserType.TRAINER.value
 
     # Agents cannot access the leaderboard
     if is_agent:
@@ -780,7 +806,7 @@ async def get_leaderboard(
         )
 
     # Resolve scoping for trainers
-    scoped_agent_ids: list[PyUUID] | None = None
+    scoped_agent_ids: list[UUID] | None = None
     if is_trainer:
         campaign = await get_trainer_campaign(db, user.id)
         if campaign:

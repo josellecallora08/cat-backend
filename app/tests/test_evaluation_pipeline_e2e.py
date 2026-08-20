@@ -35,60 +35,64 @@ def make_evaluation_llm_response(
     negotiation_resolution: int = 65,
 ) -> str:
     """Create a mock LLM evaluation response JSON string."""
-    return json.dumps({
-        "category_scores": {
-            "call_opening": call_opening,
-            "compliance": compliance,
-            "empathy_communication": empathy_communication,
-            "negotiation_resolution": negotiation_resolution,
-        },
-        "strengths": [
-            {
-                "description": "Good call greeting",
-                "category": "call_opening",
-                "transcript_excerpt": "Hello, this is agent speaking",
+    return json.dumps(
+        {
+            "category_scores": {
+                "call_opening": call_opening,
+                "compliance": compliance,
+                "empathy_communication": empathy_communication,
+                "negotiation_resolution": negotiation_resolution,
             },
-            {
-                "description": "Proper disclosure",
-                "category": "compliance",
-                "transcript_excerpt": "This call may be recorded",
-            },
-        ],
-        "weaknesses": [
-            {
-                "description": "Lacked empathy when debtor expressed hardship",
-                "category": "empathy_communication",
-                "transcript_excerpt": "You need to pay now",
-            },
-            {
-                "description": "Did not offer payment plan options",
-                "category": "negotiation_resolution",
-                "transcript_excerpt": "The full amount is due",
-            },
-        ],
-    })
+            "strengths": [
+                {
+                    "description": "Good call greeting",
+                    "category": "call_opening",
+                    "transcript_excerpt": "Hello, this is agent speaking",
+                },
+                {
+                    "description": "Proper disclosure",
+                    "category": "compliance",
+                    "transcript_excerpt": "This call may be recorded",
+                },
+            ],
+            "weaknesses": [
+                {
+                    "description": "Lacked empathy when debtor expressed hardship",
+                    "category": "empathy_communication",
+                    "transcript_excerpt": "You need to pay now",
+                },
+                {
+                    "description": "Did not offer payment plan options",
+                    "category": "negotiation_resolution",
+                    "transcript_excerpt": "The full amount is due",
+                },
+            ],
+        }
+    )
 
 
 def make_coaching_llm_response() -> str:
     """Create a mock LLM coaching response JSON string."""
-    return json.dumps({
-        "mistakes": [
-            {
-                "transcript_position": 3,
-                "transcript_excerpt": "You need to pay now",
-                "category": "empathy_communication",
-                "explanation": "This response lacked acknowledgment of the debtor's financial situation",
-                "recommended_alternative": "I understand this is difficult. Let's explore options that work for your situation.",
-            },
-            {
-                "transcript_position": 5,
-                "transcript_excerpt": "The full amount is due",
-                "category": "negotiation_resolution",
-                "explanation": "Failed to offer flexible payment arrangements",
-                "recommended_alternative": "We have several payment plan options available. Would you like to discuss what works best for you?",
-            },
-        ]
-    })
+    return json.dumps(
+        {
+            "mistakes": [
+                {
+                    "transcript_position": 3,
+                    "transcript_excerpt": "You need to pay now",
+                    "category": "empathy_communication",
+                    "explanation": "This response lacked acknowledgment of the debtor's financial situation",
+                    "recommended_alternative": "I understand this is difficult. Let's explore options that work for your situation.",
+                },
+                {
+                    "transcript_position": 5,
+                    "transcript_excerpt": "The full amount is due",
+                    "category": "negotiation_resolution",
+                    "explanation": "Failed to offer flexible payment arrangements",
+                    "recommended_alternative": "We have several payment plan options available. Would you like to discuss what works best for you?",
+                },
+            ]
+        }
+    )
 
 
 class MockLLMService:
@@ -109,10 +113,7 @@ class MockLLMService:
     ) -> LLMResponse:
         self._call_count += 1
         # First call is evaluation, second is coaching
-        if self._call_count == 1:
-            content = self._evaluation_response
-        else:
-            content = self._coaching_response
+        content = self._evaluation_response if self._call_count == 1 else self._coaching_response
 
         return LLMResponse(
             content=content,
@@ -207,7 +208,10 @@ class TestGetTranscript:
         transcript = await pipeline.get_transcript(session_id, mock_db)
 
         assert len(transcript) == 10
-        assert transcript[0] == {"speaker": "agent", "text": "Hello, this is agent speaking from collections"}
+        assert transcript[0] == {
+            "speaker": "agent",
+            "text": "Hello, this is agent speaking from collections",
+        }
         assert transcript[1] == {"speaker": "debtor", "text": "Hi, what is this about?"}
 
     async def test_empty_transcript_returns_empty_list(self, pipeline, session_id):
@@ -227,9 +231,7 @@ class TestGetTranscript:
 class TestRunEvaluation:
     """Tests for the evaluation step."""
 
-    async def test_produces_evaluation_result(
-        self, pipeline, session_id, sample_transcript_dicts
-    ):
+    async def test_produces_evaluation_result(self, pipeline, session_id, sample_transcript_dicts):
         """run_evaluation should produce a valid EvaluationResult."""
         mock_db = AsyncMock()
 
@@ -237,9 +239,7 @@ class TestRunEvaluation:
             "app.services.evaluation_engine.retry_db_operation",
             new_callable=AsyncMock,
         ):
-            result = await pipeline.run_evaluation(
-                session_id, sample_transcript_dicts, mock_db
-            )
+            result = await pipeline.run_evaluation(session_id, sample_transcript_dicts, mock_db)
 
         assert isinstance(result, EvaluationResult)
         assert result.session_id == session_id
@@ -256,9 +256,7 @@ class TestRunEvaluation:
             "app.services.evaluation_engine.retry_db_operation",
             new_callable=AsyncMock,
         ):
-            result = await pipeline.run_evaluation(
-                session_id, sample_transcript_dicts, mock_db
-            )
+            result = await pipeline.run_evaluation(session_id, sample_transcript_dicts, mock_db)
 
         # Expected: 75*0.20 + 80*0.30 + 60*0.25 + 65*0.25 = 15 + 24 + 15 + 16.25 = 70.25
         assert result.overall_score == pytest.approx(70.25)
@@ -267,9 +265,7 @@ class TestRunEvaluation:
 class TestRunCoaching:
     """Tests for the coaching step."""
 
-    async def test_produces_coaching_report(
-        self, pipeline, session_id, sample_transcript_dicts
-    ):
+    async def test_produces_coaching_report(self, pipeline, session_id, sample_transcript_dicts):
         """run_coaching should produce a valid CoachingReportSchema."""
         mock_db = AsyncMock()
 
@@ -278,9 +274,7 @@ class TestRunCoaching:
             "app.services.evaluation_engine.retry_db_operation",
             new_callable=AsyncMock,
         ):
-            evaluation = await pipeline.run_evaluation(
-                session_id, sample_transcript_dicts, mock_db
-            )
+            evaluation = await pipeline.run_evaluation(session_id, sample_transcript_dicts, mock_db)
 
         with patch(
             "app.services.coaching_engine.retry_db_operation",
@@ -310,17 +304,13 @@ class TestRunLearningPlan:
             "app.services.evaluation_engine.retry_db_operation",
             new_callable=AsyncMock,
         ):
-            evaluation = await pipeline.run_evaluation(
-                session_id, sample_transcript_dicts, mock_db
-            )
+            evaluation = await pipeline.run_evaluation(session_id, sample_transcript_dicts, mock_db)
 
         with patch(
             "app.services.learning_plan_generator.retry_db_operation",
             new_callable=AsyncMock,
         ):
-            plan = await pipeline.run_learning_plan(
-                session_id, agent_id, evaluation, mock_db
-            )
+            plan = await pipeline.run_learning_plan(session_id, agent_id, evaluation, mock_db)
 
         assert isinstance(plan, LearningPlanSchema)
         assert plan.session_id == session_id
@@ -328,25 +318,25 @@ class TestRunLearningPlan:
         assert plan.all_passing is False
         assert len(plan.weak_competencies) == 2
 
-    async def test_all_passing_when_scores_above_threshold(
-        self, session_id, agent_id
-    ):
+    async def test_all_passing_when_scores_above_threshold(self, session_id, agent_id):
         """Learning plan should have all_passing=True when all scores >= 70."""
         # Create a mock LLM that returns high scores
-        high_score_response = json.dumps({
-            "category_scores": {
-                "call_opening": 85,
-                "compliance": 90,
-                "empathy_communication": 75,
-                "negotiation_resolution": 80,
-            },
-            "strengths": [
-                {"description": "Good", "category": "call_opening", "transcript_excerpt": "Hi"}
-            ],
-            "weaknesses": [
-                {"description": "Minor", "category": "compliance", "transcript_excerpt": "Hmm"}
-            ],
-        })
+        high_score_response = json.dumps(
+            {
+                "category_scores": {
+                    "call_opening": 85,
+                    "compliance": 90,
+                    "empathy_communication": 75,
+                    "negotiation_resolution": 80,
+                },
+                "strengths": [
+                    {"description": "Good", "category": "call_opening", "transcript_excerpt": "Hi"}
+                ],
+                "weaknesses": [
+                    {"description": "Minor", "category": "compliance", "transcript_excerpt": "Hmm"}
+                ],
+            }
+        )
 
         class HighScoreLLM:
             async def chat_completion(self, messages, **kwargs):
@@ -355,9 +345,7 @@ class TestRunLearningPlan:
         pipeline = EvaluationPipeline(llm_service=HighScoreLLM())
         mock_db = AsyncMock()
 
-        transcript = [
-            {"speaker": "agent", "text": f"Message {i}"} for i in range(5)
-        ] + [
+        transcript = [{"speaker": "agent", "text": f"Message {i}"} for i in range(5)] + [
             {"speaker": "debtor", "text": f"Reply {i}"} for i in range(5)
         ]
 
@@ -365,17 +353,13 @@ class TestRunLearningPlan:
             "app.services.evaluation_engine.retry_db_operation",
             new_callable=AsyncMock,
         ):
-            evaluation = await pipeline.run_evaluation(
-                session_id, transcript, mock_db
-            )
+            evaluation = await pipeline.run_evaluation(session_id, transcript, mock_db)
 
         with patch(
             "app.services.learning_plan_generator.retry_db_operation",
             new_callable=AsyncMock,
         ):
-            plan = await pipeline.run_learning_plan(
-                session_id, agent_id, evaluation, mock_db
-            )
+            plan = await pipeline.run_learning_plan(session_id, agent_id, evaluation, mock_db)
 
         assert plan.all_passing is True
         assert len(plan.weak_competencies) == 0
@@ -397,15 +381,19 @@ class TestFullPipelineRun:
         mock_result.scalars.return_value = mock_scalars
         mock_db.execute = AsyncMock(return_value=mock_result)
 
-        with patch(
-            "app.services.evaluation_engine.retry_db_operation",
-            new_callable=AsyncMock,
-        ), patch(
-            "app.services.coaching_engine.retry_db_operation",
-            new_callable=AsyncMock,
-        ), patch(
-            "app.services.learning_plan_generator.retry_db_operation",
-            new_callable=AsyncMock,
+        with (
+            patch(
+                "app.services.evaluation_engine.retry_db_operation",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "app.services.coaching_engine.retry_db_operation",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "app.services.learning_plan_generator.retry_db_operation",
+                new_callable=AsyncMock,
+            ),
         ):
             result = await pipeline.run(session_id, agent_id, mock_db)
 
@@ -427,15 +415,19 @@ class TestFullPipelineRun:
         mock_result.scalars.return_value = mock_scalars
         mock_db.execute = AsyncMock(return_value=mock_result)
 
-        with patch(
-            "app.services.evaluation_engine.retry_db_operation",
-            new_callable=AsyncMock,
-        ), patch(
-            "app.services.coaching_engine.retry_db_operation",
-            new_callable=AsyncMock,
-        ), patch(
-            "app.services.learning_plan_generator.retry_db_operation",
-            new_callable=AsyncMock,
+        with (
+            patch(
+                "app.services.evaluation_engine.retry_db_operation",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "app.services.coaching_engine.retry_db_operation",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "app.services.learning_plan_generator.retry_db_operation",
+                new_callable=AsyncMock,
+            ),
         ):
             result = await pipeline.run(session_id, agent_id, mock_db)
 
@@ -457,15 +449,19 @@ class TestFullPipelineRun:
 
         start = time.monotonic()
 
-        with patch(
-            "app.services.evaluation_engine.retry_db_operation",
-            new_callable=AsyncMock,
-        ), patch(
-            "app.services.coaching_engine.retry_db_operation",
-            new_callable=AsyncMock,
-        ), patch(
-            "app.services.learning_plan_generator.retry_db_operation",
-            new_callable=AsyncMock,
+        with (
+            patch(
+                "app.services.evaluation_engine.retry_db_operation",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "app.services.coaching_engine.retry_db_operation",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "app.services.learning_plan_generator.retry_db_operation",
+                new_callable=AsyncMock,
+            ),
         ):
             await pipeline.run(session_id, agent_id, mock_db)
 
@@ -474,9 +470,7 @@ class TestFullPipelineRun:
         # In production with real LLM, must be under 30s
         assert elapsed < 30.0
 
-    async def test_pipeline_handles_empty_transcript(
-        self, pipeline, session_id, agent_id
-    ):
+    async def test_pipeline_handles_empty_transcript(self, pipeline, session_id, agent_id):
         """Pipeline should handle empty transcript gracefully (too-short detection)."""
         mock_db = AsyncMock()
         mock_scalars = MagicMock()
@@ -485,15 +479,19 @@ class TestFullPipelineRun:
         mock_result.scalars.return_value = mock_scalars
         mock_db.execute = AsyncMock(return_value=mock_result)
 
-        with patch(
-            "app.services.evaluation_engine.retry_db_operation",
-            new_callable=AsyncMock,
-        ), patch(
-            "app.services.coaching_engine.retry_db_operation",
-            new_callable=AsyncMock,
-        ), patch(
-            "app.services.learning_plan_generator.retry_db_operation",
-            new_callable=AsyncMock,
+        with (
+            patch(
+                "app.services.evaluation_engine.retry_db_operation",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "app.services.coaching_engine.retry_db_operation",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "app.services.learning_plan_generator.retry_db_operation",
+                new_callable=AsyncMock,
+            ),
         ):
             result = await pipeline.run(session_id, agent_id, mock_db)
 
@@ -515,15 +513,19 @@ class TestFullPipelineRun:
         mock_llm = MockLLMService()
         pipeline = EvaluationPipeline(llm_service=mock_llm)
 
-        with patch(
-            "app.services.evaluation_engine.retry_db_operation",
-            new_callable=AsyncMock,
-        ), patch(
-            "app.services.coaching_engine.retry_db_operation",
-            new_callable=AsyncMock,
-        ), patch(
-            "app.services.learning_plan_generator.retry_db_operation",
-            new_callable=AsyncMock,
+        with (
+            patch(
+                "app.services.evaluation_engine.retry_db_operation",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "app.services.coaching_engine.retry_db_operation",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "app.services.learning_plan_generator.retry_db_operation",
+                new_callable=AsyncMock,
+            ),
         ):
             result = await pipeline.run(session_id, agent_id, mock_db)
 
@@ -543,23 +545,25 @@ class TestFullPipelineRun:
         mock_result.scalars.return_value = mock_scalars
         mock_db.execute = AsyncMock(return_value=mock_result)
 
-        with patch(
-            "app.services.evaluation_engine.retry_db_operation",
-            new_callable=AsyncMock,
-        ), patch(
-            "app.services.coaching_engine.retry_db_operation",
-            new_callable=AsyncMock,
-        ), patch(
-            "app.services.learning_plan_generator.retry_db_operation",
-            new_callable=AsyncMock,
+        with (
+            patch(
+                "app.services.evaluation_engine.retry_db_operation",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "app.services.coaching_engine.retry_db_operation",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "app.services.learning_plan_generator.retry_db_operation",
+                new_callable=AsyncMock,
+            ),
         ):
             result = await pipeline.run(session_id, agent_id, mock_db)
 
         # empathy_communication=60 → Financial Hardship
         # negotiation_resolution=65 → Payment Arrangement
-        weak_categories = {
-            item.category for item in result.learning_plan.weak_competencies
-        }
+        weak_categories = {item.category for item in result.learning_plan.weak_competencies}
         assert EvaluationCategory.EMPATHY_COMMUNICATION in weak_categories
         assert EvaluationCategory.NEGOTIATION_RESOLUTION in weak_categories
 

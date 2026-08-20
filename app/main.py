@@ -7,27 +7,28 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api import (
     admin_users,
     agent_me,
+    auth,
     campaign_dashboard,
     campaign_scenarios,
     campaigns,
+    config,
+    dashboard,
     events,
+    negotiation_standards,
+    profile,
+    review,
     scenarios,
+    scripts,
     session_reports,
     sessions,
-    voice,
     tts,
-    dashboard,
-    auth,
-    config,
-    profile,
-    scripts,
     uploads,
-    review,
-    negotiation_standards,
+    voice,
 )
 from app.config import settings
 from app.database import async_session_factory, get_session
 from app.services.event_instances import event_connection_manager
+
 
 logger = logging.getLogger(__name__)
 
@@ -65,39 +66,34 @@ async def _fix_orphaned_sessions():
     was a random UUID instead of the logged-in user's ID.
     """
     from sqlalchemy import select, update
+
     from app.models import Session
     from app.models.user import User
 
     async with async_session_factory() as db:
         # Get all valid user IDs
         user_result = await db.execute(select(User.id))
-        valid_user_ids = set(row[0] for row in user_result.all())
+        valid_user_ids = {row[0] for row in user_result.all()}
 
         if not valid_user_ids:
             return
 
         # Find sessions with agent_ids that don't match any user
         session_result = await db.execute(select(Session.id, Session.agent_id))
-        orphaned = [
-            (sid, aid) for sid, aid in session_result.all() if aid not in valid_user_ids
-        ]
+        orphaned = [(sid, aid) for sid, aid in session_result.all() if aid not in valid_user_ids]
 
         if not orphaned:
             return
 
         # Get the first agent user (prefer agent role over admin)
         agent_user = await db.execute(
-            select(User.id)
-            .where(User.role == "agent", User.is_active.is_(True))
-            .limit(1)
+            select(User.id).where(User.role == "agent", User.is_active.is_(True)).limit(1)
         )
         default_agent = agent_user.scalar_one_or_none()
 
         if not default_agent:
             # Fallback to any user
-            any_user = await db.execute(
-                select(User.id).where(User.is_active.is_(True)).limit(1)
-            )
+            any_user = await db.execute(select(User.id).where(User.is_active.is_(True)).limit(1))
             default_agent = any_user.scalar_one_or_none()
 
         if not default_agent:
@@ -106,9 +102,7 @@ async def _fix_orphaned_sessions():
         # Reassign orphaned sessions
         orphaned_ids = [sid for sid, _ in orphaned]
         await db.execute(
-            update(Session)
-            .where(Session.id.in_(orphaned_ids))
-            .values(agent_id=default_agent)
+            update(Session).where(Session.id.in_(orphaned_ids)).values(agent_id=default_agent)
         )
         await db.commit()
         logger.info(
@@ -162,6 +156,25 @@ async def lifespan(app: FastAPI):
         # Fix orphaned sessions: assign sessions with unknown agent_ids to existing users
         await _fix_orphaned_sessions()
 
+        if settings.rubric_seed_enabled:
+            from scripts.seed_rubrics import run_seed
+
+            rubric_result = await run_seed()
+            logger.info(
+                "Rubric startup seeding complete: status=%s run_id=%s source_id=%s "
+                "reused_rubrics=%d created_rubrics=%d reused_versions=%d "
+                "created_versions=%d published_versions=%d rejected_definitions=%d",
+                rubric_result.status,
+                rubric_result.run_id,
+                rubric_result.source_id,
+                rubric_result.reused_rubrics,
+                rubric_result.created_rubrics,
+                rubric_result.reused_versions,
+                rubric_result.created_versions,
+                rubric_result.published_versions,
+                rubric_result.rejected_definitions,
+            )
+
         logger.info("Startup seeding complete")
 
     except Exception as e:
@@ -191,9 +204,7 @@ def create_app() -> FastAPI:
     )
 
     # Parse CORS origins from comma-separated string or "*"
-    origins = (
-        settings.cors_origins.split(",") if settings.cors_origins != "*" else ["*"]
-    )
+    origins = settings.cors_origins.split(",") if settings.cors_origins != "*" else ["*"]
     origins = [o.strip() for o in origins if o.strip()]
 
     app.add_middleware(
@@ -213,23 +224,23 @@ def create_app() -> FastAPI:
     )
     app.include_router(scenarios.router, prefix="/api/scenarios", tags=["scenarios"])
     app.include_router(sessions.router, prefix="/api/sessions", tags=["sessions"])
-    app.include_router(
-        session_reports.router, prefix="/api/sessions", tags=["session-reports"]
-    )
+    app.include_router(session_reports.router, prefix="/api/sessions", tags=["session-reports"])
     app.include_router(voice.router, tags=["voice"])
     app.include_router(tts.router, prefix="/api", tags=["tts"])
     app.include_router(dashboard.router, prefix="/api", tags=["dashboard"])
     app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
     app.include_router(config.router, prefix="/api", tags=["config"])
     app.include_router(agent_me.router, prefix="/api/me", tags=["agent-me"])
-    app.include_router(
-        admin_users.router, prefix="/api/admin/users", tags=["admin-users"]
-    )
+    app.include_router(admin_users.router, prefix="/api/admin/users", tags=["admin-users"])
     app.include_router(profile.router, prefix="/api/profile", tags=["profile"])
     app.include_router(events.router, tags=["events"])
     app.include_router(uploads.router, prefix="/api/scripts", tags=["uploads"])
     app.include_router(review.router, prefix="/api/scripts", tags=["review"])
-    app.include_router(negotiation_standards.router, prefix="/api/campaigns/{campaign_id}/negotiation-standard", tags=["negotiation-standards"])
+    app.include_router(
+        negotiation_standards.router,
+        prefix="/api/campaigns/{campaign_id}/negotiation-standard",
+        tags=["negotiation-standards"],
+    )
     app.include_router(scripts.router, prefix="/api/scripts", tags=["scripts"])
 
     @app.get("/health")
@@ -240,6 +251,7 @@ def create_app() -> FastAPI:
     async def debug_sessions(db=Depends(get_session)):
         """Debug endpoint: shows all sessions with their agent_ids and matching users."""
         from sqlalchemy import select
+
         from app.models import Session
         from app.models.user import User
 
@@ -259,9 +271,7 @@ def create_app() -> FastAPI:
                 {
                     "id": str(s.id),
                     "agent_id": str(s.agent_id),
-                    "agent_email": users.get(
-                        str(s.agent_id), "UNKNOWN - no matching user"
-                    ),
+                    "agent_email": users.get(str(s.agent_id), "UNKNOWN - no matching user"),
                     "status": s.status,
                     "created_at": s.created_at.isoformat() if s.created_at else None,
                 }

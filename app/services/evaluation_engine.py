@@ -36,6 +36,7 @@ from app.services.rubric_prompt_builder import (
 )
 from app.services.rubric_score_calculator import calculate_rubric_score
 
+
 logger = logging.getLogger(__name__)
 
 
@@ -119,9 +120,7 @@ class EvaluationEngine:
         """
         self._llm_service = llm_service
 
-    async def evaluate(
-        self, session_id: UUID, transcript: list[dict], db=None
-    ) -> EvaluationResult:
+    async def evaluate(self, session_id: UUID, transcript: list[dict], db=None) -> EvaluationResult:
         """Run the full evaluation pipeline on a completed session transcript.
 
         Checks if the session is too short, and if not, calls the LLM to
@@ -258,17 +257,21 @@ class EvaluationEngine:
 
         # Ensure at least 1 strength and 1 weakness
         if not all_strengths:
-            all_strengths = [StrengthItem(
-                description="Agent participated in the call",
-                category=EvaluationCategory.CALL_OPENING,
-                transcript_excerpt=transcript[0].get("text", "N/A") if transcript else "N/A",
-            )]
+            all_strengths = [
+                StrengthItem(
+                    description="Agent participated in the call",
+                    category=EvaluationCategory.CALL_OPENING,
+                    transcript_excerpt=transcript[0].get("text", "N/A") if transcript else "N/A",
+                )
+            ]
         if not all_weaknesses:
-            all_weaknesses = [WeaknessItem(
-                description="No specific weaknesses identified",
-                category=EvaluationCategory.CALL_OPENING,
-                transcript_excerpt=transcript[0].get("text", "N/A") if transcript else "N/A",
-            )]
+            all_weaknesses = [
+                WeaknessItem(
+                    description="No specific weaknesses identified",
+                    category=EvaluationCategory.CALL_OPENING,
+                    transcript_excerpt=transcript[0].get("text", "N/A") if transcript else "N/A",
+                )
+            ]
 
         result = EvaluationResult(
             session_id=session_id,
@@ -325,13 +328,18 @@ class EvaluationEngine:
                     for block in snapshot.blocks
                 ],
                 applied_techniques={"techniques_used": [], "reason_if_empty": "Not applicable."},
-                missed_opportunities={"missed_techniques": [], "reason_if_empty": "Not applicable."},
+                missed_opportunities={
+                    "missed_techniques": [],
+                    "reason_if_empty": "Not applicable.",
+                },
             )
             canonical = calculate_rubric_score(
                 validate_observation(not_applicable, snapshot, transcript)
             )
             if db is not None:
-                await self._persist_rubric_evaluation(session_id, canonical, snapshot, standard_version, db)
+                await self._persist_rubric_evaluation(
+                    session_id, canonical, snapshot, standard_version, db
+                )
             return canonical
 
         if self._llm_service is None:
@@ -434,9 +442,7 @@ class EvaluationEngine:
             lines.append(f"{speaker}: {text}")
         return "\n".join(lines)
 
-    async def _persist_evaluation(
-        self, session_id: UUID, result: EvaluationResult, db
-    ) -> None:
+    async def _persist_evaluation(self, session_id: UUID, result: EvaluationResult, db) -> None:
         """Persist the evaluation result to the database with retry logic.
 
         Args:
@@ -496,15 +502,11 @@ class EvaluationEngine:
         for category, score in scores.items():
             if not (0 <= score <= 100):
                 raise ValueError(
-                    f"Score for '{category.value}' must be between 0 and 100, "
-                    f"got {score}."
+                    f"Score for '{category.value}' must be between 0 and 100, got {score}."
                 )
 
         # Calculate weighted sum
-        overall = sum(
-            scores[category] * weight
-            for category, weight in CATEGORY_WEIGHTS.items()
-        )
+        overall = sum(scores[category] * weight for category, weight in CATEGORY_WEIGHTS.items())
 
         return overall
 
@@ -521,7 +523,5 @@ class EvaluationEngine:
         Returns:
             True if the agent utterance count is less than 4, False otherwise.
         """
-        agent_utterance_count = sum(
-            1 for entry in transcript if entry.get("speaker") == "agent"
-        )
+        agent_utterance_count = sum(1 for entry in transcript if entry.get("speaker") == "agent")
         return agent_utterance_count < MIN_AGENT_UTTERANCES

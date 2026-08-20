@@ -1,6 +1,6 @@
 """Event broadcaster for dispatching real-time events to WebSocket clients."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from uuid import UUID
 
 from app.schemas.event import EventData, EventMetadata, EventPayload
@@ -56,7 +56,7 @@ class EventBroadcaster:
             event=event_type,
             data=EventData(
                 id=str(entity_id),
-                timestamp=datetime.now(timezone.utc).isoformat(),
+                timestamp=datetime.now(UTC).isoformat(),
             ),
             seq=seq,
         )

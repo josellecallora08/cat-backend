@@ -31,6 +31,7 @@ from app.services.script_validator import (
     validate_contract_structure,
 )
 
+
 # --- Shared strategies (base: adapted from test_property_script_format.py) ---
 
 # Free-text strategy: printable letters/numbers plus a few safe punctuation
@@ -221,10 +222,9 @@ class TestMissingRequiredFieldsReporting:
         reported_field_paths = _reported_top_level_field_paths(exc_info.value.errors)
 
         for field in fields_to_remove:
-            assert field in reported_field_paths, (
-                f"Expected missing field {field!r} to be reported, got: "
-                f"{reported_field_paths}"
-            )
+            assert (
+                field in reported_field_paths
+            ), f"Expected missing field {field!r} to be reported, got: {reported_field_paths}"
 
     @given(
         contract_dict=valid_script_contract_dicts(min_expected_replies=1),
@@ -505,9 +505,7 @@ class TestProhibitedExpectedConflictDetection:
         data=st.data(),
     )
     @settings(max_examples=100)
-    def test_conflicting_prohibited_response_is_rejected_and_identified(
-        self, contract_dict, data
-    ):
+    def test_conflicting_prohibited_response_is_rejected_and_identified(self, contract_dict, data):
         """A prohibited_responses entry that textually duplicates (after
         trim/case normalization) an expected_replies[*].debtor_reply
         entry is rejected, and the reported error identifies the

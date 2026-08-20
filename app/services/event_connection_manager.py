@@ -103,7 +103,7 @@ class EventConnectionManager:
 
             try:
                 await websocket.send_json(event.model_dump())
-            except Exception:  # noqa: BLE001
+            except Exception:
                 logger.warning(
                     "Failed to send event to user_id=%s, disconnecting",
                     client.user_id,
@@ -144,7 +144,7 @@ class EventConnectionManager:
         for websocket in to_remove:
             try:
                 await websocket.close(code=code)
-            except Exception:  # noqa: BLE001
+            except Exception:
                 logger.warning(
                     "Error closing connection for user_id=%s",
                     user_id,
@@ -162,7 +162,7 @@ class EventConnectionManager:
         for websocket, client in list(self._clients.items()):
             try:
                 await websocket.close(code=code)
-            except Exception:  # noqa: BLE001
+            except Exception:
                 logger.warning(
                     "Error closing connection for user_id=%s during shutdown",
                     client.user_id,
@@ -211,9 +211,7 @@ class EventConnectionManager:
 
         # Trainer: receives events for their assigned campaigns
         if client.user_type == "trainer":
-            if meta.campaign_id and meta.campaign_id in client.campaign_ids:
-                return True
-            return False
+            return bool(meta.campaign_id and meta.campaign_id in client.campaign_ids)
 
         # Agent: receives events for own sessions or own campaign scenarios
         if client.user_type == "agent":

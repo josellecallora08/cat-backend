@@ -28,8 +28,20 @@ def _evaluation(categories, *, version_id=None):
         session_id=uuid.uuid4(),
         category_scores=[],
         overall_score=40,
-        strengths=[{"description": "Good", "category": EvaluationCategory.CALL_OPENING, "transcript_excerpt": "Hi"}],
-        weaknesses=[{"description": "Improve", "category": EvaluationCategory.CALL_OPENING, "transcript_excerpt": "No"}],
+        strengths=[
+            {
+                "description": "Good",
+                "category": EvaluationCategory.CALL_OPENING,
+                "transcript_excerpt": "Hi",
+            }
+        ],
+        weaknesses=[
+            {
+                "description": "Improve",
+                "category": EvaluationCategory.CALL_OPENING,
+                "transcript_excerpt": "No",
+            }
+        ],
         negotiation_standard_version_id=version_id,
         rubric_result=result,
         standard_snapshot={"blocks": []},
@@ -61,17 +73,23 @@ def _category(block_id, name, score, *, passed=False, penalty=0, failed=None, vi
 def test_custom_rubric_category_and_criterion_are_preserved_without_scenario():
     session_id = uuid.uuid4()
     evaluation = _evaluation([_category("custom-block", "De-escalation", 40, failed=["calm-tone"])])
-    evaluation.standard_snapshot = {"blocks": [{
-        "id": "custom-block",
-        "category": "De-escalation",
-        "display_order": 0,
-        "positive_behaviors": [{
-            "id": "calm-tone",
-            "name": "Calm tone",
-            "description": "Use calm language.",
-            "evidence_instructions": "Ask one clarifying question.",
-        }],
-    }]}
+    evaluation.standard_snapshot = {
+        "blocks": [
+            {
+                "id": "custom-block",
+                "category": "De-escalation",
+                "display_order": 0,
+                "positive_behaviors": [
+                    {
+                        "id": "calm-tone",
+                        "name": "Calm tone",
+                        "description": "Use calm language.",
+                        "evidence_instructions": "Ask one clarifying question.",
+                    }
+                ],
+            }
+        ]
+    }
 
     plan = LearningPlanGenerator().generate(evaluation, session_id, uuid.uuid4())
 
@@ -86,19 +104,27 @@ def test_custom_rubric_category_and_criterion_are_preserved_without_scenario():
 
 
 def test_multiple_criteria_are_deduplicated_and_ranked_deterministically():
-    evaluation = _evaluation([
-        _category("z-block", "Z", 30, penalty=10, failed=["b", "a", "a"], violations=["b"]),
-        _category("a-block", "A", 30, penalty=10, failed=["c"]),
-    ])
-    evaluation.standard_snapshot = {"blocks": [
-        {"id": "z-block", "category": "Z", "display_order": 0},
-        {"id": "a-block", "category": "A", "display_order": 0},
-    ]}
+    evaluation = _evaluation(
+        [
+            _category("z-block", "Z", 30, penalty=10, failed=["b", "a", "a"], violations=["b"]),
+            _category("a-block", "A", 30, penalty=10, failed=["c"]),
+        ]
+    )
+    evaluation.standard_snapshot = {
+        "blocks": [
+            {"id": "z-block", "category": "Z", "display_order": 0},
+            {"id": "a-block", "category": "A", "display_order": 0},
+        ]
+    }
 
-    items = LearningPlanGenerator().generate(evaluation, uuid.uuid4(), uuid.uuid4()).weak_competencies
+    items = (
+        LearningPlanGenerator().generate(evaluation, uuid.uuid4(), uuid.uuid4()).weak_competencies
+    )
 
     assert [(item.rubric_block_id, item.criterion_id) for item in items] == [
-        ("a-block", "c"), ("z-block", "a"), ("z-block", "b")
+        ("a-block", "c"),
+        ("z-block", "a"),
+        ("z-block", "b"),
     ]
 
 
@@ -142,10 +168,14 @@ def test_learning_plan_item_allows_optional_authorized_scenario_id():
 async def test_authorized_active_campaign_scenario_is_resolved():
     scenario_id = uuid.uuid4()
     version_id = uuid.uuid4()
-    evaluation = _evaluation([_category("custom", "Custom", 40, failed=["criterion"])], version_id=version_id)
+    evaluation = _evaluation(
+        [_category("custom", "Custom", 40, failed=["criterion"])], version_id=version_id
+    )
     evaluation.standard_snapshot = {"blocks": [{"id": "custom", "category": "Custom"}]}
     db = AsyncMock()
-    result = SimpleNamespace(scalar_one_or_none=lambda: SimpleNamespace(id=scenario_id, name="Authorized Practice"))
+    result = SimpleNamespace(
+        scalar_one_or_none=lambda: SimpleNamespace(id=scenario_id, name="Authorized Practice")
+    )
     db.execute.return_value = result
 
     with patch("app.services.learning_plan_generator.retry_db_operation", new_callable=AsyncMock):
@@ -167,12 +197,12 @@ async def test_invalid_scenario_resolution_keeps_focus_without_false_cta(reason)
     generator = LearningPlanGenerator()
 
     with (
-        patch.object(generator, "_resolve_authorized_scenario", new_callable=AsyncMock, return_value=None),
+        patch.object(
+            generator, "_resolve_authorized_scenario", new_callable=AsyncMock, return_value=None
+        ),
         patch("app.services.learning_plan_generator.retry_db_operation", new_callable=AsyncMock),
     ):
-        plan = await generator.generate_and_persist(
-            evaluation, uuid.uuid4(), uuid.uuid4(), db=db
-        )
+        plan = await generator.generate_and_persist(evaluation, uuid.uuid4(), uuid.uuid4(), db=db)
 
     item = plan.weak_competencies[0]
     assert reason

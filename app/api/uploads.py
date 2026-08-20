@@ -7,9 +7,8 @@ is handled separately by S1-09.
 import logging
 import os
 import uuid
-from datetime import datetime, timedelta, timezone
-from typing import Optional
-from uuid import UUID as PyUUID
+from datetime import UTC, datetime, timedelta
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request, UploadFile
 from sqlalchemy import select
@@ -44,6 +43,7 @@ from app.services.upload_validator import (
     validate_mime_type,
     validate_pdf_not_encrypted,
 )
+
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -91,7 +91,6 @@ def _reject(
 
 class ScanMetadataPersistenceError(Exception):
     """Raised when scan-failure metadata cannot be persisted to the database."""
-    pass
 
 
 async def _persist_failed_scan(
@@ -163,7 +162,7 @@ async def upload_training_document(
     file: UploadFile,
     db: AsyncSession = Depends(get_session),
     admin: User = Depends(require_admin),
-    scenario_id: Optional[PyUUID] = Form(None),
+    scenario_id: UUID | None = Form(None),
 ) -> UploadSuccessResponse:
     """Upload a training document for AI debtor script creation."""
     original_filename = sanitize_filename(file.filename or "unnamed")
@@ -185,50 +184,81 @@ async def upload_training_document(
     # 2. Validate scenario_id
     if scenario_id:
         from app.models import Scenario
-        scenario_result = await db.execute(
-            select(Scenario).where(Scenario.id == scenario_id)
-        )
+
+        scenario_result = await db.execute(select(Scenario).where(Scenario.id == scenario_id))
         if scenario_result.scalar_one_or_none() is None:
             raise HTTPException(
                 status_code=422,
-                detail={"error": "invalid_scenario",
-                        "message": f"Scenario with id '{scenario_id}' does not exist."},
+                detail={
+                    "error": "invalid_scenario",
+                    "message": f"Scenario with id '{scenario_id}' does not exist.",
+                },
             )
 
     # 3. Validate extension
     valid, reason = validate_extension(original_filename)
     if not valid:
-        raise _reject(reason, "File extension not allowed. Accepted: .pdf, .docx, .txt, .csv, .md",
-                      admin=admin, filename=original_filename, file_size=0, request=request)
+        raise _reject(
+            reason,
+            "File extension not allowed. Accepted: .pdf, .docx, .txt, .csv, .md",
+            admin=admin,
+            filename=original_filename,
+            file_size=0,
+            request=request,
+        )
 
     # 4. Validate MIME type
     content_type = file.content_type or "application/octet-stream"
     valid, reason = validate_mime_type(original_filename, content_type)
     if not valid:
-        raise _reject(reason, f"MIME type '{content_type}' does not match expected type.",
-                      admin=admin, filename=original_filename, file_size=0, request=request)
+        raise _reject(
+            reason,
+            f"MIME type '{content_type}' does not match expected type.",
+            admin=admin,
+            filename=original_filename,
+            file_size=0,
+            request=request,
+        )
 
     # 5. Streaming size validation
     file_bytes, reason = await validate_file_size_streaming(file, settings.upload_max_file_size)
     if reason is not None:
-        raise _reject(reason, f"File exceeds maximum size of {settings.upload_max_file_size} bytes.",
-                      details={"limit": settings.upload_max_file_size, "actual": len(file_bytes)},
-                      admin=admin, filename=original_filename, file_size=len(file_bytes), request=request)
+        raise _reject(
+            reason,
+            f"File exceeds maximum size of {settings.upload_max_file_size} bytes.",
+            details={"limit": settings.upload_max_file_size, "actual": len(file_bytes)},
+            admin=admin,
+            filename=original_filename,
+            file_size=len(file_bytes),
+            request=request,
+        )
 
     # 6. Validate binary signature
     header_bytes = file_bytes[:8] if len(file_bytes) >= 8 else file_bytes
     valid, reason = validate_file_signature(original_filename, header_bytes)
     if not valid:
-        raise _reject(reason, "File content does not match the declared file type.",
-                      admin=admin, filename=original_filename, file_size=len(file_bytes), request=request)
+        raise _reject(
+            reason,
+            "File content does not match the declared file type.",
+            admin=admin,
+            filename=original_filename,
+            file_size=len(file_bytes),
+            request=request,
+        )
 
     # 7. PDF encryption check
     ext = os.path.splitext(original_filename)[1].lower()
     if ext == ".pdf":
         valid, reason = validate_pdf_not_encrypted(file_bytes)
         if not valid:
-            raise _reject(reason, "Encrypted or password-protected PDFs are not accepted.",
-                          admin=admin, filename=original_filename, file_size=len(file_bytes), request=request)
+            raise _reject(
+                reason,
+                "Encrypted or password-protected PDFs are not accepted.",
+                admin=admin,
+                filename=original_filename,
+                file_size=len(file_bytes),
+                request=request,
+            )
 
     # 8. Store in quarantine
     quarantine_path = store_in_quarantine(file_bytes, ext)
@@ -240,20 +270,25 @@ async def upload_training_document(
             valid, reason = validate_docx_archive(quarantine_path)
             if not valid:
                 quarantine_path.unlink(missing_ok=True)
-                raise _reject(reason, "DOCX file failed archive safety check.",
-                              admin=admin, filename=original_filename,
-                              file_size=len(file_bytes), request=request)
+                raise _reject(
+                    reason,
+                    "DOCX file failed archive safety check.",
+                    admin=admin,
+                    filename=original_filename,
+                    file_size=len(file_bytes),
+                    request=request,
+                )
 
         # 10. Malware scan
         scan_result = scan_file(quarantine_path)
         if not scan_result.clean:
             # Delete quarantined file immediately — infected files must not be retained
             quarantine_path.unlink(missing_ok=True)
-            deleted_at = datetime.now(timezone.utc)
+            deleted_at = datetime.now(UTC)
 
             # Determine scan outcome
             scan_status = "infected" if scan_result.signature else "error"
-            quarantine_expires = datetime.now(timezone.utc) + timedelta(
+            quarantine_expires = datetime.now(UTC) + timedelta(
                 hours=settings.upload_quarantine_retention_hours
             )
 
@@ -313,24 +348,37 @@ async def upload_training_document(
         # 11. Content security validation (before extraction)
         if ext == ".pdf":
             from app.services.pdf_security import validate_pdf_security
+
             valid, reason = validate_pdf_security(file_bytes)
             if not valid:
                 quarantine_path.unlink(missing_ok=True)
-                raise _reject(reason, f"PDF rejected: {reason.value}",
-                              admin=admin, filename=original_filename,
-                              file_size=len(file_bytes), request=request)
+                raise _reject(
+                    reason,
+                    f"PDF rejected: {reason.value}",
+                    admin=admin,
+                    filename=original_filename,
+                    file_size=len(file_bytes),
+                    request=request,
+                )
 
         if ext == ".docx":
             from app.services.docx_security import validate_docx_security
+
             valid, reason = validate_docx_security(quarantine_path)
             if not valid:
                 quarantine_path.unlink(missing_ok=True)
-                raise _reject(reason, f"DOCX rejected: {reason.value}",
-                              admin=admin, filename=original_filename,
-                              file_size=len(file_bytes), request=request)
+                raise _reject(
+                    reason,
+                    f"DOCX rejected: {reason.value}",
+                    admin=admin,
+                    filename=original_filename,
+                    file_size=len(file_bytes),
+                    request=request,
+                )
 
         # 12. Content extraction (only reached for validated clean files)
         from app.services.upload_extractor import ExtractionError
+
         try:
             content = extract_content(quarantine_path, ext)
         except ExtractionError:
@@ -338,16 +386,20 @@ async def upload_training_document(
             raise _reject(
                 UploadRejectionReason.EXTRACTION_FAILED,
                 "Document content could not be safely extracted.",
-                admin=admin, filename=original_filename,
-                file_size=len(file_bytes), request=request,
+                admin=admin,
+                filename=original_filename,
+                file_size=len(file_bytes),
+                request=request,
             )
         except Exception:
             quarantine_path.unlink(missing_ok=True)
             raise _reject(
                 UploadRejectionReason.EXTRACTION_FAILED,
                 "Document content could not be safely extracted.",
-                admin=admin, filename=original_filename,
-                file_size=len(file_bytes), request=request,
+                admin=admin,
+                filename=original_filename,
+                file_size=len(file_bytes),
+                request=request,
             )
         content_hash = compute_content_hash(content)
 
@@ -363,7 +415,7 @@ async def upload_training_document(
 
     # 12. Persist successful upload metadata
     upload_id = uuid.uuid4()
-    quarantine_expires = datetime.now(timezone.utc) + timedelta(
+    quarantine_expires = datetime.now(UTC) + timedelta(
         hours=settings.upload_quarantine_retention_hours
     )
     upload_record = ScriptUpload(
@@ -418,7 +470,7 @@ async def upload_training_document(
         extraction_status="completed",
         status=UploadStatus.COMPLETED.value,
         quarantine_expires_at=quarantine_expires,
-        created_at=upload_record.created_at or datetime.now(timezone.utc),
+        created_at=upload_record.created_at or datetime.now(UTC),
         script_id=None,
         scenario_id=scenario_id,
         processing_notes="Content extracted and stored as pending. ScriptContract conversion available via S1-09.",
@@ -427,7 +479,7 @@ async def upload_training_document(
 
 @router.get("/uploads/{upload_id}/status", response_model=UploadStatusResponse)
 async def get_upload_status(
-    upload_id: PyUUID,
+    upload_id: UUID,
     db: AsyncSession = Depends(get_session),
     admin: User = Depends(require_admin),
 ) -> UploadStatusResponse:
@@ -467,19 +519,19 @@ async def list_uploads(
     offset: int = Query(default=0, ge=0),
 ) -> list[UploadListItem]:
     """List recent uploads (admin only)."""
-    stmt = (
-        select(ScriptUpload)
-        .order_by(ScriptUpload.created_at.desc())
-        .offset(offset)
-        .limit(limit)
-    )
+    stmt = select(ScriptUpload).order_by(ScriptUpload.created_at.desc()).offset(offset).limit(limit)
     result = await db.execute(stmt)
     uploads = result.scalars().all()
     return [
         UploadListItem(
-            id=u.id, filename_original=u.filename_original, mime_type=u.mime_type,
-            file_size_bytes=u.file_size_bytes, status=u.status,
-            script_id=u.script_id, scenario_id=u.scenario_id, created_at=u.created_at,
+            id=u.id,
+            filename_original=u.filename_original,
+            mime_type=u.mime_type,
+            file_size_bytes=u.file_size_bytes,
+            status=u.status,
+            script_id=u.script_id,
+            scenario_id=u.scenario_id,
+            created_at=u.created_at,
         )
         for u in uploads
     ]
@@ -491,7 +543,7 @@ async def list_uploads(
     status_code=201,
 )
 async def convert_upload_to_script(
-    upload_id: PyUUID,
+    upload_id: UUID,
     db: AsyncSession = Depends(get_session),
     admin: User = Depends(require_admin),
 ) -> ConversionResponse:
@@ -538,7 +590,9 @@ async def convert_upload_to_script(
             "message": result.message,
         }
         if result.existing_script_id is not None:
-            detail["script_id" if result.error == "already_converted" else "existing_script_id"] = str(result.existing_script_id)
+            detail["script_id" if result.error == "already_converted" else "existing_script_id"] = (
+                str(result.existing_script_id)
+            )
         raise HTTPException(status_code=409, detail=detail)
 
     if isinstance(result, ConversionRejection):
@@ -548,3 +602,4 @@ async def convert_upload_to_script(
         if result.details:
             detail["details"] = result.details
         raise HTTPException(status_code=422, detail=detail)
+    return None

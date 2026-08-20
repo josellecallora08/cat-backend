@@ -88,18 +88,12 @@ async def get_agent_campaigns_with_progress(
     if not campaigns:
         return []
 
-    completed_scenario = case(
-        (Session.id.is_not(None), campaign_scenarios.c.scenario_id)
-    )
+    completed_scenario = case((Session.id.is_not(None), campaign_scenarios.c.scenario_id))
     progress_statement = (
         select(
             campaign_scenarios.c.campaign_id,
-            func.count(func.distinct(campaign_scenarios.c.scenario_id)).label(
-                "total_scenarios"
-            ),
-            func.count(func.distinct(completed_scenario)).label(
-                "accomplished_scenarios"
-            ),
+            func.count(func.distinct(campaign_scenarios.c.scenario_id)).label("total_scenarios"),
+            func.count(func.distinct(completed_scenario)).label("accomplished_scenarios"),
         )
         .outerjoin(
             Session,

@@ -20,6 +20,7 @@ from hypothesis import strategies as st
 from app.schemas.script import ScriptContract
 from app.services.script_validator import ScriptFormatError, parse_script_definition
 
+
 # --- Strategies ---
 
 # Free-text strategy: printable letters/numbers plus a few safe punctuation
@@ -167,9 +168,7 @@ class TestScriptFormatRoundTrip:
 # Arbitrary format strings that are not the exact (case-sensitive) supported
 # values "json" or "yaml". Includes near-misses (different case, whitespace,
 # substrings), empty strings, and arbitrary text.
-unsupported_format_strings = st.text(max_size=20).filter(
-    lambda s: s != "json" and s != "yaml"
-)
+unsupported_format_strings = st.text(max_size=20).filter(lambda s: s != "json" and s != "yaml")
 
 # Arbitrary raw_text content: empty strings, garbage text, and even text that
 # would be valid JSON/YAML if it were parsed under the right format — the

@@ -1,7 +1,7 @@
 """Tests for the Script Registry management API endpoints."""
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -36,7 +36,7 @@ def _mock_non_admin_user():
 def _make_script(
     name: str = "Test Script",
     status: str = "draft",
-    format: str = "json",
+    format_: str = "json",
     scenario_id: uuid.UUID | None = None,
     draft_content: dict | None = None,
     current_version_id: uuid.UUID | None = None,
@@ -47,13 +47,13 @@ def _make_script(
     script.name = name
     script.scenario_id = scenario_id or uuid.uuid4()
     script.status = status
-    script.format = format
+    script.format = format_
     script.draft_content = (
         draft_content if draft_content is not None else {"opening_response": "Hello"}
     )
     script.current_version_id = current_version_id
-    script.created_at = datetime(2025, 1, 1, tzinfo=timezone.utc)
-    script.updated_at = datetime(2025, 1, 1, tzinfo=timezone.utc)
+    script.created_at = datetime(2025, 1, 1, tzinfo=UTC)
+    script.updated_at = datetime(2025, 1, 1, tzinfo=UTC)
     return script
 
 
@@ -70,7 +70,7 @@ def _make_version(
     version.version_number = version_number
     version.content = content if content is not None else {"opening_response": "Hello"}
     version.published_by = published_by or uuid.uuid4()
-    version.published_at = datetime(2025, 1, 1, tzinfo=timezone.utc)
+    version.published_at = datetime(2025, 1, 1, tzinfo=UTC)
     return version
 
 
@@ -333,14 +333,17 @@ class TestPublishScript:
 
     async def test_publishes_script_successfully(self, client):
         script = _make_script(name="Published Script", status="published")
-        with patch(
-            "app.api.scripts.publish",
-            new_callable=AsyncMock,
-            return_value=None,
-        ), patch(
-            "app.api.scripts.get_script",
-            new_callable=AsyncMock,
-            return_value=script,
+        with (
+            patch(
+                "app.api.scripts.publish",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+            patch(
+                "app.api.scripts.get_script",
+                new_callable=AsyncMock,
+                return_value=script,
+            ),
         ):
             response = await client.post(f"/api/scripts/{script.id}/publish")
             assert response.status_code == 200

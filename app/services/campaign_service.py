@@ -6,6 +6,7 @@ from uuid import UUID
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models import Scenario
 from app.models.campaign import (
     Campaign,
     CampaignAgent,
@@ -13,7 +14,6 @@ from app.models.campaign import (
     campaign_scenarios,
 )
 from app.models.user import User, UserRole, UserType
-from app.models import Scenario
 from app.schemas.campaign import (
     AgentAssignment,
     CampaignCreate,
@@ -145,9 +145,7 @@ async def update_campaign(
             )
             result = await db.execute(agent_campaigns_stmt)
             new_campaign_ids = {row[0] for row in result.all()}
-            await event_connection_manager.update_client_scope(
-                agent.agent_id, new_campaign_ids
-            )
+            await event_connection_manager.update_client_scope(agent.agent_id, new_campaign_ids)
 
     await event_broadcaster.emit(
         "campaign.updated",
@@ -274,9 +272,7 @@ async def _replace_scenario_associations(
 ) -> None:
     """Delete existing scenario associations and insert new ones."""
     await db.execute(
-        delete(campaign_scenarios).where(
-            campaign_scenarios.c.campaign_id == campaign_id
-        )
+        delete(campaign_scenarios).where(campaign_scenarios.c.campaign_id == campaign_id)
     )
     await _insert_scenario_associations(db, campaign_id, scenario_ids)
 
@@ -287,9 +283,7 @@ async def _replace_agent_associations(
     agents: list[AgentAssignment],
 ) -> None:
     """Delete existing agent associations and insert new ones."""
-    await db.execute(
-        delete(CampaignAgent).where(CampaignAgent.campaign_id == campaign_id)
-    )
+    await db.execute(delete(CampaignAgent).where(CampaignAgent.campaign_id == campaign_id))
     await _insert_agent_associations(db, campaign_id, agents)
 
 

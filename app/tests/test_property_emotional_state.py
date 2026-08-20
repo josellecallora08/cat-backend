@@ -22,20 +22,24 @@ from app.services.debtor_simulator import AgentTone, EmotionalState, transition_
 all_emotional_states = st.sampled_from(list(EmotionalState))
 
 # Non-boundary states for empathetic tone (not already at max COOPERATIVE=5)
-non_max_states = st.sampled_from([
-    EmotionalState.HOSTILE,
-    EmotionalState.DEFENSIVE,
-    EmotionalState.NEUTRAL,
-    EmotionalState.RECEPTIVE,
-])
+non_max_states = st.sampled_from(
+    [
+        EmotionalState.HOSTILE,
+        EmotionalState.DEFENSIVE,
+        EmotionalState.NEUTRAL,
+        EmotionalState.RECEPTIVE,
+    ]
+)
 
 # Non-boundary states for aggressive tone (not already at min HOSTILE=1)
-non_min_states = st.sampled_from([
-    EmotionalState.DEFENSIVE,
-    EmotionalState.NEUTRAL,
-    EmotionalState.RECEPTIVE,
-    EmotionalState.COOPERATIVE,
-])
+non_min_states = st.sampled_from(
+    [
+        EmotionalState.DEFENSIVE,
+        EmotionalState.NEUTRAL,
+        EmotionalState.RECEPTIVE,
+        EmotionalState.COOPERATIVE,
+    ]
+)
 
 
 class TestEmotionalStateTransitionMonotonicity:
@@ -96,9 +100,9 @@ class TestEmotionalStateTransitionMonotonicity:
         **Validates: Requirements 2.3, 2.4**
         """
         new_state = transition_emotional_state(state, tone)
-        assert isinstance(new_state, EmotionalState), (
-            f"Expected EmotionalState instance, got {type(new_state)}"
-        )
-        assert EmotionalState.HOSTILE.value <= new_state.value <= EmotionalState.COOPERATIVE.value, (
-            f"State value {new_state.value} is outside valid range [1, 5]"
-        )
+        assert isinstance(
+            new_state, EmotionalState
+        ), f"Expected EmotionalState instance, got {type(new_state)}"
+        assert (
+            EmotionalState.HOSTILE.value <= new_state.value <= EmotionalState.COOPERATIVE.value
+        ), f"State value {new_state.value} is outside valid range [1, 5]"

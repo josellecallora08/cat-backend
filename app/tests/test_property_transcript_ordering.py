@@ -11,9 +11,8 @@ SHALL be monotonically increasing.
 
 import asyncio
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
-import pytest
 import pytest_asyncio
 from hypothesis import given, settings
 from hypothesis import strategies as st
@@ -38,7 +37,7 @@ utterance_texts = st.text(
 timestamps = st.datetimes(
     min_value=datetime(2020, 1, 1),
     max_value=datetime(2030, 12, 31),
-).map(lambda dt: dt.replace(tzinfo=timezone.utc))
+).map(lambda dt: dt.replace(tzinfo=UTC))
 
 
 @st.composite
@@ -75,9 +74,7 @@ async def async_engine():
 @pytest_asyncio.fixture
 async def db_session(async_engine):
     """Provide a fresh async database session for each test."""
-    session_factory = async_sessionmaker(
-        async_engine, class_=AsyncSession, expire_on_commit=False
-    )
+    session_factory = async_sessionmaker(async_engine, class_=AsyncSession, expire_on_commit=False)
     async with session_factory() as session:
         yield session
 
@@ -121,9 +118,7 @@ async def _run_ordering_test(entries_data: list):
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
-    session_factory = async_sessionmaker(
-        engine, class_=AsyncSession, expire_on_commit=False
-    )
+    session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
     async with session_factory() as db_session:
         # Create scenario and session
         scenario = Scenario(
@@ -199,7 +194,7 @@ class TestTranscriptChronologicalOrdering:
         for i in range(1, len(transcript)):
             assert transcript[i].sequence_number > transcript[i - 1].sequence_number, (
                 f"sequence_number at index {i} ({transcript[i].sequence_number}) "
-                f"is not greater than at index {i-1} ({transcript[i-1].sequence_number})"
+                f"is not greater than at index {i - 1} ({transcript[i - 1].sequence_number})"
             )
 
     @given(entries_data=transcript_entry_lists)
@@ -218,12 +213,12 @@ class TestTranscriptChronologicalOrdering:
 
         # Verify the list is sorted by sequence_number ascending
         sequence_numbers = [entry.sequence_number for entry in transcript]
-        assert sequence_numbers == sorted(sequence_numbers), (
-            f"Transcript not ordered by sequence_number ascending: {sequence_numbers}"
-        )
+        assert sequence_numbers == sorted(
+            sequence_numbers
+        ), f"Transcript not ordered by sequence_number ascending: {sequence_numbers}"
 
         # Verify sequence numbers start from 0 and are contiguous
         expected = list(range(len(entries_data)))
-        assert sequence_numbers == expected, (
-            f"Expected contiguous sequence numbers {expected}, got {sequence_numbers}"
-        )
+        assert (
+            sequence_numbers == expected
+        ), f"Expected contiguous sequence numbers {expected}, got {sequence_numbers}"

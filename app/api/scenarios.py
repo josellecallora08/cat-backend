@@ -24,6 +24,7 @@ from app.services.event_instances import event_broadcaster
 from app.services.llm_service import LLMMessage, LLMService
 from app.services.scenario_repository import get_scenario_by_id, list_active_scenarios
 
+
 router = APIRouter()
 
 
@@ -33,11 +34,7 @@ async def list_scenarios(
     user: User | None = Depends(get_current_user),
 ) -> list[ScenarioListItem]:
     """List active training scenarios. Agents see only their campaign scenarios."""
-    if (
-        user
-        and user.role == UserRole.USER.value
-        and user.user_type == UserType.AGENT.value
-    ):
+    if user and user.role == UserRole.USER.value and user.user_type == UserType.AGENT.value:
         items = await get_agent_campaign_scenarios(db, user.id)
         response: list[ScenarioListItem] = []
         for item in items:
@@ -192,16 +189,12 @@ async def generate_scenario(
         data = json.loads(content.strip())
     except (json.JSONDecodeError, ValueError) as e:
         logger.error("Failed to parse scenario generation response: %s", e)
-        raise HTTPException(
-            status_code=500, detail="Failed to parse generated scenario"
-        )
+        raise HTTPException(status_code=500, detail="Failed to parse generated scenario")
 
     # Validate required fields
     debtor_profile = data.get("debtor_profile", {})
     if not debtor_profile.get("name") or not debtor_profile.get("outstanding_balance"):
-        raise HTTPException(
-            status_code=500, detail="Generated scenario has incomplete profile"
-        )
+        raise HTTPException(status_code=500, detail="Generated scenario has incomplete profile")
 
     # Save to database
     import uuid

@@ -11,9 +11,26 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Scenario
+from app.models import Campaign, Scenario, campaign_scenarios
+
+
+BPI_CAMPAIGN_NAME = "BPI"
+PAYMENT_ARRANGEMENT_SCENARIO_NAME = "Temporary Financial Hardship Payment Arrangement"
+PAYMENT_ARRANGEMENT_SCENARIO = {
+    "name": "Maria Santos",
+    "outstanding_balance": "45000.00",
+    "days_past_due": 30,
+    "personality_profile": (
+        "Concerned but cooperative small-business owner whose income has been reduced. "
+        "She wants to resolve the debt but cannot pay the full balance immediately."
+    ),
+    "conversation_goal": (
+        "Agree on an affordable payment arrangement that fits her reduced income."
+    ),
+}
 
 logger = logging.getLogger(__name__)
+
 
 DEFAULT_SCENARIOS = [
     {
@@ -170,6 +187,66 @@ DEFAULT_SCENARIOS = [
         },
     },
 ]
+
+
+async def seed_bpi_payment_arrangement_scenario(
+    db: AsyncSession,
+) -> tuple[uuid.UUID, uuid.UUID] | None:
+    """Create or associate the payment-arrangement scenario with the BPI campaign.
+
+    The operation is additive and idempotent: it never changes existing scenario data
+    or touches sessions, evaluations, users, or rubric versions. ``None`` is returned
+    when the BPI campaign does not exist.
+    """
+    campaign = (
+        await db.execute(select(Campaign).where(Campaign.name == BPI_CAMPAIGN_NAME))
+    ).scalar_one_or_none()
+    if campaign is None:
+        logger.warning("Campaign %r was not found; no scenario was seeded.", BPI_CAMPAIGN_NAME)
+        return None
+
+    scenario = (
+        await db.execute(select(Scenario).where(Scenario.name == PAYMENT_ARRANGEMENT_SCENARIO_NAME))
+    ).scalar_one_or_none()
+    if scenario is None:
+        scenario = Scenario(
+            name=PAYMENT_ARRANGEMENT_SCENARIO_NAME,
+            scenario_type="PAYMENT_EXTENSION",
+            description=(
+                "Practice an empathetic payment arrangement conversation with a debtor "
+                "experiencing temporary financial hardship."
+            ),
+            debtor_profile=PAYMENT_ARRANGEMENT_SCENARIO.copy(),
+            is_active=True,
+        )
+        db.add(scenario)
+        await db.flush()
+    else:
+        # Repair the known legacy row in place without affecting associations or history.
+        scenario.scenario_type = "PAYMENT_EXTENSION"
+        scenario.debtor_profile = PAYMENT_ARRANGEMENT_SCENARIO.copy()
+
+    association = await db.execute(
+        select(campaign_scenarios.c.campaign_id).where(
+            campaign_scenarios.c.campaign_id == campaign.id,
+            campaign_scenarios.c.scenario_id == scenario.id,
+        )
+    )
+    if association.scalar_one_or_none() is None:
+        await db.execute(
+            campaign_scenarios.insert().values(
+                campaign_id=campaign.id,
+                scenario_id=scenario.id,
+            )
+        )
+
+    await db.commit()
+    logger.info(
+        "Ensured BPI payment-arrangement scenario association: campaign=%s scenario=%s",
+        campaign.id,
+        scenario.id,
+    )
+    return campaign.id, scenario.id
 
 
 async def seed_default_scenarios(db: AsyncSession) -> None:

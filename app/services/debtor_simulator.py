@@ -28,51 +28,55 @@ class AgentTone(Enum):
 
 
 # Keywords used for tone classification
-_EMPATHETIC_KEYWORDS = frozenset([
-    "understand",
-    "sorry",
-    "help",
-    "appreciate",
-    "concern",
-    "difficult",
-    "together",
-    "support",
-    "listen",
-    "flexible",
-    "option",
-    "work with you",
-    "i hear you",
-    "take your time",
-    "no pressure",
-    "how can i help",
-    "i understand",
-    "empathize",
-    "care",
-    "comfortable",
-])
+_EMPATHETIC_KEYWORDS = frozenset(
+    [
+        "understand",
+        "sorry",
+        "help",
+        "appreciate",
+        "concern",
+        "difficult",
+        "together",
+        "support",
+        "listen",
+        "flexible",
+        "option",
+        "work with you",
+        "i hear you",
+        "take your time",
+        "no pressure",
+        "how can i help",
+        "i understand",
+        "empathize",
+        "care",
+        "comfortable",
+    ]
+)
 
-_AGGRESSIVE_KEYWORDS = frozenset([
-    "must",
-    "demand",
-    "threat",
-    "pay now",
-    "immediately",
-    "consequence",
-    "legal action",
-    "final notice",
-    "no choice",
-    "forced",
-    "garnish",
-    "lawsuit",
-    "failure to pay",
-    "collection agency",
-    "report",
-    "deadline",
-    "overdue",
-    "unacceptable",
-    "refuse",
-    "penalties",
-])
+_AGGRESSIVE_KEYWORDS = frozenset(
+    [
+        "must",
+        "demand",
+        "threat",
+        "pay now",
+        "immediately",
+        "consequence",
+        "legal action",
+        "final notice",
+        "no choice",
+        "forced",
+        "garnish",
+        "lawsuit",
+        "failure to pay",
+        "collection agency",
+        "report",
+        "deadline",
+        "overdue",
+        "unacceptable",
+        "refuse",
+        "penalties",
+    ]
+)
 
 
 def classify_agent_tone(message: str) -> AgentTone:
@@ -94,10 +98,9 @@ def classify_agent_tone(message: str) -> AgentTone:
 
     if empathetic_count > aggressive_count:
         return AgentTone.EMPATHETIC
-    elif aggressive_count > empathetic_count:
+    if aggressive_count > empathetic_count:
         return AgentTone.AGGRESSIVE
-    else:
-        return AgentTone.NEUTRAL
+    return AgentTone.NEUTRAL
 
 
 # Keywords used to interpret free-text `state_change` descriptions from
@@ -105,35 +108,39 @@ def classify_agent_tone(message: str) -> AgentTone:
 # `EmotionalStateRule.state_change` is free text written by Script authors
 # (e.g. "increase_defensiveness", "decrease_anxiety", "increase_cooperation")
 # rather than a structured numeric delta, so it must be interpreted heuristically.
-_NEGATIVE_EMOTION_KEYWORDS = frozenset([
-    "defensive",
-    "defensiveness",
-    "anxiety",
-    "anxious",
-    "hostility",
-    "hostile",
-    "anger",
-    "angry",
-    "distress",
-    "fear",
-    "resentment",
-    "frustration",
-    "irritation",
-    "agitation",
-])
+_NEGATIVE_EMOTION_KEYWORDS = frozenset(
+    [
+        "defensive",
+        "defensiveness",
+        "anxiety",
+        "anxious",
+        "hostility",
+        "hostile",
+        "anger",
+        "angry",
+        "distress",
+        "fear",
+        "resentment",
+        "frustration",
+        "irritation",
+        "agitation",
+    ]
+)
 
-_POSITIVE_EMOTION_KEYWORDS = frozenset([
-    "cooperation",
-    "cooperative",
-    "trust",
-    "calm",
-    "relief",
-    "receptiveness",
-    "receptive",
-    "comfort",
-    "reassurance",
-    "ease",
-])
+_POSITIVE_EMOTION_KEYWORDS = frozenset(
+    [
+        "cooperation",
+        "cooperative",
+        "trust",
+        "calm",
+        "relief",
+        "receptiveness",
+        "receptive",
+        "comfort",
+        "reassurance",
+        "ease",
+    ]
+)
 
 
 def _resolve_state_change_direction(state_change: str) -> int:
@@ -198,7 +205,7 @@ def _apply_directional_step(current: EmotionalState, direction: int) -> Emotiona
     """Apply a -1/0/+1 directional step to an emotional state, clamped to bounds."""
     if direction > 0:
         return EmotionalState(min(current.value + 1, EmotionalState.COOPERATIVE.value))
-    elif direction < 0:
+    if direction < 0:
         return EmotionalState(max(current.value - 1, EmotionalState.HOSTILE.value))
     return current
 
@@ -251,11 +258,10 @@ def transition_emotional_state(
     if tone == AgentTone.EMPATHETIC:
         new_value = min(current.value + 1, EmotionalState.COOPERATIVE.value)
         return EmotionalState(new_value)
-    elif tone == AgentTone.AGGRESSIVE:
+    if tone == AgentTone.AGGRESSIVE:
         new_value = max(current.value - 1, EmotionalState.HOSTILE.value)
         return EmotionalState(new_value)
-    else:
-        return current
+    return current
 
 
 @dataclass
@@ -300,15 +306,68 @@ PERSONALITY_TO_INITIAL_STATE: dict[str, EmotionalState] = {
 }
 
 # Common Tagalog words used for language detection
-_TAGALOG_WORDS = frozenset([
-    "ako", "ikaw", "siya", "kami", "tayo", "sila", "ang", "ng", "sa",
-    "na", "po", "opo", "hindi", "oo", "wala", "meron", "bakit", "paano",
-    "kailan", "saan", "sino", "ano", "mga", "naman", "lang", "din", "rin",
-    "ba", "kasi", "talaga", "namin", "natin", "niyo", "nila", "ko", "mo",
-    "niya", "ito", "iyan", "iyon", "dito", "diyan", "doon", "pera", "bayad",
-    "utang", "trabaho", "pamilya", "salamat", "pasensya", "kuya", "ate",
-    "magbayad", "problema", "tulong", "mahirap", "bayaran", "kailangan",
-])
+_TAGALOG_WORDS = frozenset(
+    [
+        "ako",
+        "ikaw",
+        "siya",
+        "kami",
+        "tayo",
+        "sila",
+        "ang",
+        "ng",
+        "sa",
+        "na",
+        "po",
+        "opo",
+        "hindi",
+        "oo",
+        "wala",
+        "meron",
+        "bakit",
+        "paano",
+        "kailan",
+        "saan",
+        "sino",
+        "ano",
+        "mga",
+        "naman",
+        "lang",
+        "din",
+        "rin",
+        "ba",
+        "kasi",
+        "talaga",
+        "namin",
+        "natin",
+        "niyo",
+        "nila",
+        "ko",
+        "mo",
+        "niya",
+        "ito",
+        "iyan",
+        "iyon",
+        "dito",
+        "diyan",
+        "doon",
+        "pera",
+        "bayad",
+        "utang",
+        "trabaho",
+        "pamilya",
+        "salamat",
+        "pasensya",
+        "kuya",
+        "ate",
+        "magbayad",
+        "problema",
+        "tulong",
+        "mahirap",
+        "bayaran",
+        "kailangan",
+    ]
+)
 
 
 def detect_language(text: str) -> str:
@@ -337,10 +396,9 @@ def detect_language(text: str) -> str:
 
     if tagalog_ratio >= 0.5:
         return "TL"
-    elif tagalog_ratio >= 0.15:
+    if tagalog_ratio >= 0.15:
         return "TAGLISH"
-    else:
-        return "EN"
+    return "EN"
 
 
 def select_opening_response(script_content: dict[str, Any] | None) -> str | None:
@@ -575,7 +633,7 @@ def _parse_persona_response(response_content: str, scenario: dict[str, Any]) -> 
     if content.startswith("```"):
         # Remove opening fence (with optional language tag)
         first_newline = content.index("\n")
-        content = content[first_newline + 1:]
+        content = content[first_newline + 1 :]
     if content.endswith("```"):
         content = content[:-3]
     content = content.strip()
@@ -761,25 +819,20 @@ class DebtorSimulatorService:
                 # method is invoked; for non-terminal escalation, expose the
                 # scripted behavior to the model as turn context.
                 if not ends_call and escalation_behavior:
-                    script_context.append(
-                        f"Matched escalation behavior: {escalation_behavior}"
-                    )
+                    script_context.append(f"Matched escalation behavior: {escalation_behavior}")
             if trigger_behavior:
                 script_context.append(f"Matched trigger behavior: {trigger_behavior}")
             if payment_match is not None:
                 term, accepted = payment_match
-                script_context.append(
-                    f"Payment condition: term={term}; accepted={accepted}"
-                )
+                script_context.append(f"Payment condition: term={term}; accepted={accepted}")
             escalation_match = evaluate_escalation_conditions(
                 agent_message, script_content.get("escalation_conditions")
             )
             if escalation_match is not None and not escalation_match[1]:
                 script_context.append(f"Escalation behavior: {escalation_match[0]}")
             if script_context:
-                system_prompt += (
-                    "\n\nScript instructions for this turn:\n- "
-                    + "\n- ".join(script_context)
+                system_prompt += "\n\nScript instructions for this turn:\n- " + "\n- ".join(
+                    script_context
                 )
 
         # 5. Build messages with conversation history
@@ -803,7 +856,7 @@ class DebtorSimulatorService:
         # responses are defined, this loop always exits after the first
         # attempt, matching prior behavior exactly.
         debtor_response_text = ""
-        for attempt in range(self._MAX_PROHIBITED_RESPONSE_RETRIES + 1):
+        for _attempt in range(self._MAX_PROHIBITED_RESPONSE_RETRIES + 1):
             response = await self.llm_service.chat_completion(
                 messages,
                 temperature=0.8,
@@ -828,9 +881,7 @@ class DebtorSimulatorService:
             language=detected_language,
         )
 
-    def _build_conversation_system_prompt(
-        self, persona: PersonaContext, language: str
-    ) -> str:
+    def _build_conversation_system_prompt(self, persona: PersonaContext, language: str) -> str:
         """Build the system prompt for conversation response generation.
 
         Args:
@@ -849,9 +900,7 @@ class DebtorSimulatorService:
         }.get(language, "You MUST respond in Taglish (a natural mix of Tagalog and English).")
 
         financial_info = persona.financial_circumstances
-        financial_summary = ", ".join(
-            f"{k}: {v}" for k, v in financial_info.items()
-        )
+        financial_summary = ", ".join(f"{k}: {v}" for k, v in financial_info.items())
 
         return f"""You are roleplaying as {persona.name}, a debtor in a collection call simulation.
 
@@ -880,11 +929,6 @@ INSTRUCTIONS:
 - If the conversation reaches a natural conclusion (payment arranged, dispute resolved, etc.), you may also end politely.
 - If the agent is rambling, repeating themselves, or saying something confusing, you may interrupt with a short interjection like "Teka lang po..." or "Wait, ano po yun?" — keep interruptions to 1-8 words only.
 - Do NOT hang up just because the agent mentions the debt or asks for payment — that is expected in a collection call."""
-
-        # Append global admin prompt if provided
-        if global_prompt:
-            return base_prompt + f"\n\nADMIN GLOBAL INSTRUCTIONS:\n{global_prompt}"
-        return base_prompt
 
 
 def match_payment_condition(
@@ -937,6 +981,7 @@ def match_payment_condition(
             return entry.get("term"), bool(entry.get("accepted", False))
 
     return None
+
 
 def evaluate_conversation_goal_completion(
     agent_message: str, conversation_goal: dict[str, Any] | None

@@ -3,16 +3,15 @@
 import uuid
 
 from sqlalchemy import (
+    JSON,
     Column,
     DateTime,
     ForeignKey,
     Index,
     Integer,
-    JSON,
     String,
-    Text,
-    Uuid,
     UniqueConstraint,
+    Uuid,
     event,
 )
 from sqlalchemy.dialects.postgresql import JSONB
@@ -20,6 +19,7 @@ from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
 from app.database import Base
+
 
 JSONVariant = JSON().with_variant(JSONB, "postgresql")
 
@@ -36,6 +36,8 @@ class NegotiationStandard(Base):
     id = Column(Uuid, primary_key=True, default=uuid.uuid4)
     campaign_id = Column(Uuid, ForeignKey("campaigns.id"), nullable=False, unique=True)
     name = Column(String(120), nullable=False)
+    source_id = Column(String(120), nullable=True)
+    source_rubric_key = Column(String(120), nullable=True)
     description = Column(String(1000), nullable=True)
     status = Column(String(20), nullable=False, default="draft")
     overall_passing_score = Column(Integer, nullable=False, default=70)
@@ -75,6 +77,12 @@ class NegotiationStandard(Base):
     __table_args__ = (
         Index("ix_negotiation_standards_campaign_id", "campaign_id"),
         Index("ix_negotiation_standards_status", "status"),
+        Index("ix_negotiation_standards_source_identity", "source_id", "source_rubric_key"),
+        UniqueConstraint(
+            "source_id",
+            "source_rubric_key",
+            name="uq_negotiation_standards_source_identity",
+        ),
     )
 
 
@@ -110,6 +118,11 @@ class NegotiationStandardVersion(Base):
 
     __table_args__ = (
         UniqueConstraint("standard_id", "version_number"),
+        UniqueConstraint(
+            "standard_id",
+            "content_hash",
+            name="uq_negotiation_standard_versions_content_hash",
+        ),
         Index("ix_negotiation_standard_versions_standard_id", "standard_id"),
         Index("ix_negotiation_standard_versions_published_at", "published_at"),
     )

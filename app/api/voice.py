@@ -10,10 +10,10 @@ response, escalation, trigger phrases, etc.).
 Validates: Requirements 3.4, 3.7, 9.1, 9.2, 9.3, 9.4
 """
 
-import json
-import logging
 import asyncio
 import base64
+import json
+import logging
 from uuid import UUID
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
@@ -22,15 +22,16 @@ from jose import JWTError, jwt
 from app.config import settings
 from app.database import async_session_factory
 from app.models import Session
-from app.services.script_content_loader import load_script_content
 from app.services.debtor_simulator import EmotionalState, PersonaContext
 from app.services.llm_service import LLMService
+from app.services.script_content_loader import load_script_content
+from app.services.voice.peer_connection_manager import (
+    AIORTC_AVAILABLE,
+    PeerConnectionManager,
+)
 from app.services.voice.pipeline_factory import create_voice_pipeline
 from app.services.voice.voice_pipeline import CallEndSignal
-from app.services.voice.peer_connection_manager import (
-    PeerConnectionManager,
-    AIORTC_AVAILABLE,
-)
+
 
 logger = logging.getLogger(__name__)
 
@@ -121,9 +122,7 @@ async def voice_signaling_websocket(websocket: WebSocket, session_id: UUID) -> N
             persona=PersonaContext(
                 persona_id=session_id,
                 name=persona_data.get("name", "Debtor"),
-                communication_style=persona_data.get(
-                    "communication_style", "cooperative"
-                ),
+                communication_style=persona_data.get("communication_style", "cooperative"),
                 financial_circumstances=persona_data.get("financial_circumstances", {}),
                 emotional_state=EmotionalState(persona_data.get("emotional_state", 3)),
                 language=persona_data.get("language", "TAGLISH"),
@@ -169,9 +168,7 @@ async def voice_signaling_websocket(websocket: WebSocket, session_id: UUID) -> N
             try:
                 message = json.loads(raw_data)
             except json.JSONDecodeError:
-                await websocket.send_json(
-                    {"type": "error", "message": "Invalid JSON message"}
-                )
+                await websocket.send_json({"type": "error", "message": "Invalid JSON message"})
                 continue
 
             msg_type = message.get("type")
@@ -193,15 +190,13 @@ async def voice_signaling_websocket(websocket: WebSocket, session_id: UUID) -> N
                         on_track=pipeline.handle_audio_track if pipeline else None,
                     )
                     await websocket.send_json({"type": "answer", "sdp": answer["sdp"]})
-                    logger.info(
-                        f"Session {session_id}: SDP offer processed, answer sent"
-                    )
+                    logger.info(f"Session {session_id}: SDP offer processed, answer sent")
                 except Exception as e:
                     logger.error(f"Session {session_id}: error handling offer: {e}")
                     await websocket.send_json(
                         {
                             "type": "error",
-                            "message": f"Failed to process offer: {str(e)}",
+                            "message": f"Failed to process offer: {e!s}",
                         }
                     )
 
@@ -244,17 +239,13 @@ async def voice_signaling_websocket(websocket: WebSocket, session_id: UUID) -> N
                         sdp_mid=sdp_mid,
                         sdp_mline_index=sdp_mline_index,
                     )
-                    await websocket.send_json(
-                        {"type": "ice_candidate_ack", "status": "added"}
-                    )
+                    await websocket.send_json({"type": "ice_candidate_ack", "status": "added"})
                 except Exception as e:
-                    logger.error(
-                        f"Session {session_id}: error adding ICE candidate: {e}"
-                    )
+                    logger.error(f"Session {session_id}: error adding ICE candidate: {e}")
                     await websocket.send_json(
                         {
                             "type": "error",
-                            "message": f"Failed to add ICE candidate: {str(e)}",
+                            "message": f"Failed to add ICE candidate: {e!s}",
                         }
                     )
 

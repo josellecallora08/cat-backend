@@ -6,7 +6,7 @@ from the database, used by both the text call endpoint and voice pipeline.
 Validates: Requirements 1.1, 1.3
 """
 
-from typing import Any, Optional
+from typing import Any
 from uuid import UUID
 
 from sqlalchemy import select
@@ -16,7 +16,7 @@ from app.models.script import ScriptVersion
 
 
 async def load_script_content(
-    db: AsyncSession, script_version_id: Optional[UUID]
+    db: AsyncSession, script_version_id: UUID | None
 ) -> dict[str, Any] | None:
     """Load the ScriptContract content dict for a pinned ScriptVersion.
 

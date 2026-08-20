@@ -41,7 +41,9 @@ class MockLLMService:
     def __init__(self, response_content: str):
         self._response_content = response_content
 
-    async def chat_completion(self, messages, *, temperature=None, max_tokens=None, response_format=None):
+    async def chat_completion(
+        self, messages, *, temperature=None, max_tokens=None, response_format=None
+    ):
         return LLMResponse(
             content=self._response_content,
             model="test-model",
@@ -84,13 +86,15 @@ def llm_coaching_response_with_mistakes(draw):
                 max_size=100,
             ).filter(lambda s: s.strip() != "")
         )
-        mistakes.append({
-            "transcript_position": position,
-            "transcript_excerpt": excerpt,
-            "category": category,
-            "explanation": explanation,
-            "recommended_alternative": alternative,
-        })
+        mistakes.append(
+            {
+                "transcript_position": position,
+                "transcript_excerpt": excerpt,
+                "category": category,
+                "explanation": explanation,
+                "recommended_alternative": alternative,
+            }
+        )
 
     return {"mistakes": mistakes}
 
@@ -177,7 +181,7 @@ class TestCoachingReportCategoryGrouping:
 
         report = await engine.generate_report(session_id, transcript, evaluation)
 
-        for category_key in report.mistakes_by_category.keys():
+        for category_key in report.mistakes_by_category:
             assert category_key in EvaluationCategory, (
                 f"Key '{category_key}' is not a valid EvaluationCategory. "
                 f"Valid categories: {[c.value for c in EvaluationCategory]}"

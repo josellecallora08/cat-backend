@@ -1,7 +1,7 @@
 """User model for authentication and authorization."""
 
 import uuid
-from enum import Enum
+from enum import StrEnum
 
 from sqlalchemy import Boolean, Column, DateTime, String, Uuid
 from sqlalchemy.sql import func
@@ -9,17 +9,17 @@ from sqlalchemy.sql import func
 from app.database import Base
 
 
-class UserRole(str, Enum):
+class UserRole(StrEnum):
     ADMIN = "admin"
     USER = "user"
 
 
-class UserType(str, Enum):
+class UserType(StrEnum):
     TRAINER = "trainer"
     AGENT = "agent"
 
 
-class AuthProvider(str, Enum):
+class AuthProvider(StrEnum):
     LOCAL = "local"
     LARK = "lark"
     GOOGLE = "google"
@@ -32,19 +32,13 @@ class User(Base):
 
     id = Column(Uuid, primary_key=True, default=uuid.uuid4)
     email = Column(String(255), unique=True, nullable=False, index=True)
-    hashed_password = Column(
-        String(255), nullable=True
-    )  # Nullable for OAuth-only users
+    hashed_password = Column(String(255), nullable=True)  # Nullable for OAuth-only users
     full_name = Column(String(255), nullable=False)
     role = Column(String(20), nullable=False, default=UserRole.USER.value)
     user_type = Column(String(20), nullable=True)
     is_active = Column(Boolean, default=True, nullable=False)
-    created_at = Column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
-    updated_at = Column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
-    )
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     # OAuth fields
     auth_provider = Column(String(20), nullable=False, default=AuthProvider.LOCAL.value)

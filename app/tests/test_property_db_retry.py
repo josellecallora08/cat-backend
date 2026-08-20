@@ -9,7 +9,6 @@ remain accessible in memory for the duration of the active session.
 Validates: Requirements 8.3, 8.5
 """
 
-import asyncio
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -171,6 +170,6 @@ class TestRetryMechanismProperty:
                 backoff_delays=[0, 0, 0],
             )
 
-        assert call_count == MAX_RETRIES, (
-            f"Expected exactly {MAX_RETRIES} attempts, got {call_count}"
-        )
+        assert (
+            call_count == MAX_RETRIES
+        ), f"Expected exactly {MAX_RETRIES} attempts, got {call_count}"

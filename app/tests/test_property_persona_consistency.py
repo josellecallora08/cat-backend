@@ -10,7 +10,7 @@ all turns in the session.
 """
 
 import uuid
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock
 
 import pytest
 from hypothesis import given, settings
@@ -37,15 +37,17 @@ persona_names = st.text(
 communication_styles = st.sampled_from(["cooperative", "evasive", "hostile", "anxious"])
 
 # Generate random financial circumstances
-financial_circumstances_strategy = st.fixed_dictionaries({
-    "income_level": st.sampled_from(["low", "medium", "high"]),
-    "debt_amount": st.integers(min_value=1000, max_value=500000),
-    "reason_for_delinquency": st.text(
-        alphabet=st.characters(whitelist_categories=("L", "Zs")),
-        min_size=5,
-        max_size=100,
-    ).filter(lambda s: s.strip() != ""),
-})
+financial_circumstances_strategy = st.fixed_dictionaries(
+    {
+        "income_level": st.sampled_from(["low", "medium", "high"]),
+        "debt_amount": st.integers(min_value=1000, max_value=500000),
+        "reason_for_delinquency": st.text(
+            alphabet=st.characters(whitelist_categories=("L", "Zs")),
+            min_size=5,
+            max_size=100,
+        ).filter(lambda s: s.strip() != ""),
+    }
+)
 
 # Generate random emotional states
 emotional_states = st.sampled_from(list(EmotionalState))
@@ -216,12 +218,10 @@ class TestPersonaConsistencyAcrossTurns:
         for msg in messages:
             await service.generate_response(persona, msg)
             # Verify all identity fields remain unchanged
-            assert persona.name == name, (
-                f"Name changed from '{name}' to '{persona.name}'"
-            )
-            assert persona.communication_style == style, (
-                f"Communication style changed from '{style}' to '{persona.communication_style}'"
-            )
+            assert persona.name == name, f"Name changed from '{name}' to '{persona.name}'"
+            assert (
+                persona.communication_style == style
+            ), f"Communication style changed from '{style}' to '{persona.communication_style}'"
             assert persona.financial_circumstances == original_finances, (
                 f"Financial circumstances changed from {original_finances} "
                 f"to {persona.financial_circumstances}"

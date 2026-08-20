@@ -23,18 +23,22 @@ SNAPSHOT = {
             "weight": 100,
             "passing_score": 70,
             "scoring_instructions": "Use evidence.",
-            "positive_behaviors": [{
-                "id": "move-forward",
-                "name": "Move Forward",
-                "description": "Redirect the discussion toward a resolution.",
-                "evidence_instructions": "Cite the redirect.",
-            }],
-            "violations": [{
-                "id": "legal-threat",
-                "name": "Legal Threat",
-                "description": "States an unsupported legal consequence.",
-                "evidence_instructions": "Cite the claim.",
-            }],
+            "positive_behaviors": [
+                {
+                    "id": "move-forward",
+                    "name": "Move Forward",
+                    "description": "Redirect the discussion toward a resolution.",
+                    "evidence_instructions": "Cite the redirect.",
+                }
+            ],
+            "violations": [
+                {
+                    "id": "legal-threat",
+                    "name": "Legal Threat",
+                    "description": "States an unsupported legal consequence.",
+                    "evidence_instructions": "Cite the claim.",
+                }
+            ],
             "penalties": [],
             "recommendation_guidance": "Offer a compliant alternative and confirm the next step.",
             "display_order": 0,
@@ -48,13 +52,41 @@ def _observation(**category_changes: object) -> dict:
         "rubric_block_id": "negotiation",
         "raw_score": 60,
         "evidence": [
-            {"sequence_number": 1, "speaker": "agent", "excerpt": "We can discuss options", "explanation": "Redirect."},
-            {"sequence_number": 2, "speaker": "agent", "excerpt": "You will face legal action", "explanation": "Claim."},
+            {
+                "sequence_number": 1,
+                "speaker": "agent",
+                "excerpt": "We can discuss options",
+                "explanation": "Redirect.",
+            },
+            {
+                "sequence_number": 2,
+                "speaker": "agent",
+                "excerpt": "You will face legal action",
+                "explanation": "Claim.",
+            },
         ],
-        "strengths": [{"criterion_id": "move-forward", "explanation": "The agent redirected.", "evidence_sequence_numbers": [1]}],
-        "violations": [{"violation_id": "legal-threat", "explanation": "The agent made a threat.", "evidence_sequence_numbers": [2]}],
+        "strengths": [
+            {
+                "criterion_id": "move-forward",
+                "explanation": "The agent redirected.",
+                "evidence_sequence_numbers": [1],
+            }
+        ],
+        "violations": [
+            {
+                "violation_id": "legal-threat",
+                "explanation": "The agent made a threat.",
+                "evidence_sequence_numbers": [2],
+            }
+        ],
         "failed_criteria": ["legal-threat"],
-        "recommendation_inputs": [{"criterion_id": "legal-threat", "transcript_sequence_number": 2, "need": "Use a compliant alternative."}],
+        "recommendation_inputs": [
+            {
+                "criterion_id": "legal-threat",
+                "transcript_sequence_number": 2,
+                "need": "Use a compliant alternative.",
+            }
+        ],
     }
     category.update(category_changes)
     return {
@@ -80,11 +112,13 @@ def _canonical(observation: dict | None = None):
 
 def test_recommendation_evidence_must_belong_to_cited_criterion() -> None:
     observation = _observation(
-        recommendation_inputs=[{
-            "criterion_id": "legal-threat",
-            "transcript_sequence_number": 1,
-            "need": "Use a compliant alternative.",
-        }]
+        recommendation_inputs=[
+            {
+                "criterion_id": "legal-threat",
+                "transcript_sequence_number": 1,
+                "need": "Use a compliant alternative.",
+            }
+        ]
     )
 
     with pytest.raises(ObservationValidationError):
@@ -108,11 +142,13 @@ def test_failed_positive_criterion_can_use_a_validated_recommendation_input() ->
         strengths=[],
         violations=[],
         failed_criteria=["move-forward"],
-        recommendation_inputs=[{
-            "criterion_id": "move-forward",
-            "transcript_sequence_number": 1,
-            "need": "Add a clear redirect.",
-        }],
+        recommendation_inputs=[
+            {
+                "criterion_id": "move-forward",
+                "transcript_sequence_number": 1,
+                "need": "Add a clear redirect.",
+            }
+        ],
     )
 
     canonical = _canonical(observation)
@@ -125,12 +161,32 @@ def test_failed_positive_criterion_can_use_a_validated_recommendation_input() ->
 
 def test_equal_priority_recommendations_have_stable_rubric_order() -> None:
     observation = _observation(
-        strengths=[{"criterion_id": "move-forward", "explanation": "The agent redirected.", "evidence_sequence_numbers": [2]}],
-        violations=[{"violation_id": "legal-threat", "explanation": "The agent made a threat.", "evidence_sequence_numbers": [2]}],
+        strengths=[
+            {
+                "criterion_id": "move-forward",
+                "explanation": "The agent redirected.",
+                "evidence_sequence_numbers": [2],
+            }
+        ],
+        violations=[
+            {
+                "violation_id": "legal-threat",
+                "explanation": "The agent made a threat.",
+                "evidence_sequence_numbers": [2],
+            }
+        ],
         failed_criteria=["move-forward", "legal-threat"],
         recommendation_inputs=[
-            {"criterion_id": "move-forward", "transcript_sequence_number": 2, "need": "Add a clear redirect."},
-            {"criterion_id": "legal-threat", "transcript_sequence_number": 2, "need": "Use a compliant alternative."},
+            {
+                "criterion_id": "move-forward",
+                "transcript_sequence_number": 2,
+                "need": "Add a clear redirect.",
+            },
+            {
+                "criterion_id": "legal-threat",
+                "transcript_sequence_number": 2,
+                "need": "Use a compliant alternative.",
+            },
         ],
     )
     canonical = _canonical(observation)
@@ -141,21 +197,28 @@ def test_equal_priority_recommendations_have_stable_rubric_order() -> None:
 
 
 def test_all_recommendation_text_is_criterion_guided_and_redacted() -> None:
-    snapshot = {**SNAPSHOT, "blocks": [{
-        **SNAPSHOT["blocks"][0],
-        "recommendation_guidance": "ACME_CORP contact jane [at] example [dot] com at 555-123-4567.",
-    }]}
+    snapshot = {
+        **SNAPSHOT,
+        "blocks": [
+            {
+                **SNAPSHOT["blocks"][0],
+                "recommendation_guidance": "ACME_CORP contact jane [at] example [dot] com at 555-123-4567.",
+            }
+        ],
+    }
     canonical = _canonical()
-    canonical.categories[0].violations[0].explanation = (
-        "Dr. Jane from ACME_CORP owes PHP 5,000; jane [at] example [dot] com."
-    )
+    canonical.categories[0].violations[
+        0
+    ].explanation = "Dr. Jane from ACME_CORP owes PHP 5,000; jane [at] example [dot] com."
 
     recommendation = build_rubric_recommendations(canonical, snapshot)[0]
-    text = " ".join([
-        recommendation.explanation,
-        recommendation.recommended_response,
-        recommendation.coaching_advice,
-    ])
+    text = " ".join(
+        [
+            recommendation.explanation,
+            recommendation.recommended_response,
+            recommendation.coaching_advice,
+        ]
+    )
 
     assert "Legal Threat" in recommendation.recommended_response
     assert "ACME_CORP" not in text

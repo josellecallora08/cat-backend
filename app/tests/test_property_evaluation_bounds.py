@@ -36,7 +36,9 @@ class MockLLMService:
     def __init__(self, response_content: str):
         self._response_content = response_content
 
-    async def chat_completion(self, messages, *, temperature=None, max_tokens=None, response_format=None):
+    async def chat_completion(
+        self, messages, *, temperature=None, max_tokens=None, response_format=None
+    ):
         return LLMResponse(
             content=self._response_content,
             model="test-model",
@@ -63,7 +65,7 @@ def llm_evaluation_response(draw):
     # Generate random number of strengths (0-10)
     num_strengths = draw(st.integers(min_value=0, max_value=10))
     strengths = []
-    for i in range(num_strengths):
+    for _i in range(num_strengths):
         category = draw(st.sampled_from(VALID_CATEGORIES))
         description = draw(
             st.text(
@@ -79,16 +81,18 @@ def llm_evaluation_response(draw):
                 max_size=100,
             ).filter(lambda s: s.strip() != "")
         )
-        strengths.append({
-            "description": description,
-            "category": category,
-            "transcript_excerpt": excerpt,
-        })
+        strengths.append(
+            {
+                "description": description,
+                "category": category,
+                "transcript_excerpt": excerpt,
+            }
+        )
 
     # Generate random number of weaknesses (0-10)
     num_weaknesses = draw(st.integers(min_value=0, max_value=10))
     weaknesses = []
-    for i in range(num_weaknesses):
+    for _i in range(num_weaknesses):
         category = draw(st.sampled_from(VALID_CATEGORIES))
         description = draw(
             st.text(
@@ -104,11 +108,13 @@ def llm_evaluation_response(draw):
                 max_size=100,
             ).filter(lambda s: s.strip() != "")
         )
-        weaknesses.append({
-            "description": description,
-            "category": category,
-            "transcript_excerpt": excerpt,
-        })
+        weaknesses.append(
+            {
+                "description": description,
+                "category": category,
+                "transcript_excerpt": excerpt,
+            }
+        )
 
     return {
         "category_scores": {
@@ -208,9 +214,9 @@ class TestEvaluationOutputCardinalityBounds:
 
         assert result.is_too_short is False
         for strength in result.strengths:
-            assert strength.category in EvaluationCategory, (
-                f"Strength category '{strength.category}' is not a valid EvaluationCategory"
-            )
+            assert (
+                strength.category in EvaluationCategory
+            ), f"Strength category '{strength.category}' is not a valid EvaluationCategory"
 
     @given(llm_response_data=llm_evaluation_response())
     @settings(max_examples=100)
@@ -229,14 +235,16 @@ class TestEvaluationOutputCardinalityBounds:
 
         assert result.is_too_short is False
         for weakness in result.weaknesses:
-            assert weakness.category in EvaluationCategory, (
-                f"Weakness category '{weakness.category}' is not a valid EvaluationCategory"
-            )
+            assert (
+                weakness.category in EvaluationCategory
+            ), f"Weakness category '{weakness.category}' is not a valid EvaluationCategory"
 
     @given(llm_response_data=llm_evaluation_response())
     @settings(max_examples=100)
     @pytest.mark.asyncio
-    async def test_each_strength_has_non_empty_description_and_excerpt(self, llm_response_data: dict):
+    async def test_each_strength_has_non_empty_description_and_excerpt(
+        self, llm_response_data: dict
+    ):
         """**Validates: Requirements 5.4, 5.5**
 
         Each strength SHALL contain a non-empty description and non-empty transcript excerpt.
@@ -251,12 +259,16 @@ class TestEvaluationOutputCardinalityBounds:
         assert result.is_too_short is False
         for strength in result.strengths:
             assert len(strength.description) > 0, "Strength description must be non-empty"
-            assert len(strength.transcript_excerpt) > 0, "Strength transcript_excerpt must be non-empty"
+            assert (
+                len(strength.transcript_excerpt) > 0
+            ), "Strength transcript_excerpt must be non-empty"
 
     @given(llm_response_data=llm_evaluation_response())
     @settings(max_examples=100)
     @pytest.mark.asyncio
-    async def test_each_weakness_has_non_empty_description_and_excerpt(self, llm_response_data: dict):
+    async def test_each_weakness_has_non_empty_description_and_excerpt(
+        self, llm_response_data: dict
+    ):
         """**Validates: Requirements 5.4, 5.5**
 
         Each weakness SHALL contain a non-empty description and non-empty transcript excerpt.
@@ -271,4 +283,6 @@ class TestEvaluationOutputCardinalityBounds:
         assert result.is_too_short is False
         for weakness in result.weaknesses:
             assert len(weakness.description) > 0, "Weakness description must be non-empty"
-            assert len(weakness.transcript_excerpt) > 0, "Weakness transcript_excerpt must be non-empty"
+            assert (
+                len(weakness.transcript_excerpt) > 0
+            ), "Weakness transcript_excerpt must be non-empty"
