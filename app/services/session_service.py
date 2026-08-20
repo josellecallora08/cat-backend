@@ -211,7 +211,16 @@ async def get_session(db: AsyncSession, session_id: UUID) -> Session | None:
     Returns:
         The Session if found, otherwise None.
     """
-    stmt = select(Session).options(selectinload(Session.campaign)).where(Session.id == session_id)
+    stmt = (
+        select(Session)
+        .options(
+            selectinload(Session.campaign),
+            selectinload(Session.negotiation_standard_version).selectinload(
+                NegotiationStandardVersion.standard
+            ),
+        )
+        .where(Session.id == session_id)
+    )
     result = await db.execute(stmt)
     return result.scalar_one_or_none()
 
@@ -250,11 +259,20 @@ async def end_session(db: AsyncSession, session_id: UUID) -> Session:
     await db.commit()
     await db.refresh(session)
 
-    await event_broadcaster.emit(
-        "session.ended",
-        session.id,
-        EventMetadata(agent_id=session.agent_id),
-    )
+    # Event delivery is best-effort and must not turn a committed lifecycle
+    # transition into an HTTP 500. The session is already durable at this
+    # point; clients can fetch its current state independently.
+    try:
+        await event_broadcaster.emit(
+            "session.ended",
+            session.id,
+            EventMetadata(agent_id=session.agent_id),
+        )
+    except Exception:
+        logger.exception(
+            "Session ended event delivery failed for session %s",
+            session_id,
+        )
 
     return session
 

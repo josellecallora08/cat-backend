@@ -241,11 +241,11 @@ async def list_sessions(
 
 def _build_persona_summary(persona_context: dict | None) -> PersonaSummary | None:
     """Build a PersonaSummary from stored persona_context JSON."""
-    if not persona_context:
+    if not isinstance(persona_context, dict) or not persona_context:
         return None
     return PersonaSummary(
-        name=persona_context.get("name", ""),
-        communication_style=persona_context.get("communication_style", ""),
+        name=str(persona_context.get("name", "")),
+        communication_style=str(persona_context.get("communication_style", "")),
         emotional_state=str(persona_context.get("emotional_state", "")),
     )
 
@@ -407,7 +407,83 @@ async def end_session(
             exc_info=True,
         )
 
-    return _session_to_response(session)
+    try:
+        return _session_to_response(session)
+    except Exception:
+        # The lifecycle transition has already committed. Optional persona or
+        # pinned-standard metadata must not make a completed session appear to
+        # have failed; return the durable core fields and log the bad metadata.
+        logger.exception(
+            "Session response serialization failed after ending session %s",
+            session_id,
+        )
+        return SessionResponse(
+            id=session.id,
+            scenario_id=session.scenario_id,
+            campaign_id=session.campaign_id,
+            persona=None,
+            status=SessionStatus.COMPLETED,
+            created_at=session.created_at,
+            ended_at=session.ended_at,
+        )
+
+
+@router.post("/{session_id}/evaluation/retry")
+async def retry_session_evaluation(
+    session_id: UUID,
+    db: AsyncSession = Depends(get_db_session),
+    current_user: User = Depends(require_auth),
+):
+    """Re-run evaluation artifacts for a completed, authorized session.
+
+    Session completion intentionally remains durable even when an LLM or
+    persistence failure occurs. This endpoint is the explicit recovery path;
+    the pipeline upserts its one-row artifacts, so retries are safe.
+    """
+    session = await get_authorized_session(db, session_id, current_user)
+    if session.status != "completed":
+        raise HTTPException(
+            status_code=409,
+            detail="Session must be completed before evaluation can be generated",
+        )
+
+    try:
+        await EvaluationPipeline(LLMService()).run(
+            session_id=session.id,
+            agent_id=session.agent_id,
+            db=db,
+        )
+    except Exception as exc:
+        logger.error(
+            "Evaluation retry failed for session %s: %s",
+            session_id,
+            exc,
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="Evaluation generation failed. Please try again.",
+        ) from None
+
+    report_ready = True
+    try:
+        await generate_report_service(db=db, session=session)
+    except Exception as exc:
+        # The evaluation artifacts are already durable. Report generation can
+        # be retried independently through POST /report.
+        report_ready = False
+        logger.error(
+            "Report regeneration after evaluation retry failed for session %s: %s",
+            session_id,
+            exc,
+            exc_info=True,
+        )
+
+    return {
+        "session_id": str(session.id),
+        "evaluation_ready": True,
+        "report_ready": report_ready,
+    }
 
 
 @router.get("/{session_id}/report", response_model=ReportResponse)
@@ -780,25 +856,33 @@ async def _send_message_locked(
     # called, so use the persona history as the source of truth as well.
     is_first_message = is_first_message or not persona.conversation_history
 
-    # First-message detection: deliver opening response from script if available
-    if is_first_message and script_content is not None and not is_system_prompt:
+    # First-message detection: deliver opening response from script if available.
+    # The call UI uses a bracketed system message to initialize the call; that
+    # message must still trigger the scripted debtor opening response.
+    if is_first_message and script_content is not None:
         opening_response = select_opening_response(script_content)
         if opening_response is not None:
             # Keep the in-memory simulator state aligned with the persisted
+<<<<<<< HEAD
+            # transcript. System initialization messages are not conversation
+            # turns, but the scripted debtor response is.
+            if not is_system_prompt:
+                persona.conversation_history.append(
+                    Message(role="agent", content=body.text)
+                )
+            persona.conversation_history.append(
+                Message(role="debtor", content=opening_response)
+            )
+=======
             # transcript; the normal generate_response path appends both
             # turns, but this early opening-response path bypasses it.
+>>>>>>> 481ddf26d626c074345344a018176c4f09868ff9
             # Record debtor opening response in transcript
             await transcript_manager.append_entry(
                 session_id=session_id,
                 speaker="debtor",
                 text=opening_response,
                 timestamp=datetime.now(UTC),
-            )
-            persona.conversation_history.extend(
-                [
-                    Message(role="agent", content=body.text),
-                    Message(role="debtor", content=opening_response),
-                ]
             )
             await transcript_manager.persist(session_id)
 

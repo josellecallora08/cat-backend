@@ -10,6 +10,7 @@ from app.schemas.rubric_evaluation import (
     RubricAppliedTechniques,
     RubricMissedOpportunities,
     RubricRecommendation,
+    RubricRecommendationInput,
 )
 
 
@@ -167,46 +168,41 @@ def build_rubric_recommendations(
         criteria = {item.id: item for item in block.positive_behaviors + block.violations}
         criterion_evidence: dict[str, set[int]] = {}
         findings: dict[str, str] = {}
-        for finding in category.strengths:
-            criterion_evidence.setdefault(finding.criterion_id, set()).update(
-                finding.evidence_sequence_numbers
+        for strength_finding in category.strengths:
+            criterion_evidence.setdefault(strength_finding.criterion_id, set()).update(
+                strength_finding.evidence_sequence_numbers
             )
-            findings[finding.criterion_id] = finding.explanation
-        for finding in category.violations:
-            criterion_evidence.setdefault(finding.violation_id, set()).update(
-                finding.evidence_sequence_numbers
+            findings[strength_finding.criterion_id] = strength_finding.explanation
+        for violation_finding in category.violations:
+            criterion_evidence.setdefault(violation_finding.violation_id, set()).update(
+                violation_finding.evidence_sequence_numbers
             )
-            findings[finding.violation_id] = finding.explanation
+            findings[violation_finding.violation_id] = violation_finding.explanation
 
         evidence_sequences = {item.sequence_number for item in category.evidence}
-        inputs = list(category.recommendation_inputs)
+        inputs: list[RubricRecommendationInput] = list(category.recommendation_inputs)
         if not inputs:
             inputs.extend(
-                {
-                    "criterion_id": violation.violation_id,
-                    "transcript_sequence_number": violation.evidence_sequence_numbers[0],
-                    "need": violation.explanation,
-                }
+                RubricRecommendationInput(
+                    criterion_id=violation.violation_id,
+                    transcript_sequence_number=violation.evidence_sequence_numbers[0],
+                    need=violation.explanation,
+                )
                 for violation in category.violations
                 if violation.evidence_sequence_numbers
             )
             inputs.extend(
-                {
-                    "criterion_id": criterion_id,
-                    "transcript_sequence_number": min(criterion_evidence[criterion_id]),
-                    "need": findings[criterion_id],
-                }
+                RubricRecommendationInput(
+                    criterion_id=criterion_id,
+                    transcript_sequence_number=min(criterion_evidence[criterion_id]),
+                    need=findings[criterion_id],
+                )
                 for criterion_id in category.failed_criteria
                 if criterion_id in criterion_evidence
             )
 
         gap = max(0, block.passing_score - (category.penalized_score or 0))
-        for recommendation in inputs:
-            item = (
-                recommendation
-                if hasattr(recommendation, "criterion_id")
-                else type("Input", (), recommendation)()
-            )
+        for item in inputs:
             if item.criterion_id not in criteria:
                 raise RecommendationValidationError(
                     f"Unsupported criterion '{item.criterion_id}' in block '{block.id}'"

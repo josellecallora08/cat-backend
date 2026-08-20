@@ -1,10 +1,12 @@
 import logging
+from pathlib import Path
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings
 
 
 logger = logging.getLogger(__name__)
+_ENV_FILE = Path(__file__).resolve().parents[1] / ".env"
 
 
 class Settings(BaseSettings):
@@ -89,7 +91,7 @@ class Settings(BaseSettings):
     script_max_escalation_conditions: int = 20
     script_max_field_text_length: int = 2000
 
-    model_config = {"env_prefix": "CAT_", "env_file": ".env"}
+    model_config = {"env_prefix": "CAT_", "env_file": str(_ENV_FILE)}
 
     @field_validator("upload_quarantine_retention_hours")
     @classmethod

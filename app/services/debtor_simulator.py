@@ -1,12 +1,16 @@
 """Debtor Simulator service for generating personas and managing conversations."""
 
 import json
+import logging
 import uuid
 from dataclasses import dataclass, field
 from enum import Enum, IntEnum
 from typing import Any
 
 from app.services.llm_service import LLMMessage, LLMServiceProtocol
+
+
+logger = logging.getLogger(__name__)
 
 
 class EmotionalState(IntEnum):
@@ -566,6 +570,20 @@ def contains_prohibited_response(
 # never itself risks matching a prohibited pattern.
 SAFE_DEFAULT_DEBTOR_RESPONSE: str = "I'm not sure how to respond to that right now."
 
+_SAFE_FALLBACK_DEBTOR_RESPONSES: tuple[str, ...] = (
+    SAFE_DEFAULT_DEBTOR_RESPONSE,
+    "I need a moment to think about that.",
+    "I understand. Could you tell me more about the options?",
+)
+
+
+def _select_safe_debtor_response(prohibited_responses: list[str] | None) -> str:
+    """Choose a generic response that does not match script prohibitions."""
+    for response in _SAFE_FALLBACK_DEBTOR_RESPONSES:
+        if not contains_prohibited_response(response, prohibited_responses):
+            return response
+    return SAFE_DEFAULT_DEBTOR_RESPONSE
+
 
 def _build_persona_generation_prompt(scenario: dict[str, Any]) -> str:
     """Build a system prompt instructing the LLM to generate persona details.
@@ -777,11 +795,9 @@ class DebtorSimulatorService:
 
         Returns:
             SimulatorResponse with generated text, updated emotional state,
-            and detected language.
-
-        Raises:
-            httpx.HTTPStatusError: If LLM API returns error.
-            httpx.TimeoutException: If LLM API times out.
+            and detected language. If the LLM provider is unavailable or
+            returns an invalid completion, a safe fallback response is
+            returned and the conversation continues.
         """
         # 1. Classify agent tone
         tone = classify_agent_tone(agent_message)
@@ -854,22 +870,38 @@ class DebtorSimulatorService:
         # 6. Call LLM, with a bounded regeneration retry if the response
         # matches a prohibited pattern (Req 4.8). When no script/prohibited
         # responses are defined, this loop always exits after the first
-        # attempt, matching prior behavior exactly.
+        # attempt, matching prior behavior exactly. Provider failures and
+        # malformed responses use the same safe fallback instead of breaking
+        # the conversation with an HTTP 500.
         debtor_response_text = ""
-        for _attempt in range(self._MAX_PROHIBITED_RESPONSE_RETRIES + 1):
-            response = await self.llm_service.chat_completion(
-                messages,
-                temperature=0.8,
-            )
-            debtor_response_text = response.content.strip()
+        try:
+            for attempt in range(self._MAX_PROHIBITED_RESPONSE_RETRIES + 1):
+                response = await self.llm_service.chat_completion(
+                    messages,
+                    temperature=0.8,
+                )
+                debtor_response_text = response.content.strip()
+                if not debtor_response_text:
+                    raise ValueError("LLM returned an empty debtor response")
 
-            if not contains_prohibited_response(debtor_response_text, prohibited_responses):
-                break
-        else:
-            # Every attempt (initial + all retries) matched a prohibited
-            # response -- fall back to the safe default line so prohibited
-            # content never reaches the Agent.
-            debtor_response_text = SAFE_DEFAULT_DEBTOR_RESPONSE
+                if not contains_prohibited_response(debtor_response_text, prohibited_responses):
+                    break
+            else:
+                # Every attempt (initial + all retries) matched a prohibited
+                # response -- fall back to a safe line so prohibited content
+                # never reaches the Agent.
+                debtor_response_text = _select_safe_debtor_response(prohibited_responses)
+        except Exception as error:
+            response = getattr(error, "response", None)
+            status_code = getattr(response, "status_code", None)
+            logger.warning(
+                "LLM debtor response unavailable; using safe fallback "
+                "(error=%s, status=%s, model=%s)",
+                type(error).__name__,
+                status_code,
+                getattr(self.llm_service, "model", "unknown"),
+            )
+            debtor_response_text = _select_safe_debtor_response(prohibited_responses)
 
         # 7. Update conversation history
         persona.conversation_history.append(Message(role="agent", content=agent_message))

@@ -17,6 +17,7 @@ from app.services.negotiation_standard_service import (
     get_standard,
     list_versions,
     publish_standard,
+    reopen_draft,
     update_draft,
     validate_draft,
 )
@@ -144,3 +145,88 @@ async def test_stale_revision_and_archived_mutation_are_conflicts(db_session: As
             expected_revision=standard.revision + 1,
             name="Archived",
         )
+
+
+@pytest.mark.asyncio
+async def test_reopen_draft_flips_published_standard_back_to_draft(
+    db_session: AsyncSession,
+) -> None:
+    """A published standard can be reopened for editing; the existing
+    published version and its content are left completely untouched."""
+    admin, campaign = await _seed(db_session)
+    await create_standard(db_session, campaign.id, admin.id, "Collection", None, _content())
+    version = await publish_standard(db_session, campaign.id, admin.id, "v1")
+
+    standard = await get_standard(db_session, campaign.id)
+    assert standard.status == "published"
+    revision_before = standard.revision
+
+    reopened = await reopen_draft(db_session, campaign.id, admin.id)
+
+    assert reopened.status == "draft"
+    assert reopened.revision == revision_before + 1
+    # The current version pointer and the immutable snapshot are unaffected.
+    assert reopened.current_version_id == version.id
+    versions, total = await list_versions(db_session, campaign.id)
+    assert total == 1
+    assert versions[0].id == version.id
+    assert versions[0].snapshot == _content().model_dump(mode="json")
+
+
+@pytest.mark.asyncio
+async def test_reopened_draft_can_be_edited_and_republished_as_a_new_version(
+    db_session: AsyncSession,
+) -> None:
+    """After reopening, editing and publishing again creates version 2
+    while version 1 remains readable and unchanged."""
+    admin, campaign = await _seed(db_session)
+    await create_standard(db_session, campaign.id, admin.id, "Collection", None, _content())
+    version_one = await publish_standard(db_session, campaign.id, admin.id, "v1")
+
+    reopened = await reopen_draft(db_session, campaign.id, admin.id)
+    changed_content = _content(90)
+    changed_content.blocks[0].weight = 100
+    changed_content.blocks[0].scoring_instructions = "Updated scoring guidance for v2."
+    await update_draft(
+        db_session,
+        campaign.id,
+        admin.id,
+        expected_revision=reopened.revision,
+        name="Collection v2",
+        content=changed_content,
+    )
+    version_two = await publish_standard(db_session, campaign.id, admin.id, "v2")
+
+    assert version_two.version_number == version_one.version_number + 1
+    versions, total = await list_versions(db_session, campaign.id)
+    assert total == 2
+    assert {version.id for version in versions} == {version_one.id, version_two.id}
+    # version_one's own snapshot/content_hash are byte-for-byte unchanged.
+    kept = next(version for version in versions if version.id == version_one.id)
+    assert kept.content_hash == version_one.content_hash
+    assert kept.snapshot == version_one.snapshot
+
+
+@pytest.mark.asyncio
+async def test_reopen_draft_on_archived_standard_returns_it_to_draft(
+    db_session: AsyncSession,
+) -> None:
+    admin, campaign = await _seed(db_session)
+    await create_standard(db_session, campaign.id, admin.id, "Collection", None, _content())
+    await publish_standard(db_session, campaign.id, admin.id, "v1")
+    await archive_standard(db_session, campaign.id, admin.id)
+
+    reopened = await reopen_draft(db_session, campaign.id, admin.id)
+
+    assert reopened.status == "draft"
+
+
+@pytest.mark.asyncio
+async def test_reopen_draft_on_an_already_draft_standard_is_a_conflict(
+    db_session: AsyncSession,
+) -> None:
+    admin, campaign = await _seed(db_session)
+    await create_standard(db_session, campaign.id, admin.id, "Collection", None, _content())
+
+    with pytest.raises(StandardConflictError):
+        await reopen_draft(db_session, campaign.id, admin.id)

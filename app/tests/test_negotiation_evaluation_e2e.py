@@ -84,7 +84,9 @@ def _content() -> NegotiationStandardContent:
                     "penalties": [
                         {"violation_id": "rude-tone", "deduction": 10, "max_occurrences": 1}
                     ],
-                    "recommendation_guidance": "Use a respectful greeting and acknowledge the concern.",
+                    "recommendation_guidance": (
+                        "Use a respectful greeting and acknowledge the concern."
+                    ),
                     "display_order": 0,
                 }
             ],
@@ -93,7 +95,21 @@ def _content() -> NegotiationStandardContent:
 
 
 def _llm_observation() -> str:
-    return '{"status":"evaluated","summary":"The agent used a grounded opening.","categories":[{"rubric_block_id":"opening","raw_score":80,"evidence":[{"sequence_number":0,"speaker":"agent","excerpt":"Hello there","explanation":"The agent greeted the debtor."}],"strengths":[{"criterion_id":"greeting","explanation":"The opening was clear.","evidence_sequence_numbers":[0]}],"violations":[{"violation_id":"rude-tone","explanation":"The tone could be warmer.","evidence_sequence_numbers":[0]}],"failed_criteria":[],"recommendation_inputs":[{"criterion_id":"rude-tone","transcript_sequence_number":0,"need":"Use a warmer tone."}]}],"applied_techniques":{"techniques_used":[{"technique_name":"Greeting","execution_type":"Executed Properly","execution_description":"The greeting was clear.","evidence_sequence_numbers":[0]}],"reason_if_empty":"None."},"missed_opportunities":{"missed_techniques":[],"reason_if_empty":"None."}}'
+    return (
+        '{"status":"evaluated","summary":"The agent used a grounded opening.",'
+        '"categories":[{"rubric_block_id":"opening","raw_score":80,"evidence":'
+        '[{"sequence_number":0,"speaker":"agent","excerpt":"Hello there",'
+        '"explanation":"The agent greeted the debtor."}],"strengths":'
+        '[{"criterion_id":"greeting","explanation":"The opening was clear.",'
+        '"evidence_sequence_numbers":[0]}],"violations":[{"violation_id":"rude-tone",'
+        '"explanation":"The tone could be warmer.","evidence_sequence_numbers":[0]}],'
+        '"failed_criteria":[],"recommendation_inputs":[{"criterion_id":"rude-tone",'
+        '"transcript_sequence_number":0,"need":"Use a warmer tone."}]}],'
+        '"applied_techniques":{"techniques_used":[{"technique_name":"Greeting",'
+        '"execution_type":"Executed Properly","execution_description":'
+        '"The greeting was clear.","evidence_sequence_numbers":[0]}],"reason_if_empty":'
+        '"None."},"missed_opportunities":{"missed_techniques":[],"reason_if_empty":"None."}}'
+    )
 
 
 @pytest.fixture
@@ -218,8 +234,6 @@ async def test_complete_campaign_to_pinned_evaluation_and_results_api(
     legacy = to_legacy_review(result.evaluation.rubric_result)
     assert "Greeting" in {item.technique_name for item in legacy.applied_techniques.techniques_used}
     assert "Applied Technique Delivery" in render_legacy_review(result.evaluation.rubric_result)
-
-    db_session.get_bind()
 
     async def override_session():
         yield db_session

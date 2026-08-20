@@ -144,9 +144,9 @@ def validate_observation(
                 criterion_evidence.setdefault(finding.criterion_id, set()).update(
                     finding.evidence_sequence_numbers
                 )
-        for finding_index, finding in enumerate(category.violations):
+        for finding_index, violation_finding in enumerate(category.violations):
             path = f"categories[{category_index}].violations[{finding_index}]"
-            if finding.violation_id not in valid_violations:
+            if violation_finding.violation_id not in valid_violations:
                 errors.append(
                     _error(
                         "unknown_reference",
@@ -155,13 +155,13 @@ def validate_observation(
                     )
                 )
             else:
-                finding_ids.add(finding.violation_id)
-                criterion_evidence.setdefault(finding.violation_id, set()).update(
-                    finding.evidence_sequence_numbers
+                finding_ids.add(violation_finding.violation_id)
+                criterion_evidence.setdefault(violation_finding.violation_id, set()).update(
+                    violation_finding.evidence_sequence_numbers
                 )
             _validate_sequences(
                 errors,
-                finding.evidence_sequence_numbers,
+                violation_finding.evidence_sequence_numbers,
                 evidence_sequences,
                 f"{path}.evidence_sequence_numbers",
             )

@@ -290,41 +290,68 @@ class EvaluationPipeline:
             }
 
         async def _do_persist() -> None:
-            db.add(
-                Evaluation(
-                    session_id=evaluation.session_id,
-                    overall_score=evaluation.overall_score,
-                    category_scores=[item.model_dump(mode="json") for item in canonical.categories],
-                    strengths=[item.model_dump(mode="json") for item in evaluation.strengths],
-                    weaknesses=[item.model_dump(mode="json") for item in evaluation.weaknesses],
-                    negotiation_standard_version_id=evaluation.negotiation_standard_version_id,
-                    standard_snapshot=evaluation.standard_snapshot,
-                    weighted_total=float(canonical.weighted_total),
-                    passing_score=canonical.passing_score,
-                    passed=canonical.passed,
-                    rubric_result=canonical.model_dump(mode="json"),
-                    is_too_short=evaluation.is_too_short,
+            # Evaluation, coaching, and learning-plan rows are one-per-session
+            # artifacts. Update existing rows so a failed pipeline can be
+            # retried safely without violating their unique session_id keys.
+            evaluation_row = (
+                await db.execute(
+                    select(Evaluation).where(Evaluation.session_id == evaluation.session_id)
                 )
-            )
-            db.add(
-                CoachingReport(
-                    session_id=evaluation.session_id,
-                    mistakes_by_category=serialized_coaching,
-                    total_mistakes=coaching_report.total_mistakes,
-                    no_mistakes=coaching_report.no_mistakes,
+            ).scalar_one_or_none()
+            if evaluation_row is None:
+                evaluation_row = Evaluation(session_id=evaluation.session_id)
+                db.add(evaluation_row)
+            evaluation_row.overall_score = evaluation.overall_score
+            evaluation_row.category_scores = [
+                item.model_dump(mode="json") for item in canonical.categories
+            ]
+            evaluation_row.strengths = [
+                item.model_dump(mode="json") for item in evaluation.strengths
+            ]
+            evaluation_row.weaknesses = [
+                item.model_dump(mode="json") for item in evaluation.weaknesses
+            ]
+            evaluation_row.negotiation_standard_version_id = evaluation.negotiation_standard_version_id
+            evaluation_row.standard_snapshot = evaluation.standard_snapshot
+            evaluation_row.weighted_total = float(canonical.weighted_total)
+            evaluation_row.passing_score = canonical.passing_score
+            evaluation_row.passed = canonical.passed
+            evaluation_row.rubric_result = canonical.model_dump(mode="json")
+            evaluation_row.is_too_short = evaluation.is_too_short
+
+            coaching_row = (
+                await db.execute(
+                    select(CoachingReport).where(CoachingReport.session_id == evaluation.session_id)
                 )
-            )
-            db.add(
-                LearningPlan(
+            ).scalar_one_or_none()
+            if coaching_row is None:
+                coaching_row = CoachingReport(session_id=evaluation.session_id)
+                db.add(coaching_row)
+            coaching_row.mistakes_by_category = serialized_coaching
+            coaching_row.total_mistakes = coaching_report.total_mistakes
+            coaching_row.no_mistakes = coaching_report.no_mistakes
+
+            learning_plan_row = (
+                await db.execute(
+                    select(LearningPlan).where(LearningPlan.session_id == evaluation.session_id)
+                )
+            ).scalar_one_or_none()
+            if learning_plan_row is None:
+                learning_plan_row = LearningPlan(
                     session_id=evaluation.session_id,
                     agent_id=agent_id,
-                    weak_competencies=[
-                        item.model_dump(mode="json") for item in learning_plan.weak_competencies
-                    ],
-                    all_passing=learning_plan.all_passing,
                 )
-            )
-            await db.commit()
+                db.add(learning_plan_row)
+            learning_plan_row.agent_id = agent_id
+            learning_plan_row.weak_competencies = [
+                item.model_dump(mode="json") for item in learning_plan.weak_competencies
+            ]
+            learning_plan_row.all_passing = learning_plan.all_passing
+            try:
+                await db.commit()
+            except Exception:
+                await db.rollback()
+                raise
 
         try:
             await retry_db_operation(
@@ -413,17 +440,25 @@ class EvaluationPipeline:
                 evaluation, coaching_report, learning_plan, agent_id, db
             )
 
-        # Emit real-time events after pipeline completes
-        await event_broadcaster.emit(
-            "session.evaluated",
-            session_id,
-            EventMetadata(agent_id=agent_id),
-        )
-        await event_broadcaster.emit(
-            "dashboard.updated",
-            session_id,
-            EventMetadata(),
-        )
+        # Event delivery is observability, not artifact persistence. A broken
+        # subscriber must not make a successful evaluation look failed or force
+        # a retry that collides with the one-row artifact constraints.
+        try:
+            await event_broadcaster.emit(
+                "session.evaluated",
+                session_id,
+                EventMetadata(agent_id=agent_id),
+            )
+            await event_broadcaster.emit(
+                "dashboard.updated",
+                session_id,
+                EventMetadata(),
+            )
+        except Exception:
+            logger.exception(
+                "Evaluation pipeline event delivery failed for session %s",
+                session_id,
+            )
 
         return PipelineResult(
             session_id=session_id,

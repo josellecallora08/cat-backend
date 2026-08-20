@@ -226,6 +226,27 @@ async def publish_standard(
             )
         ).scalar_one_or_none()
     if current is not None and current.content_hash == content_hash:
+        # Re-publishing an unchanged draft is idempotent, but it must still
+        # complete the lifecycle transition from draft to published. This can
+        # happen after reopening a standard without changing its content.
+        if (
+            standard.status != "published"
+            or standard.current_version_id != current.id
+        ):
+            standard.current_version_id = current.id
+            standard.status = "published"
+            standard.updated_by = admin_id
+            standard.revision += 1
+            await db.commit()
+            await db.refresh(standard)
+            _audit(
+                "negotiation_standard_published",
+                standard,
+                admin_id,
+                version_id=current.id,
+                version_number=current.version_number,
+                idempotent=True,
+            )
         return current
 
     next_number = (current.version_number + 1) if current is not None else 1
@@ -255,6 +276,30 @@ async def publish_standard(
         version_number=version.version_number,
     )
     return version
+
+
+async def reopen_draft(
+    db: AsyncSession, campaign_id: UUID, admin_id: UUID
+) -> NegotiationStandard:
+    """Reopen a published or archived standard for further editing.
+
+    Flips the mutable standard back to ``draft`` status so its existing
+    ``draft_content`` (last published content) can be changed and published
+    again as a new, higher-numbered version. This never touches any existing
+    ``NegotiationStandardVersion`` row or ``current_version_id`` -- already
+    published snapshots, and any session pinned to them, remain exactly as
+    they were, immutable and readable.
+    """
+    standard = await _get_standard(db, campaign_id, lock=True)
+    if standard.status == "draft":
+        raise StandardConflictError("Negotiation standard is already a draft")
+    standard.status = "draft"
+    standard.updated_by = admin_id
+    standard.revision += 1
+    await db.commit()
+    await db.refresh(standard)
+    _audit("negotiation_standard_reopened", standard, admin_id)
+    return standard
 
 
 async def archive_standard(

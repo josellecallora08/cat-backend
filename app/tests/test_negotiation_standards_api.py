@@ -152,3 +152,75 @@ async def test_invalid_publish_returns_structured_validation_error(api_database)
     assert detail["code"] == "validation_failed"
     assert detail["weight_total"] == 90
     assert detail["errors"][0]["path"] == "blocks"
+
+
+@pytest.mark.asyncio
+async def test_reopen_endpoint_lets_admin_edit_a_published_standard_again(api_database) -> None:
+    admin, campaign = api_database
+
+    async def admin_override():
+        return admin
+
+    app.dependency_overrides[require_admin] = admin_override
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        base = f"/api/campaigns/{campaign.id}/negotiation-standard"
+        created = await client.post(base, json={"name": "Collection", "draft_content": _content()})
+        assert created.status_code == 201
+        published = await client.post(f"{base}/publish", json={"publication_note": "v1"})
+        assert published.status_code == 201
+
+        # Updating a published standard is still rejected...
+        stale_update = await client.put(
+            base, json={"expected_revision": created.json()["revision"] + 1, "name": "Direct edit"}
+        )
+        assert stale_update.status_code == 409
+
+        # ...until it is explicitly reopened as a draft.
+        reopened = await client.post(f"{base}/reopen")
+        assert reopened.status_code == 200
+        assert reopened.json()["status"] == "draft"
+
+        changed_content = _content()
+        changed_content["blocks"][0]["scoring_instructions"] = "Updated scoring guidance for v2."
+        updated = await client.put(
+            base,
+            json={
+                "expected_revision": reopened.json()["revision"],
+                "name": "Collection v2",
+                "draft_content": changed_content,
+            },
+        )
+        assert updated.status_code == 200
+        assert updated.json()["name"] == "Collection v2"
+
+        republished = await client.post(f"{base}/publish", json={"publication_note": "v2"})
+        assert republished.status_code == 201
+        assert republished.json()["version_number"] == 2
+
+        versions = await client.get(f"{base}/versions")
+        assert versions.json()["total"] == 2
+
+
+@pytest.mark.asyncio
+async def test_reopen_endpoint_requires_admin(api_database) -> None:
+    admin, campaign = api_database
+
+    async def admin_override():
+        return admin
+
+    app.dependency_overrides[require_admin] = admin_override
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        base = f"/api/campaigns/{campaign.id}/negotiation-standard"
+        await client.post(base, json={"name": "Collection", "draft_content": _content()})
+        await client.post(f"{base}/publish", json={})
+
+    async def denied_override():
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    app.dependency_overrides[require_admin] = denied_override
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.post(f"/api/campaigns/{campaign.id}/negotiation-standard/reopen")
+
+    assert response.status_code == 403
