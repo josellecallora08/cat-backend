@@ -32,20 +32,34 @@ from app.services.voice.voice_pipeline import VoicePipelineOrchestrator
 if TYPE_CHECKING:
     from uuid import UUID
 
-    from sqlalchemy.ext.asyncio import AsyncSession
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
     from app.services.llm_service import LLMServiceProtocol
 
 
 logger = logging.getLogger(__name__)
+_default_stt_service: STTServiceProtocol | None = None
+
+
+def _get_default_stt_service() -> STTServiceProtocol:
+    """Reuse one lazily loaded Whisper model across voice connections."""
+    global _default_stt_service
+    if _default_stt_service is None:
+        _default_stt_service = STTService(
+            model_size="medium",
+            device="cpu",
+            compute_type="float32",
+        )
+    return _default_stt_service
 
 
 def create_voice_pipeline(
     session_id: UUID,
     persona: PersonaContext,
-    db: AsyncSession,
+    db: AsyncSession | None,
     llm_service: LLMServiceProtocol,
     *,
+    session_factory: async_sessionmaker[AsyncSession] | None = None,
     script_content: dict | None = None,
     stt_service: STTServiceProtocol | None = None,
     tts_service: TTSServiceProtocol | None = None,
@@ -69,7 +83,8 @@ def create_voice_pipeline(
     Args:
         session_id: The session this pipeline belongs to.
         persona: The debtor persona context for this session.
-        db: Async database session for transcript persistence.
+        db: Request-owned database session for transcript persistence.
+        session_factory: Alternative factory for short-lived transcript sessions.
         llm_service: LLM service for debtor response generation.
         script_content: Optional loaded ScriptContract content dict for
             the pinned ScriptVersion, used for script-driven behavior.
@@ -86,14 +101,14 @@ def create_voice_pipeline(
         RuntimeError: If STT or TTS services fail to initialize.
     """
     # Create TranscriptManager for real-time recording
-    transcript_manager = TranscriptManager(db)
+    transcript_manager = TranscriptManager(db, session_factory=session_factory)
 
     # Create DebtorSimulator with LLM backend
     debtor_simulator = DebtorSimulatorService(llm_service)
 
     # Initialize STT (lazily loads model on first transcription)
     if stt_service is None:
-        stt_service = STTService(model_size="medium", device="cpu", compute_type="float32")
+        stt_service = _get_default_stt_service()
 
     # Initialize TTS (may raise if piper is not available)
     if tts_service is None:

@@ -29,6 +29,7 @@ if TYPE_CHECKING:
 
 
 logger = logging.getLogger(__name__)
+_STT_INFERENCE_LIMIT = asyncio.Semaphore(1)
 
 
 @dataclass
@@ -246,7 +247,14 @@ class VoicePipelineOrchestrator:
 
         # Step 2: Transcribe via STT
         try:
-            transcription = self._stt_service.transcribe(pcm_audio)
+            # Faster-Whisper performs CPU-heavy synchronous inference.  Keep it
+            # off the event loop and bound process-wide concurrency to avoid
+            # starving the single Uvicorn worker or multiplying model memory.
+            async with _STT_INFERENCE_LIMIT:
+                transcription = await asyncio.to_thread(
+                    self._stt_service.transcribe,
+                    pcm_audio,
+                )
         except Exception as e:
             logger.error("Session %s: STT transcription failed: %s", self.session_id, e)
             return None
@@ -273,6 +281,10 @@ class VoicePipelineOrchestrator:
                 e,
             )
 
+        # append_entry may query the current sequence number.  Do not retain
+        # that read transaction through script checks or external AI work.
+        await self._transcript_manager.release_connection()
+
         # Step 3.5: First-utterance opening response from script
         if self._state.utterance_count == 0 and self._script_content is not None:
             opening = select_opening_response(self._script_content)
@@ -291,6 +303,8 @@ class VoicePipelineOrchestrator:
                         self.session_id,
                         e,
                     )
+
+                await self._transcript_manager.release_connection()
 
                 # Synthesize opening response via TTS
                 try:
@@ -335,6 +349,8 @@ class VoicePipelineOrchestrator:
                             e,
                         )
 
+                    await self._transcript_manager.release_connection()
+
                     # Synthesize escalation response
                     try:
                         audio_stream = await self._tts_service.synthesize(
@@ -375,6 +391,8 @@ class VoicePipelineOrchestrator:
                         self.session_id,
                         e,
                     )
+
+                await self._transcript_manager.release_connection()
 
                 # Synthesize completion response
                 try:
@@ -431,6 +449,8 @@ class VoicePipelineOrchestrator:
                 self.session_id,
                 e,
             )
+
+        await self._transcript_manager.release_connection()
 
         # Step 6: Synthesize debtor response via TTS
         try:

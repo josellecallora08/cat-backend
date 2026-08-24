@@ -46,6 +46,23 @@ def get_peer_connection_manager() -> PeerConnectionManager:
     return _peer_connection_manager
 
 
+async def _load_voice_session_context(db, session_id: UUID) -> tuple[dict | None, dict | None]:
+    """Load immutable call context without retaining a database connection."""
+    try:
+        session = await db.get(Session, session_id)
+        if session is None:
+            return None, None
+
+        script_content = await load_script_content(db, session.script_version_id)
+        # Copy JSON values before rollback expires the ORM instance.
+        persona_data = dict(session.persona_context or {})
+        return persona_data, script_content
+    finally:
+        # Reads autobegin a transaction.  The WebSocket may remain connected
+        # for minutes, so it must not own a pool connection while idle.
+        await db.rollback()
+
+
 @router.websocket("/ws/voice/{session_id}")
 async def voice_signaling_websocket(websocket: WebSocket, session_id: UUID) -> None:
     """WebSocket endpoint for WebRTC signaling.
@@ -82,20 +99,16 @@ async def voice_signaling_websocket(websocket: WebSocket, session_id: UUID) -> N
         return
 
     manager = get_peer_connection_manager()
-    db_context = async_session_factory()
-    db = await db_context.__aenter__()
-
     # Resolve the immutable script snapshot once per connection.  The
     # signaling route is intentionally transport-only today, but keeping the
     # pinned content on the connection makes it available to the pipeline
     # attachment when media handling is installed and prevents looking up a
     # mutable Script.current_version_id mid-call.
     script_content = None
-    session = None
+    persona_data = None
     try:
-        session = await db.get(Session, session_id)
-        if session is not None:
-            script_content = await load_script_content(db, session.script_version_id)
+        async with async_session_factory() as db:
+            persona_data, script_content = await _load_voice_session_context(db, session_id)
     except Exception as exc:
         # Signaling must remain available when the optional database is
         # unavailable; media still works with the legacy unscripted path.
@@ -110,13 +123,11 @@ async def voice_signaling_websocket(websocket: WebSocket, session_id: UUID) -> N
             }
         )
         await websocket.close(code=1011, reason="aiortc not available")
-        await db_context.__aexit__(None, None, None)
         return
 
     pipeline = None
     output_task = None
-    if session is not None:
-        persona_data = session.persona_context or {}
+    if persona_data is not None:
         pipeline = create_voice_pipeline(
             session_id=session_id,
             persona=PersonaContext(
@@ -127,8 +138,9 @@ async def voice_signaling_websocket(websocket: WebSocket, session_id: UUID) -> N
                 emotional_state=EmotionalState(persona_data.get("emotional_state", 3)),
                 language=persona_data.get("language", "TAGLISH"),
             ),
-            db=db,
+            db=None,
             llm_service=LLMService(),
+            session_factory=async_session_factory,
             peer_connection_manager=manager,
             script_content=script_content,
         )
@@ -266,6 +278,5 @@ async def voice_signaling_websocket(websocket: WebSocket, session_id: UUID) -> N
             output_task.cancel()
         if pipeline is not None:
             await pipeline.teardown()
-        await db_context.__aexit__(None, None, None)
         # Clean up the peer connection when WebSocket closes
         await manager.close_peer_connection(session_id)

@@ -1055,6 +1055,13 @@ async def _send_message_locked(
     llm_service = LLMService()
     simulator = DebtorSimulatorService(llm_service)
 
+    # The session/script/transcript reads above autobegin a transaction.  The
+    # debtor LLM can take up to the configured provider timeout, so release the
+    # connection before waiting on the network.  Transcript entries are still
+    # transient in TranscriptManager's buffer and are persisted together after
+    # the debtor response is available.
+    await db.rollback()
+
     try:
         response = await simulator.generate_response(
             persona, body.text, script_content=script_content

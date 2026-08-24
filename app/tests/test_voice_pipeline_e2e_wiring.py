@@ -361,7 +361,12 @@ class TestPipelineFactory:
 
     def test_create_voice_pipeline_with_mock_services(self, session_id, persona):
         """Factory creates a fully configured pipeline with provided services."""
-        mock_db = AsyncMock()
+        mock_db = MagicMock()
+        mock_db.add = MagicMock()
+        mock_db.execute = AsyncMock()
+        mock_db.execute.return_value.scalar_one_or_none.return_value = None
+        mock_db.commit = AsyncMock()
+        mock_db.rollback = AsyncMock()
         mock_llm = AsyncMock()
         mock_stt = MockSTTService()
         mock_tts = MockTTSService()
@@ -448,7 +453,13 @@ class TestPipelineFactory:
     @pytest.mark.asyncio
     async def test_factory_pipeline_processes_audio_end_to_end(self, session_id, persona):
         """Pipeline created by factory correctly processes audio through full chain."""
-        mock_db = AsyncMock()
+        mock_db = MagicMock()
+        mock_db.add = MagicMock()
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = None
+        mock_db.execute = AsyncMock(return_value=mock_result)
+        mock_db.commit = AsyncMock()
+        mock_db.rollback = AsyncMock()
         mock_llm = AsyncMock()
         mock_stt = MockSTTService(
             default_text="Hello, this is agent calling.",

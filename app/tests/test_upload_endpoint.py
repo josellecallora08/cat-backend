@@ -372,7 +372,9 @@ class TestDatabaseErrorHandling:
                             )
                             assert resp.status_code == 500
                             assert "persist" in resp.json()["detail"].lower()
-                            mock_db.rollback.assert_awaited_once()
+                            # One rollback releases the auth read transaction;
+                            # the second recovers from the failed write.
+                            assert mock_db.rollback.await_count == 2
         finally:
             app.dependency_overrides.clear()
 

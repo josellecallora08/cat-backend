@@ -8,11 +8,13 @@ Validates: Requirements 4.1, 4.2, 4.3, 4.4, 4.5
 
 import logging
 from collections import defaultdict
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from datetime import datetime
 from uuid import UUID
 
 from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.models import Transcript
 from app.services.db_retry import retry_db_operation
@@ -34,10 +36,28 @@ class TranscriptManager:
 
     VALID_SPEAKERS = ("agent", "debtor")
 
-    def __init__(self, db: AsyncSession) -> None:
+    def __init__(
+        self,
+        db: AsyncSession | None = None,
+        *,
+        session_factory: async_sessionmaker[AsyncSession] | None = None,
+    ) -> None:
+        if (db is None) == (session_factory is None):
+            raise ValueError("Provide exactly one of db or session_factory")
         self._db = db
+        self._session_factory = session_factory
         self._buffer: dict[UUID, list[Transcript]] = defaultdict(list)
         self._sequence_counters: dict[UUID, int] = defaultdict(int)
+
+    @asynccontextmanager
+    async def _session(self) -> AsyncIterator[AsyncSession]:
+        """Yield the request session or a short-lived owned session."""
+        if self._session_factory is not None:
+            async with self._session_factory() as session:
+                yield session
+            return
+        assert self._db is not None
+        yield self._db
 
     async def append_entry(
         self,
@@ -111,8 +131,9 @@ class TranscriptManager:
             .where(Transcript.session_id == session_id)
             .order_by(Transcript.sequence_number.asc())
         )
-        result = await self._db.execute(stmt)
-        return list(result.scalars().all())
+        async with self._session() as db:
+            result = await db.execute(stmt)
+            return list(result.scalars().all())
 
     async def get_agent_utterance_count(self, session_id: UUID) -> int:
         """Count transcript entries where speaker is 'agent'.
@@ -131,8 +152,9 @@ class TranscriptManager:
                 Transcript.speaker == "agent",
             )
         )
-        result = await self._db.execute(stmt)
-        return result.scalar_one()
+        async with self._session() as db:
+            result = await db.execute(stmt)
+            return result.scalar_one()
 
     async def persist(self, session_id: UUID) -> None:
         """Flush buffered entries to the database using the db_retry wrapper.
@@ -149,9 +171,10 @@ class TranscriptManager:
             return
 
         async def _flush_entries() -> None:
-            for entry in entries:
-                self._db.add(entry)
-            await self._db.commit()
+            async with self._session() as db:
+                for entry in entries:
+                    db.add(entry)
+                await db.commit()
 
         await retry_db_operation(
             _flush_entries,
@@ -166,6 +189,18 @@ class TranscriptManager:
             len(entries),
             session_id,
         )
+
+    async def release_connection(self) -> None:
+        """End a read transaction while retaining buffered transcript entries.
+
+        Buffered entries are transient ORM objects until ``persist`` adds them
+        to the session, so rolling back here only releases the checked-out
+        connection.  Voice processing calls this before STT/LLM/TTS waits.
+        """
+        if self._db is not None:
+            # AsyncSession.rollback() is safe when no transaction is active and
+            # keeps this helper compatible with lightweight test doubles.
+            await self._db.rollback()
 
     async def _get_next_sequence_number(self, session_id: UUID) -> int:
         """Determine the next sequence number for a session.
@@ -189,8 +224,9 @@ class TranscriptManager:
         stmt = select(func.max(Transcript.sequence_number)).where(
             Transcript.session_id == session_id
         )
-        result = await self._db.execute(stmt)
-        db_max = result.scalar_one_or_none()
+        async with self._session() as db:
+            result = await db.execute(stmt)
+            db_max = result.scalar_one_or_none()
 
         # Consider buffered entries as well
         buffer_max = -1

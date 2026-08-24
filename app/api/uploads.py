@@ -4,6 +4,7 @@ Extracted text is stored as sanitized pending content. ScriptContract conversion
 is handled separately by S1-09.
 """
 
+import asyncio
 import logging
 import os
 import uuid
@@ -55,7 +56,7 @@ def _reject(
     details: dict | None = None,
     *,
     status_code: int = 422,
-    admin: User,
+    admin_id: UUID,
     filename: str,
     file_size: int,
     request: Request,
@@ -68,7 +69,7 @@ def _reject(
         extra_audit: Additional structured fields merged into the audit log entry.
     """
     audit_fields = {
-        "user_id": str(admin.id),
+        "user_id": str(admin_id),
         "upload_filename": filename,
         "file_size": file_size,
         "reason_code": reason.value,
@@ -78,7 +79,7 @@ def _reject(
         audit_fields.update(extra_audit)
 
     logger.warning("upload_rejected", extra=audit_fields)
-    record_rejection(str(admin.id))
+    record_rejection(str(admin_id))
     return HTTPException(
         status_code=status_code,
         detail=UploadRejectionResponse(
@@ -166,7 +167,8 @@ async def upload_training_document(
 ) -> UploadSuccessResponse:
     """Upload a training document for AI debtor script creation."""
     original_filename = sanitize_filename(file.filename or "unnamed")
-    user_id_str = str(admin.id)
+    admin_id = admin.id
+    user_id_str = str(admin_id)
 
     # 1. Rate limit check
     if is_rate_limited(user_id_str):
@@ -195,13 +197,18 @@ async def upload_training_document(
                 },
             )
 
+    # Authentication and optional scenario validation use the same cached
+    # request session.  Release their read transaction before file streaming,
+    # malware scanning, and document extraction.
+    await db.rollback()
+
     # 3. Validate extension
     valid, reason = validate_extension(original_filename)
     if not valid:
         raise _reject(
             reason,
             "File extension not allowed. Accepted: .pdf, .docx, .txt, .csv, .md",
-            admin=admin,
+            admin_id=admin_id,
             filename=original_filename,
             file_size=0,
             request=request,
@@ -214,7 +221,7 @@ async def upload_training_document(
         raise _reject(
             reason,
             f"MIME type '{content_type}' does not match expected type.",
-            admin=admin,
+            admin_id=admin_id,
             filename=original_filename,
             file_size=0,
             request=request,
@@ -227,7 +234,7 @@ async def upload_training_document(
             reason,
             f"File exceeds maximum size of {settings.upload_max_file_size} bytes.",
             details={"limit": settings.upload_max_file_size, "actual": len(file_bytes)},
-            admin=admin,
+            admin_id=admin_id,
             filename=original_filename,
             file_size=len(file_bytes),
             request=request,
@@ -240,7 +247,7 @@ async def upload_training_document(
         raise _reject(
             reason,
             "File content does not match the declared file type.",
-            admin=admin,
+            admin_id=admin_id,
             filename=original_filename,
             file_size=len(file_bytes),
             request=request,
@@ -254,14 +261,14 @@ async def upload_training_document(
             raise _reject(
                 reason,
                 "Encrypted or password-protected PDFs are not accepted.",
-                admin=admin,
+                admin_id=admin_id,
                 filename=original_filename,
                 file_size=len(file_bytes),
                 request=request,
             )
 
     # 8. Store in quarantine
-    quarantine_path = store_in_quarantine(file_bytes, ext)
+    quarantine_path = await asyncio.to_thread(store_in_quarantine, file_bytes, ext)
     storage_key = quarantine_path.name  # Capture before potential deletion
 
     try:
@@ -273,14 +280,14 @@ async def upload_training_document(
                 raise _reject(
                     reason,
                     "DOCX file failed archive safety check.",
-                    admin=admin,
+                    admin_id=admin_id,
                     filename=original_filename,
                     file_size=len(file_bytes),
                     request=request,
                 )
 
         # 10. Malware scan
-        scan_result = scan_file(quarantine_path)
+        scan_result = await asyncio.to_thread(scan_file, quarantine_path)
         if not scan_result.clean:
             # Delete quarantined file immediately — infected files must not be retained
             quarantine_path.unlink(missing_ok=True)
@@ -308,7 +315,7 @@ async def upload_training_document(
 
             # Emit rejection audit BEFORE persistence (ensures audit even if DB fails)
             audit_fields = {
-                "user_id": str(admin.id),
+                "user_id": str(admin_id),
                 "upload_filename": original_filename,
                 "file_size": len(file_bytes),
                 "reason_code": reason_code.value,
@@ -316,7 +323,7 @@ async def upload_training_document(
             }
             audit_fields.update(extra_audit)
             logger.warning("upload_rejected", extra=audit_fields)
-            record_rejection(str(admin.id))
+            record_rejection(str(admin_id))
 
             # Persist truthful failed-scan metadata (may raise ScanMetadataPersistenceError)
             failed_id = uuid.uuid4()
@@ -327,7 +334,7 @@ async def upload_training_document(
                 mime_type=content_type,
                 file_size_bytes=len(file_bytes),
                 storage_key=storage_key,
-                admin_id=admin.id,
+                admin_id=admin_id,
                 scan_status=scan_status,
                 scan_signature=scan_result.signature,
                 scenario_id=scenario_id,
@@ -355,7 +362,7 @@ async def upload_training_document(
                 raise _reject(
                     reason,
                     f"PDF rejected: {reason.value}",
-                    admin=admin,
+                    admin_id=admin_id,
                     filename=original_filename,
                     file_size=len(file_bytes),
                     request=request,
@@ -370,7 +377,7 @@ async def upload_training_document(
                 raise _reject(
                     reason,
                     f"DOCX rejected: {reason.value}",
-                    admin=admin,
+                    admin_id=admin_id,
                     filename=original_filename,
                     file_size=len(file_bytes),
                     request=request,
@@ -380,13 +387,13 @@ async def upload_training_document(
         from app.services.upload_extractor import ExtractionError
 
         try:
-            content = extract_content(quarantine_path, ext)
+            content = await asyncio.to_thread(extract_content, quarantine_path, ext)
         except ExtractionError:
             quarantine_path.unlink(missing_ok=True)
             raise _reject(
                 UploadRejectionReason.EXTRACTION_FAILED,
                 "Document content could not be safely extracted.",
-                admin=admin,
+                admin_id=admin_id,
                 filename=original_filename,
                 file_size=len(file_bytes),
                 request=request,
@@ -396,7 +403,7 @@ async def upload_training_document(
             raise _reject(
                 UploadRejectionReason.EXTRACTION_FAILED,
                 "Document content could not be safely extracted.",
-                admin=admin,
+                admin_id=admin_id,
                 filename=original_filename,
                 file_size=len(file_bytes),
                 request=request,
@@ -425,7 +432,7 @@ async def upload_training_document(
         file_size_bytes=len(file_bytes),
         content_hash=content_hash,
         storage_key=storage_key,
-        uploaded_by=admin.id,
+        uploaded_by=admin_id,
         scan_status="clean",
         scan_signature=None,
         extraction_status="completed",
@@ -450,7 +457,7 @@ async def upload_training_document(
     logger.info(
         "upload_success",
         extra={
-            "user_id": str(admin.id),
+            "user_id": str(admin_id),
             "upload_filename": original_filename,
             "file_size": len(file_bytes),
             "content_hash": content_hash,

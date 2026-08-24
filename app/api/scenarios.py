@@ -186,6 +186,12 @@ async def generate_scenario(
         ),
     ]
 
+    # require_admin() performs a database lookup using this same dependency-
+    # cached session.  Release that read transaction before the external LLM
+    # request; the session can safely autobegin again when the scenario is
+    # persisted below.
+    await db.rollback()
+
     try:
         response = await llm_service.chat_completion(
             messages,
