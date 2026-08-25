@@ -233,7 +233,7 @@ class TestGenerateReport:
                 "transcript_excerpt": "You need to pay $5000 today.",
                 "category": "compliance",
                 "explanation": "Agent demanded immediate full payment.",
-                "recommended_alternative": "Let's discuss your options for resolving this balance.",
+                "recommended_alternative": "Pag-usapan po natin ang mga option para maayos ang balance ninyo.",
             },
         ]
         mock_llm_service.chat_completion.return_value = _make_llm_response(mistakes_data)
@@ -250,8 +250,74 @@ class TestGenerateReport:
         assert item.category == EvaluationCategory.COMPLIANCE
         assert item.explanation == "Agent demanded immediate full payment."
         assert (
-            item.recommended_alternative == "Let's discuss your options for resolving this balance."
+            item.recommended_alternative
+            == "Pag-usapan po natin ang mga option para maayos ang balance ninyo."
         )
+
+    @pytest.mark.asyncio
+    async def test_english_only_alternative_uses_taglish_fallback(
+        self, engine: CoachingEngine, mock_llm_service, sample_transcript, sample_evaluation
+    ):
+        """English-only model output should never reach the coaching report."""
+        mistakes_data = [
+            {
+                "transcript_position": 4,
+                "transcript_excerpt": "That's not my problem.",
+                "category": "empathy_communication",
+                "explanation": "The response dismissed the debtor's hardship.",
+                "recommended_alternative": "I understand your situation. Let's discuss options.",
+            },
+        ]
+        mock_llm_service.chat_completion.return_value = _make_llm_response(mistakes_data)
+
+        report = await engine.generate_report(
+            sample_evaluation.session_id, sample_transcript, sample_evaluation
+        )
+
+        item = report.mistakes_by_category[EvaluationCategory.EMPATHY_COMMUNICATION][0]
+        assert item.recommended_alternative == (
+            "Naiintindihan ko po na mahirap ang pinagdaraanan ninyo. "
+            "Tingnan po natin kung anong arrangement ang kaya ninyo."
+        )
+
+    @pytest.mark.asyncio
+    async def test_taglish_alternative_is_preserved(
+        self, engine: CoachingEngine, mock_llm_service, sample_transcript, sample_evaluation
+    ):
+        """A valid Taglish model recommendation should be preserved unchanged."""
+        taglish_alternative = "Maaari po ba nating pag-usapan ang payment plan na kaya ninyo?"
+        mistakes_data = [
+            {
+                "transcript_position": 2,
+                "transcript_excerpt": "You need to pay $5000 today.",
+                "category": "negotiation_resolution",
+                "explanation": "The agent demanded immediate payment.",
+                "recommended_alternative": taglish_alternative,
+            },
+        ]
+        mock_llm_service.chat_completion.return_value = _make_llm_response(mistakes_data)
+
+        report = await engine.generate_report(
+            sample_evaluation.session_id, sample_transcript, sample_evaluation
+        )
+
+        item = report.mistakes_by_category[EvaluationCategory.NEGOTIATION_RESOLUTION][0]
+        assert item.recommended_alternative == taglish_alternative
+
+    @pytest.mark.asyncio
+    async def test_system_prompt_requires_tagalog_or_taglish_alternatives(
+        self, engine: CoachingEngine, mock_llm_service, sample_transcript, sample_evaluation
+    ):
+        """The legacy prompt must explicitly require local-language alternatives."""
+        mock_llm_service.chat_completion.return_value = _make_llm_response([])
+
+        await engine.generate_report(
+            sample_evaluation.session_id, sample_transcript, sample_evaluation
+        )
+
+        system_prompt = mock_llm_service.chat_completion.call_args[0][0][0].content
+        assert "hard requirement" in system_prompt
+        assert "Never return an English-only" in system_prompt
 
     @pytest.mark.asyncio
     async def test_malformed_mistake_items_are_skipped(

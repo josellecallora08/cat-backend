@@ -9,6 +9,7 @@ Validates: Requirements 6.1, 6.2, 6.3, 6.4, 6.5
 
 import json
 import logging
+import re
 from uuid import UUID
 
 from app.schemas import (
@@ -41,13 +42,15 @@ For each mistake:
 2. Quote the relevant excerpt from the transcript
 3. Assign a category from: call_opening, compliance, empathy_communication, negotiation_resolution
 4. Explain WHY this was ineffective in the context of debt collection best practices
-5. Provide a recommended alternative response the agent could have used — written in TAGLISH (natural mix of Tagalog and English as spoken in Philippine call centers)
+5. Provide a recommended alternative response the agent could have used — written in TAGALOG or natural TAGLISH (a mix of Tagalog and English as spoken in Philippine call centers). This is a hard requirement, not a suggestion.
 
 IMPORTANT for recommended_alternative:
-- Write the alternative in Taglish, the way a professional Filipino collection agent would actually speak on a call.
-- Example: "Magandang araw po, ako po si [Agent Name] from [Company]. Tumatawag po ako regarding sa outstanding balance ninyo na 18,000 pesos. Pwede po ba natin pag-usapan kung paano natin ma-resolve ito?"
-- Do NOT write alternatives in pure formal English. Use the natural Taglish that agents use in real calls.
-- Keep the professional tone but use the natural Filipino-English code-switching.
+- Every recommended_alternative MUST use Tagalog or natural Taglish and include a genuine Filipino phrase such as "naiintindihan ko po," "pag-usapan po natin," or "maaari po ba."
+- Never return an English-only recommended_alternative. Do not satisfy this requirement by appending an isolated token such as "po" to an otherwise English sentence.
+- Write the alternative the way a professional Filipino collection agent would actually speak on a call.
+- Example: "Magandang araw po, ako po si [Agent Name] mula sa [Company]. Tumatawag po ako tungkol sa outstanding balance ninyo na 18,000 pesos. Maaari po ba nating pag-usapan kung paano natin ito maresolba?"
+- Do NOT write alternatives in pure formal English. Use natural Filipino-English code-switching or full Tagalog.
+- Keep the professional tone while using natural Tagalog or Taglish.
 
 Focus on the weaknesses identified in the evaluation. Only identify genuine mistakes \
 where the agent's response failed to meet professional standards.
@@ -69,6 +72,79 @@ If the agent made no mistakes and all criteria were met, respond with:
 {
   "mistakes": []
 }"""
+
+
+_TAGALOG_MARKERS = frozenset(
+    {
+        "ako",
+        "ang",
+        "gusto",
+        "hindi",
+        "ito",
+        "kaya",
+        "ko",
+        "kung",
+        "maaari",
+        "magandang",
+        "magkano",
+        "mahinahon",
+        "maayos",
+        "maihulog",
+        "mula",
+        "namin",
+        "natin",
+        "naiintindihan",
+        "ninyo",
+        "pag-usapan",
+        "pinagdaraanan",
+        "pwede",
+        "saan",
+        "salamat",
+        "tayo",
+        "tulungan",
+        "usapan",
+        "walang",
+    }
+)
+_TAGALOG_TOKEN_PATTERN = re.compile(r"[a-zA-ZÀ-ÿ]+(?:-[a-zA-ZÀ-ÿ]+)*")
+_TAGLISH_ALTERNATIVE_FALLBACKS = {
+    EvaluationCategory.CALL_OPENING: (
+        "Magandang araw po. Ako po si [Agent Name] mula sa [Company]. "
+        "Maaari ko po bang makausap si [Debtor Name]?"
+    ),
+    EvaluationCategory.COMPLIANCE: (
+        "Ipapaliwanag ko po nang maayos ang account ninyo at ang mga available na option. "
+        "Pag-usapan po natin ito nang mahinahon."
+    ),
+    EvaluationCategory.EMPATHY_COMMUNICATION: (
+        "Naiintindihan ko po na mahirap ang pinagdaraanan ninyo. "
+        "Tingnan po natin kung anong arrangement ang kaya ninyo."
+    ),
+    EvaluationCategory.NEGOTIATION_RESOLUTION: (
+        "Pag-usapan po natin ang payment plan na kaya ninyo. "
+        "Magkano po ang maaari ninyong maihulog at kailan po ninyo ito maisasagawa?"
+    ),
+}
+
+
+def _contains_tagalog_or_taglish(text: str) -> bool:
+    """Return whether text contains a common Filipino word or phrase marker."""
+    tokens = set(_TAGALOG_TOKEN_PATTERN.findall(text.casefold()))
+    return bool(tokens.intersection(_TAGALOG_MARKERS))
+
+
+def _ensure_taglish_alternative(alternative: object, category: EvaluationCategory) -> str:
+    """Keep Filipino recommendations and replace English-only model output safely."""
+    if isinstance(alternative, str):
+        cleaned = alternative.strip()
+        if cleaned and _contains_tagalog_or_taglish(cleaned):
+            return cleaned
+
+    logger.warning(
+        "Replacing non-Tagalog coaching alternative for category %s with a safe fallback",
+        category.value,
+    )
+    return _TAGLISH_ALTERNATIVE_FALLBACKS[category]
 
 
 class CoachingEngine:
@@ -139,12 +215,15 @@ class CoachingEngine:
         mistake_items: list[MistakeItem] = []
         for raw in raw_mistakes:
             try:
+                category = EvaluationCategory(raw["category"])
                 item = MistakeItem(
                     transcript_position=int(raw["transcript_position"]),
                     transcript_excerpt=raw["transcript_excerpt"],
-                    category=EvaluationCategory(raw["category"]),
+                    category=category,
                     explanation=raw["explanation"],
-                    recommended_alternative=raw["recommended_alternative"],
+                    recommended_alternative=_ensure_taglish_alternative(
+                        raw["recommended_alternative"], category
+                    ),
                 )
                 mistake_items.append(item)
             except (KeyError, ValueError) as e:
