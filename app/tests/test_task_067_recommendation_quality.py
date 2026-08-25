@@ -159,6 +159,58 @@ def test_failed_positive_criterion_can_use_a_validated_recommendation_input() ->
     assert recommendations[0].evidence_sequence_number == 1
 
 
+def test_canonical_try_instead_is_taglish_and_excludes_rubric_guidance() -> None:
+    recommendation = build_rubric_recommendations(_canonical(), SNAPSHOT)[0]
+
+    assert "Naiintindihan ko po" in recommendation.recommended_response
+    assert "legal" in recommendation.recommended_response.casefold()
+    assert SNAPSHOT["blocks"][0]["recommendation_guidance"] in recommendation.coaching_advice
+    assert (
+        SNAPSHOT["blocks"][0]["recommendation_guidance"] not in recommendation.recommended_response
+    )
+
+
+def test_canonical_try_instead_uses_taglish_fallback_for_unmatched_context() -> None:
+    snapshot = {
+        **SNAPSHOT,
+        "blocks": [
+            {
+                **SNAPSHOT["blocks"][0],
+                "positive_behaviors": [
+                    {
+                        **SNAPSHOT["blocks"][0]["positive_behaviors"][0],
+                        "name": "Account Review",
+                        "description": "Discuss the topic clearly.",
+                    }
+                ],
+                "violations": [],
+                "recommendation_guidance": "Reinforce the behavior with targeted coaching.",
+            }
+        ],
+    }
+    canonical = _canonical(
+        _observation(
+            violations=[],
+            failed_criteria=["move-forward"],
+            recommendation_inputs=[
+                {
+                    "criterion_id": "move-forward",
+                    "transcript_sequence_number": 1,
+                    "need": "Improve the delivery.",
+                }
+            ],
+        )
+    )
+
+    recommendation = build_rubric_recommendations(canonical, snapshot)[0]
+
+    assert recommendation.recommended_response == (
+        "Naiintindihan ko po ang concern ninyo. Maaari po ba nating pag-usapan ang "
+        "available na option at malinaw na susunod na hakbang?"
+    )
+    assert "Reinforce the behavior" not in recommendation.recommended_response
+
+
 def test_equal_priority_recommendations_have_stable_rubric_order() -> None:
     observation = _observation(
         strengths=[
@@ -220,7 +272,8 @@ def test_all_recommendation_text_is_criterion_guided_and_redacted() -> None:
         ]
     )
 
-    assert "Legal Threat" in recommendation.recommended_response
+    assert "Naiintindihan ko po" in recommendation.recommended_response
+    assert "legal" in recommendation.recommended_response.casefold()
     assert "ACME_CORP" not in text
     assert "jane [at] example [dot] com" not in text
     assert "555-123-4567" not in text

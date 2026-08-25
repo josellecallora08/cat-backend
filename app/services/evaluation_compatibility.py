@@ -129,14 +129,58 @@ def redact_recommendation_text(value: str) -> str:
 
 
 SAFE_EXPLANATION = "The cited rubric criterion needs improvement based on validated evidence."
-SAFE_RESPONSE = "At the referenced moment, follow the cited criterion and pinned rubric guidance."
+SAFE_RESPONSE = (
+    "Naiintindihan ko po ang concern ninyo. Maaari po ba nating pag-usapan ang "
+    "available na option at malinaw na susunod na hakbang?"
+)
 SAFE_ADVICE = "Use the pinned rubric guidance at the cited evidence moment."
+_TAGLISH_RESPONSE_RULES = (
+    (
+        ("legal", "threat", "compliance", "unsupported"),
+        "Naiintindihan ko po ang concern ninyo. Ipapaalam ko po ang verified na "
+        "account details at mga available na option, nang walang hindi "
+        "beripikadong legal na pahayag.",
+    ),
+    (
+        ("payment", "arrangement", "plan", "resolution", "option"),
+        "Naiintindihan ko po ang sitwasyon ninyo. Maaari po ba nating pag-usapan "
+        "ang payment arrangement na kaya ninyo at ang malinaw na susunod na hakbang?",
+    ),
+    (
+        ("greet", "opening", "introduc"),
+        "Magandang araw po. Ako po si [Agent Name] mula sa [Company]. Maaari ko po "
+        "bang ipaliwanag ang concern ninyo at pag-usapan ang susunod na hakbang?",
+    ),
+    (
+        ("empathy", "concern", "understand", "listen"),
+        "Naiintindihan ko po ang concern ninyo. Maaari po ba ninyong ibahagi ang "
+        "sitwasyon para makahanap tayo ng maayos na option?",
+    ),
+    (
+        ("redirect", "clarif", "explain"),
+        "Naiintindihan ko po. Ipaliwanag ko po nang malinaw ang account details at "
+        "maaari po ba nating pag-usapan ang susunod na hakbang?",
+    ),
+)
 
 
 def _safe_recommendation_text(value: str, fallback: str) -> str:
     """Redact generated text and guarantee a bounded non-empty fallback."""
     sanitized = redact_recommendation_text(value)[:10_000].strip()
     return sanitized or fallback
+
+
+def _build_taglish_agent_response(
+    criterion_name: str,
+    criterion_description: str,
+    need: str,
+) -> str:
+    """Build a safe Taglish utterance from validated rubric context."""
+    context = f"{criterion_name} {criterion_description} {need}".casefold()
+    for keywords, response in _TAGLISH_RESPONSE_RULES:
+        if any(keyword in context for keyword in keywords):
+            return response
+    return SAFE_RESPONSE
 
 
 class RecommendationValidationError(ValueError):
@@ -232,9 +276,11 @@ def build_rubric_recommendations(
                 SAFE_EXPLANATION,
             )
             response = _safe_recommendation_text(
-                f"At the referenced moment, apply {criterion.name}: "
-                f"{criterion.description} Address the identified need: {item.need}. "
-                f"{block.recommendation_guidance}",
+                _build_taglish_agent_response(
+                    criterion.name,
+                    criterion.description,
+                    item.need,
+                ),
                 SAFE_RESPONSE,
             )
             advice = _safe_recommendation_text(
